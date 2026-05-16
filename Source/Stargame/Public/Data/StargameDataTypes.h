@@ -13,6 +13,10 @@ enum class EShipFlightMode : uint8
 	Normal,
 	Cruise,
 	Supercruise,
+	DockingAssist,
+	Docked,
+	GateArrival,
+	Disabled,
 	DockingAutopilot
 };
 
@@ -43,7 +47,8 @@ enum class EStargameValidationProfile : uint8
 	Cook,
 	M0,
 	M1,
-	M2
+	M2,
+	M3
 };
 
 UENUM(BlueprintType)
@@ -329,6 +334,9 @@ struct STARGAME_API FStargameScaleContract
 {
 	GENERATED_BODY()
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm/s"))
+	double NormalFlightMaxSpeedCmPerSec = 24000.0;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm"))
 	double LocalBubbleRadiusCm = 5000000.0;
 
@@ -364,6 +372,54 @@ struct STARGAME_API FStargameScaleContract
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale")
 	double MapMaxIconScale = 2.0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FNavigationTargetViewModel
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation")
+	FName TargetId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation")
+	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation")
+	FName TargetType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation")
+	FStargameCoordinateFrame TargetFrame;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation")
+	bool bIsSelected = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation")
+	bool bResolved = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation", meta = (Units = "cm"))
+	double DistanceCm = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation", meta = (Units = "cm/s"))
+	double ClosingSpeedCmPerSec = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation")
+	FFrameResolvedTransform ResolvedTargetTransform;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation")
+	FTransform ActorSpaceProjection = FTransform::Identity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation")
+	bool bActorSpaceProjectionValid = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation")
+	bool bInsideLocalBubble = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation")
+	bool bInsideStationApproachBubble = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Navigation")
+	bool bInsideGateActivationRange = false;
 };
 
 USTRUCT(BlueprintType)

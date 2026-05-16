@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Data/StargameDataTypes.h"
 #include "GameFramework/Pawn.h"
 #include "SpaceFlightPawn.generated.h"
 
@@ -10,6 +11,7 @@ class USceneComponent;
 class UStaticMeshComponent;
 class UBoxComponent;
 class UInstancedStaticMeshComponent;
+class UShipFlightModeComponent;
 
 UCLASS()
 class STARGAME_API ASpaceFlightPawn : public APawn
@@ -33,6 +35,12 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
 	float GetThrottlePercent() const { return ThrottlePercent; }
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
+	EShipFlightMode GetFlightMode() const;
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
+	FVector GetLinearVelocityCmPerSec() const { return LinearVelocity; }
 
 	UFUNCTION(Exec)
 	void CycleNavigationTarget();
@@ -75,6 +83,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<UInstancedStaticMeshComponent> AtmosphericDust;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UShipFlightModeComponent> FlightModeComponent;
 
 	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "0.01"))
 	float ThrottleRiseRate = 1.45f;

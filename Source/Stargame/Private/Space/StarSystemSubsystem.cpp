@@ -192,6 +192,106 @@ void UStarSystemSubsystem::GetNavigationTargets(TArray<FNavigationTargetDefiniti
 	});
 }
 
+bool UStarSystemSubsystem::FindNavigationTarget(FName TargetId, FNavigationTargetDefinition& OutTarget) const
+{
+	if (const FNavigationTargetDefinition* Target = NavigationTargetsById.Find(TargetId))
+	{
+		OutTarget = *Target;
+		return true;
+	}
+	return false;
+}
+
+bool UStarSystemSubsystem::BuildNavigationTargetViewModel(
+	FName TargetId,
+	FName SelectedTargetId,
+	const FVector& ObserverSystemPositionCm,
+	const FVector& ObserverVelocityCmPerSec,
+	double SimulationTimeSeconds,
+	FNavigationTargetViewModel& OutViewModel) const
+{
+	FNavigationTargetDefinition Target;
+	if (!FindNavigationTarget(TargetId, Target))
+	{
+		return false;
+	}
+
+	FFrameResolvedTransform ResolvedTransform;
+	const FSimulationClockSnapshot ClockSnapshot = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(ActiveSystemDefinition.SystemId, SimulationTimeSeconds);
+	if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(ActiveSystemDefinition, Target.TargetId, ClockSnapshot, SimulationTimeSeconds, ResolvedTransform))
+	{
+		return false;
+	}
+
+	FVector ActorPositionCm = FVector::ZeroVector;
+	const bool bProjectionValid = UOrbitRouteFrameQueryService::ProjectSystemPositionToLocalBubble(
+		ActiveSystemDefinition.Scale,
+		ObserverSystemPositionCm,
+		ResolvedTransform.PositionCm,
+		ActorPositionCm);
+
+	const FVector RelativePositionCm = ResolvedTransform.PositionCm - ObserverSystemPositionCm;
+	const FVector RelativeVelocityCmPerSec = ResolvedTransform.LinearVelocityCmPerSec - ObserverVelocityCmPerSec;
+	const double DistanceCm = RelativePositionCm.Size();
+	const double ClosingSpeedCmPerSec = DistanceCm > SMALL_NUMBER
+		? -FVector::DotProduct(RelativeVelocityCmPerSec, RelativePositionCm / DistanceCm)
+		: 0.0;
+
+	OutViewModel = FNavigationTargetViewModel();
+	OutViewModel.TargetId = Target.TargetId;
+	OutViewModel.DisplayName = Target.DisplayName;
+	OutViewModel.TargetType = Target.TargetType;
+	OutViewModel.TargetFrame.FrameType = Target.FrameType;
+	OutViewModel.TargetFrame.AnchorId = Target.AnchorId;
+	OutViewModel.bIsSelected = Target.TargetId == SelectedTargetId;
+	OutViewModel.bResolved = true;
+	OutViewModel.DistanceCm = DistanceCm;
+	OutViewModel.ClosingSpeedCmPerSec = ClosingSpeedCmPerSec;
+	OutViewModel.ResolvedTargetTransform = ResolvedTransform;
+	OutViewModel.ActorSpaceProjection = FTransform(ResolvedTransform.Rotation, ActorPositionCm);
+	OutViewModel.bActorSpaceProjectionValid = bProjectionValid;
+	OutViewModel.bInsideLocalBubble = bProjectionValid;
+	OutViewModel.bInsideStationApproachBubble = Target.TargetType == FName(TEXT("station")) && DistanceCm <= ActiveSystemDefinition.Scale.StationApproachBubbleRadiusCm;
+	OutViewModel.bInsideGateActivationRange = false;
+	if (Target.TargetType == FName(TEXT("gate")))
+	{
+		if (const FGateDefinition* Gate = ActiveSystemDefinition.Gates.FindByPredicate([Target](const FGateDefinition& Candidate)
+		{
+			return Candidate.GateId == Target.TargetId;
+		}))
+		{
+			OutViewModel.bInsideGateActivationRange = DistanceCm <= Gate->ActivationRangeCm;
+		}
+	}
+	return true;
+}
+
+void UStarSystemSubsystem::BuildNavigationTargetViewModels(
+	FName SelectedTargetId,
+	const FVector& ObserverSystemPositionCm,
+	const FVector& ObserverVelocityCmPerSec,
+	double SimulationTimeSeconds,
+	TArray<FNavigationTargetViewModel>& OutViewModels) const
+{
+	OutViewModels.Reset();
+
+	TArray<FNavigationTargetDefinition> Targets;
+	GetNavigationTargets(Targets);
+	for (const FNavigationTargetDefinition& Target : Targets)
+	{
+		if (!Target.bCanTarget || !Target.bShowInHud)
+		{
+			continue;
+		}
+
+		FNavigationTargetViewModel ViewModel;
+		if (BuildNavigationTargetViewModel(Target.TargetId, SelectedTargetId, ObserverSystemPositionCm, ObserverVelocityCmPerSec, SimulationTimeSeconds, ViewModel))
+		{
+			OutViewModels.Add(ViewModel);
+		}
+	}
+}
+
 void UStarSystemSubsystem::GetRegisteredEntityIds(TArray<FName>& OutEntityIds) const
 {
 	RegisteredEntities.GenerateKeyArray(OutEntityIds);
@@ -343,6 +443,41 @@ FString UStarSystemSubsystem::GetM1DebugSummary() const
 		*JoinNames(GravityWellIds),
 		*JoinNames(MapEntryIds),
 		*FString::Join(TargetIds, TEXT(",")));
+}
+
+FString UStarSystemSubsystem::GetM3DebugSummary(
+	FName SelectedTargetId,
+	const FVector& ObserverSystemPositionCm,
+	const FVector& ObserverVelocityCmPerSec,
+	double SimulationTimeSeconds) const
+{
+	TArray<FNavigationTargetViewModel> TargetViewModels;
+	BuildNavigationTargetViewModels(SelectedTargetId, ObserverSystemPositionCm, ObserverVelocityCmPerSec, SimulationTimeSeconds, TargetViewModels);
+
+	TArray<FString> TargetLines;
+	for (const FNavigationTargetViewModel& ViewModel : TargetViewModels)
+	{
+		TargetLines.Add(FString::Printf(
+			TEXT("%s:%s:%.0f:%s:%s"),
+			*ViewModel.TargetId.ToString(),
+			*ViewModel.TargetType.ToString(),
+			ViewModel.DistanceCm,
+			ViewModel.bActorSpaceProjectionValid ? TEXT("projected") : TEXT("outside_bubble"),
+			ViewModel.bIsSelected ? TEXT("selected") : TEXT("unselected")));
+	}
+
+	return FString::Printf(
+		TEXT("ActiveSystem=%s\nBuildComplete=%s\nFlightMode=Normal\nSelectedTarget=%s\nObserverPositionCm=%s\nObserverVelocityCmPerSec=%s\nLocalBubbleRadiusCm=%.0f\nOriginShiftThresholdCm=%.0f\nStationApproachBubbleRadiusCm=%.0f\nNormalFlightMaxSpeedCmPerSec=%.0f\nTargetViewModels=%s"),
+		*GetActiveSystemId().ToString(),
+		bBuildComplete ? TEXT("true") : TEXT("false"),
+		*SelectedTargetId.ToString(),
+		*ObserverSystemPositionCm.ToCompactString(),
+		*ObserverVelocityCmPerSec.ToCompactString(),
+		ActiveSystemDefinition.Scale.LocalBubbleRadiusCm,
+		ActiveSystemDefinition.Scale.OriginShiftThresholdCm,
+		ActiveSystemDefinition.Scale.StationApproachBubbleRadiusCm,
+		ActiveSystemDefinition.Scale.NormalFlightMaxSpeedCmPerSec,
+		*FString::Join(TargetLines, TEXT(",")));
 }
 
 bool UStarSystemSubsystem::ValidateSystemForBuild(const FStarSystemDefinition& SystemDefinition, FString& OutError) const

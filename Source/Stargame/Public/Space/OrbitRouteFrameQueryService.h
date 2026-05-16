@@ -42,6 +42,13 @@ public:
 		TArray<FSystemMapEntryViewModel>& OutEntries);
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Frame")
+	static bool ProjectSystemPositionToLocalBubble(
+		const FStargameScaleContract& Scale,
+		const FVector& BubbleOriginSystemPositionCm,
+		const FVector& SystemPositionCm,
+		FVector& OutActorPositionCm);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Frame")
 	static FString GetScaleDebugSummary(const FStargameScaleContract& Scale);
 
 private:

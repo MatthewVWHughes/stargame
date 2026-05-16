@@ -73,6 +73,9 @@ public:
 	FName GetActiveSystemId() const { return ActiveSystemDefinition.SystemId; }
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	FStargameScaleContract GetActiveScaleContract() const { return ActiveSystemDefinition.Scale; }
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	bool IsSystemBuildComplete() const { return bBuildComplete; }
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
@@ -80,6 +83,15 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	void GetNavigationTargets(TArray<FNavigationTargetDefinition>& OutTargets) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	bool FindNavigationTarget(FName TargetId, FNavigationTargetDefinition& OutTarget) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	bool BuildNavigationTargetViewModel(FName TargetId, FName SelectedTargetId, const FVector& ObserverSystemPositionCm, const FVector& ObserverVelocityCmPerSec, double SimulationTimeSeconds, FNavigationTargetViewModel& OutViewModel) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	void BuildNavigationTargetViewModels(FName SelectedTargetId, const FVector& ObserverSystemPositionCm, const FVector& ObserverVelocityCmPerSec, double SimulationTimeSeconds, TArray<FNavigationTargetViewModel>& OutViewModels) const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	void GetRegisteredEntityIds(TArray<FName>& OutEntityIds) const;
@@ -110,6 +122,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	FString GetM1DebugSummary() const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	FString GetM3DebugSummary(FName SelectedTargetId, const FVector& ObserverSystemPositionCm, const FVector& ObserverVelocityCmPerSec, double SimulationTimeSeconds) const;
 
 	UPROPERTY(BlueprintAssignable, Category = "Stargame|Space")
 	FStarSystemBuildComplete OnSystemBuildComplete;

@@ -29,6 +29,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Session")
 	void SetSelectedTargetId(FName TargetId) { SelectedTargetId = TargetId; }
 
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Session")
+	bool SelectNavigationTargetById(FName TargetId);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Session")
+	bool CycleNavigationTarget();
+
 	UFUNCTION(BlueprintPure, Category = "Stargame|Session")
 	EStartSessionResult GetLastStartSessionResult() const { return LastStartSessionResult; }
 

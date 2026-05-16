@@ -362,4 +362,187 @@ bool FM2ClockAndSaveLocationTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM3CatalogValidationTest,
+	"Stargame.M3.Catalog.ValidatesNormalFlightFixture",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM3CatalogValidationTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	const FStargameValidationReport Report = Catalog->ValidateM3Fixture(FName(TEXT("frontier_test_01")));
+	TestFalse(TEXT("M3 validation report has no blocking issues"), Report.HasBlockingIssues());
+	if (Report.HasBlockingIssues())
+	{
+		for (const FStargameValidationIssue& Issue : Report.Issues)
+		{
+			AddError(Issue.Message);
+		}
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M3 system resolves"), Catalog->ResolveSystemDefinition(FName(TEXT("frontier_test_01")), SystemDefinition));
+	TestEqual(TEXT("M3 normal flight max speed"), SystemDefinition.Scale.NormalFlightMaxSpeedCmPerSec, 24000.0);
+	TestEqual(TEXT("M3 station approach bubble radius"), SystemDefinition.Scale.StationApproachBubbleRadiusCm, 500000.0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM3TargetViewModelTest,
+	"Stargame.M3.Targeting.SelectsStableTargetsById",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM3TargetViewModelTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FindM1AutomationWorld();
+	TestNotNull(TEXT("Automation world exists"), World);
+	if (!World)
+	{
+		return false;
+	}
+
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M3 system resolves"), Catalog && Catalog->ResolveSystemDefinition(FName(TEXT("frontier_test_01")), SystemDefinition));
+
+	UStarSystemSubsystem* StarSystem = World->GetSubsystem<UStarSystemSubsystem>();
+	TestNotNull(TEXT("Star system subsystem exists"), StarSystem);
+	if (!StarSystem)
+	{
+		return false;
+	}
+
+	TestTrue(TEXT("M3 active system build succeeds"), StarSystem->BuildSystem(SystemDefinition));
+
+	for (const FName TargetId : { FName(TEXT("ember")), FName(TEXT("brink_watch")), FName(TEXT("frontier_gate_a")) })
+	{
+		FNavigationTargetDefinition Target;
+		TestTrue(FString::Printf(TEXT("Target '%s' resolves by stable ID"), *TargetId.ToString()), StarSystem->FindNavigationTarget(TargetId, Target));
+
+		FNavigationTargetViewModel ViewModel;
+		TestTrue(FString::Printf(TEXT("Target '%s' builds HUD/debug view model"), *TargetId.ToString()), StarSystem->BuildNavigationTargetViewModel(TargetId, FName(TEXT("brink_watch")), FVector::ZeroVector, FVector::ZeroVector, 0.0, ViewModel));
+		TestEqual(TEXT("View model preserves target ID"), ViewModel.TargetId, TargetId);
+		TestTrue(TEXT("View model exposes distance"), ViewModel.DistanceCm > 0.0);
+		TestTrue(TEXT("View model resolves frame"), ViewModel.bResolved && !ViewModel.TargetFrame.FrameType.IsNone());
+	}
+
+	FNavigationTargetViewModel BeforeRebuild;
+	TestTrue(TEXT("Selected station view model before rebuild"), StarSystem->BuildNavigationTargetViewModel(FName(TEXT("brink_watch")), FName(TEXT("brink_watch")), FVector::ZeroVector, FVector::ZeroVector, 0.0, BeforeRebuild));
+	TestTrue(TEXT("Selected target flag before rebuild"), BeforeRebuild.bIsSelected);
+
+	TestTrue(TEXT("M3 active system rebuild succeeds"), StarSystem->BuildSystem(SystemDefinition));
+	FNavigationTargetViewModel AfterRebuild;
+	TestTrue(TEXT("Selected station view model after rebuild"), StarSystem->BuildNavigationTargetViewModel(FName(TEXT("brink_watch")), FName(TEXT("brink_watch")), FVector::ZeroVector, FVector::ZeroVector, 0.0, AfterRebuild));
+	TestEqual(TEXT("Target remains stable after rebuild"), AfterRebuild.TargetId, BeforeRebuild.TargetId);
+	TestTrue(TEXT("Target position remains deterministic after rebuild"), AfterRebuild.ResolvedTargetTransform.PositionCm.Equals(BeforeRebuild.ResolvedTargetTransform.PositionCm, 0.01));
+
+	StarSystem->TearDownActiveSystem();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM3LocalApproachTest,
+	"Stargame.M3.NormalFlight.LocalStationAndGateApproach",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM3LocalApproachTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FindM1AutomationWorld();
+	TestNotNull(TEXT("Automation world exists"), World);
+	if (!World)
+	{
+		return false;
+	}
+
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M3 system resolves"), Catalog && Catalog->ResolveSystemDefinition(FName(TEXT("frontier_test_01")), SystemDefinition));
+
+	UStarSystemSubsystem* StarSystem = World->GetSubsystem<UStarSystemSubsystem>();
+	TestNotNull(TEXT("Star system subsystem exists"), StarSystem);
+	if (!StarSystem)
+	{
+		return false;
+	}
+	TestTrue(TEXT("M3 active system build succeeds"), StarSystem->BuildSystem(SystemDefinition));
+
+	const FSimulationClockSnapshot Clock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(FName(TEXT("frontier_test_01")), 0.0);
+	FFrameResolvedTransform StationTransform;
+	TestTrue(TEXT("M3 station frame resolves"), UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, FName(TEXT("brink_watch")), Clock, 0.0, StationTransform));
+	const FVector StationApproachPosition = StationTransform.PositionCm + FVector(SystemDefinition.Scale.StationApproachBubbleRadiusCm * 0.5, 0.0, 0.0);
+
+	FNavigationTargetViewModel StationViewModel;
+	TestTrue(TEXT("M3 station approach view model resolves"), StarSystem->BuildNavigationTargetViewModel(FName(TEXT("brink_watch")), FName(TEXT("brink_watch")), StationApproachPosition, StationTransform.LinearVelocityCmPerSec, 0.0, StationViewModel));
+	TestTrue(TEXT("Normal flight approach enters station bubble"), StationViewModel.bInsideStationApproachBubble);
+	TestTrue(TEXT("Station approach inherits a moving frame velocity source"), StationViewModel.ResolvedTargetTransform.LinearVelocityCmPerSec.SizeSquared() > 1.0);
+
+	FFrameResolvedTransform GateTransform;
+	TestTrue(TEXT("M3 gate frame resolves"), UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, FName(TEXT("frontier_gate_a")), Clock, 0.0, GateTransform));
+	const FGateDefinition* Gate = SystemDefinition.Gates.FindByPredicate([](const FGateDefinition& Candidate)
+	{
+		return Candidate.GateId == FName(TEXT("frontier_gate_a"));
+	});
+	TestNotNull(TEXT("Fixture gate exists"), Gate);
+	const FVector GateApproachPosition = GateTransform.PositionCm + FVector(Gate ? Gate->ActivationRangeCm * 0.5 : 1000.0, 0.0, 0.0);
+
+	FNavigationTargetViewModel GateViewModel;
+	TestTrue(TEXT("M3 gate approach view model resolves"), StarSystem->BuildNavigationTargetViewModel(FName(TEXT("frontier_gate_a")), FName(TEXT("frontier_gate_a")), GateApproachPosition, FVector::ZeroVector, 0.0, GateViewModel));
+	TestTrue(TEXT("Normal flight approach enters gate activation range"), GateViewModel.bInsideGateActivationRange);
+	TestFalse(TEXT("Gate approach does not imply station approach"), GateViewModel.bInsideStationApproachBubble);
+
+	StarSystem->TearDownActiveSystem();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM3HudDebugViewModelTest,
+	"Stargame.M3.HUD.UsesCppTargetViewModels",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM3HudDebugViewModelTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FindM1AutomationWorld();
+	TestNotNull(TEXT("Automation world exists"), World);
+	if (!World)
+	{
+		return false;
+	}
+
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M3 system resolves"), Catalog && Catalog->ResolveSystemDefinition(FName(TEXT("frontier_test_01")), SystemDefinition));
+
+	UStarSystemSubsystem* StarSystem = World->GetSubsystem<UStarSystemSubsystem>();
+	TestNotNull(TEXT("Star system subsystem exists"), StarSystem);
+	if (!StarSystem)
+	{
+		return false;
+	}
+	TestTrue(TEXT("M3 active system build succeeds"), StarSystem->BuildSystem(SystemDefinition));
+
+	TArray<FNavigationTargetViewModel> ViewModels;
+	StarSystem->BuildNavigationTargetViewModels(FName(TEXT("brink_watch")), FVector::ZeroVector, FVector::ZeroVector, 0.0, ViewModels);
+	TestEqual(TEXT("M3 HUD target view model count"), ViewModels.Num(), 7);
+	TestTrue(TEXT("M3 selected target is represented in C++ view model"), ViewModels.ContainsByPredicate([](const FNavigationTargetViewModel& ViewModel)
+	{
+		return ViewModel.TargetId == FName(TEXT("brink_watch")) && ViewModel.bIsSelected && ViewModel.DistanceCm > 0.0;
+	}));
+
+	const FString DebugSummary = StarSystem->GetM3DebugSummary(FName(TEXT("brink_watch")), FVector::ZeroVector, FVector::ZeroVector, 0.0);
+	TestTrue(TEXT("M3 debug summary exposes normal flight"), DebugSummary.Contains(TEXT("FlightMode=Normal")));
+	TestTrue(TEXT("M3 debug summary exposes selected target"), DebugSummary.Contains(TEXT("SelectedTarget=brink_watch")));
+	TestTrue(TEXT("M3 debug summary exposes C++ target view models"), DebugSummary.Contains(TEXT("TargetViewModels=")) && DebugSummary.Contains(TEXT("brink_watch:station")));
+	TestTrue(TEXT("M3 debug summary exposes local bubble contract"), DebugSummary.Contains(TEXT("LocalBubbleRadiusCm=5000000")) && DebugSummary.Contains(TEXT("NormalFlightMaxSpeedCmPerSec=24000")));
+
+	StarSystem->TearDownActiveSystem();
+	return true;
+}
+
 #endif

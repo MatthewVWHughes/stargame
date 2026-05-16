@@ -68,6 +68,62 @@ void UStargameSessionSubsystem::AdvanceSimulationClock(double DeltaSeconds)
 	ClockSnapshot.AuthoritativeSimulationTimeSeconds += FMath::Max(0.0, DeltaSeconds) * ClockSnapshot.TimeScale;
 }
 
+bool UStargameSessionSubsystem::SelectNavigationTargetById(FName TargetId)
+{
+	if (TargetId.IsNone())
+	{
+		SelectedTargetId = NAME_None;
+		return true;
+	}
+
+	const UWorld* World = GetWorld();
+	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	FNavigationTargetDefinition Target;
+	if (!StarSystem || !StarSystem->FindNavigationTarget(TargetId, Target) || !Target.bCanTarget)
+	{
+		return false;
+	}
+
+	SelectedTargetId = TargetId;
+	return true;
+}
+
+bool UStargameSessionSubsystem::CycleNavigationTarget()
+{
+	const UWorld* World = GetWorld();
+	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	if (!StarSystem)
+	{
+		return false;
+	}
+
+	TArray<FNavigationTargetDefinition> Targets;
+	StarSystem->GetNavigationTargets(Targets);
+	Targets.RemoveAll([](const FNavigationTargetDefinition& Target)
+	{
+		return !Target.bCanTarget || !Target.bShowInHud;
+	});
+
+	if (Targets.IsEmpty())
+	{
+		SelectedTargetId = NAME_None;
+		return true;
+	}
+
+	int32 NextIndex = 0;
+	for (int32 Index = 0; Index < Targets.Num(); ++Index)
+	{
+		if (Targets[Index].TargetId == SelectedTargetId)
+		{
+			NextIndex = (Index + 1) % Targets.Num();
+			break;
+		}
+	}
+
+	SelectedTargetId = Targets[NextIndex].TargetId;
+	return true;
+}
+
 bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 {
 	FStargameM0SaveState LoadedState;

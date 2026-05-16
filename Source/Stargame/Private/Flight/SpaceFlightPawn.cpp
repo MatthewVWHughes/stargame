@@ -6,6 +6,7 @@
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/GameInstance.h"
+#include "Flight/ShipFlightModeComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -17,6 +18,8 @@
 ASpaceFlightPawn::ASpaceFlightPawn()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	FlightModeComponent = CreateDefaultSubobject<UShipFlightModeComponent>(TEXT("FlightModeComponent"));
 
 	CollisionRoot = CreateDefaultSubobject<UBoxComponent>(TEXT("CollisionRoot"));
 	SetRootComponent(CollisionRoot);
@@ -67,6 +70,11 @@ ASpaceFlightPawn::ASpaceFlightPawn()
 	AutoPossessPlayer = EAutoReceiveInput::Player0;
 }
 
+EShipFlightMode ASpaceFlightPawn::GetFlightMode() const
+{
+	return FlightModeComponent ? FlightModeComponent->GetFlightMode() : EShipFlightMode::Normal;
+}
+
 void ASpaceFlightPawn::BeginPlay()
 {
 	Super::BeginPlay();
@@ -74,6 +82,22 @@ void ASpaceFlightPawn::BeginPlay()
 	CurrentCameraArmLength = CameraArmLength;
 	CurrentCameraTargetOffset = CameraTargetOffset;
 	InitializeAtmosphericDust();
+
+	if (const UWorld* World = GetWorld())
+	{
+		if (const UStarSystemSubsystem* StarSystem = World->GetSubsystem<UStarSystemSubsystem>())
+		{
+			const FStargameScaleContract Scale = StarSystem->GetActiveScaleContract();
+			if (Scale.NormalFlightMaxSpeedCmPerSec > 0.0)
+			{
+				NormalMaxSpeed = static_cast<float>(Scale.NormalFlightMaxSpeedCmPerSec);
+				if (FlightModeComponent)
+				{
+					FlightModeComponent->SetNormalFlightMaxSpeedCmPerSec(Scale.NormalFlightMaxSpeedCmPerSec);
+				}
+			}
+		}
+	}
 
 	if (AtmosphericDust)
 	{
@@ -174,39 +198,12 @@ void ASpaceFlightPawn::StopSecondaryMouse()
 void ASpaceFlightPawn::CycleNavigationTarget()
 {
 	UWorld* World = GetWorld();
-	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
 	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
 	UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
-	if (!StarSystem || !Session)
+	if (Session)
 	{
-		return;
+		Session->CycleNavigationTarget();
 	}
-
-	TArray<FNavigationTargetDefinition> Targets;
-	StarSystem->GetNavigationTargets(Targets);
-	Targets.RemoveAll([](const FNavigationTargetDefinition& Target)
-	{
-		return !Target.bCanTarget || !Target.bShowInHud;
-	});
-
-	if (Targets.Num() == 0)
-	{
-		Session->SetSelectedTargetId(NAME_None);
-		return;
-	}
-
-	const FName CurrentTargetId = Session->GetSelectedTargetId();
-	int32 NextIndex = 0;
-	for (int32 Index = 0; Index < Targets.Num(); ++Index)
-	{
-		if (Targets[Index].TargetId == CurrentTargetId)
-		{
-			NextIndex = (Index + 1) % Targets.Num();
-			break;
-		}
-	}
-
-	Session->SetSelectedTargetId(Targets[NextIndex].TargetId);
 }
 
 void ASpaceFlightPawn::UpdateThrottle(float DeltaSeconds)

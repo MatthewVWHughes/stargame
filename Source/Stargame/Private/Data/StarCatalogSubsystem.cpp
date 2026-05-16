@@ -168,7 +168,7 @@ void UStarCatalogSubsystem::BuildNativeFixtureCache()
 	Movement.SupportedFlightModeTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Stargame.FlightMode.Supercruise"), false));
 	Movement.NormalFlightTuningId = TEXT("normal_basic");
 	Movement.SupercruiseTuningId = TEXT("supercruise_basic");
-	Movement.MaxLocalSpeedCmPerSec = 50000.0;
+	Movement.MaxLocalSpeedCmPerSec = 24000.0;
 	Movement.MaxAngularSpeedDegPerSec = 80.0;
 	MovementProfilesById.Add(Movement.MovementProfileId, Movement);
 
@@ -408,6 +408,26 @@ FStargameValidationReport UStarCatalogSubsystem::ValidateM2Fixture(FName SystemI
 	}
 
 	ValidateM2SystemDefinition(SystemDefinition, Report);
+	return Report;
+}
+
+FStargameValidationReport UStarCatalogSubsystem::ValidateM3Fixture(FName SystemId) const
+{
+	FStargameValidationReport Report = ValidateM2Fixture(SystemId);
+	Report.Profile = EStargameValidationProfile::M3;
+	if (Report.HasBlockingIssues())
+	{
+		return Report;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	if (!ResolveSystemDefinition(SystemId, SystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_system"), SystemId, TEXT("Required system definition could not be resolved."));
+		return Report;
+	}
+
+	ValidateM3SystemDefinition(SystemDefinition, Report);
 	return Report;
 }
 
@@ -841,6 +861,102 @@ bool UStarCatalogSubsystem::ValidateM2SystemDefinition(const FStarSystemDefiniti
 	{
 		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m2_logical_save_location_invalid"), SystemDefinition.SystemId, TEXT("M2 logical ship save location must preserve system, frame, mode, anchor, position, velocity frame, and simulation time."));
 		bValid = false;
+	}
+
+	return bValid && !Report.HasBlockingIssues();
+}
+
+bool UStarCatalogSubsystem::ValidateM3SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const
+{
+	bool bValid = true;
+	const FStargameScaleContract& Scale = SystemDefinition.Scale;
+	if (Scale.NormalFlightMaxSpeedCmPerSec != 24000.0 || Scale.StationApproachBubbleRadiusCm != 500000.0)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("invalid_m3_scale_contract"), SystemDefinition.SystemId, TEXT("M3 fixture scale values must match documented normal-flight and station approach values."));
+		bValid = false;
+	}
+	if (Scale.NormalFlightMaxSpeedCmPerSec <= 0.0 || Scale.StationApproachBubbleRadiusCm <= 0.0 || Scale.StationApproachBubbleRadiusCm >= Scale.LocalBubbleRadiusCm)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("invalid_m3_scale_ranges"), SystemDefinition.SystemId, TEXT("M3 normal-flight and approach radii have invalid ranges."));
+		bValid = false;
+	}
+
+	auto FindTarget = [&SystemDefinition](FName TargetId) -> const FNavigationTargetDefinition*
+	{
+		for (const FBodyDefinition& Body : SystemDefinition.Bodies)
+		{
+			if (Body.NavigationTarget.TargetId == TargetId)
+			{
+				return &Body.NavigationTarget;
+			}
+		}
+		for (const FStationDefinition& Station : SystemDefinition.Stations)
+		{
+			if (Station.NavigationTarget.TargetId == TargetId)
+			{
+				return &Station.NavigationTarget;
+			}
+		}
+		for (const FGateDefinition& Gate : SystemDefinition.Gates)
+		{
+			if (Gate.NavigationTarget.TargetId == TargetId)
+			{
+				return &Gate.NavigationTarget;
+			}
+		}
+		return nullptr;
+	};
+
+	const TArray<FName> RequiredTargets = {
+		TEXT("ember"),
+		TEXT("brink_watch"),
+		TEXT("frontier_gate_a")
+	};
+	for (const FName TargetId : RequiredTargets)
+	{
+		const FNavigationTargetDefinition* Target = FindTarget(TargetId);
+		if (!Target || !Target->bCanTarget || !Target->bShowInHud || Target->FrameType.IsNone())
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("invalid_m3_navigation_target"), TargetId, TEXT("M3 requires body, station, and gate targets to be selectable, HUD-visible, and frame-qualified."));
+			bValid = false;
+		}
+	}
+
+	const FSimulationClockSnapshot ClockSnapshot = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	FFrameResolvedTransform BrinkWatchTransform;
+	if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, TEXT("brink_watch"), ClockSnapshot, 0.0, BrinkWatchTransform))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m3_station_approach_unresolved"), TEXT("brink_watch"), TEXT("M3 must resolve the orbiting station for normal-flight approach telemetry."));
+		bValid = false;
+	}
+	else
+	{
+		const FVector ApproachPosition = BrinkWatchTransform.PositionCm + FVector(Scale.StationApproachBubbleRadiusCm * 0.5, 0.0, 0.0);
+		const double ApproachDistance = FVector::Distance(ApproachPosition, BrinkWatchTransform.PositionCm);
+		if (ApproachDistance > Scale.StationApproachBubbleRadiusCm)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m3_station_approach_invalid"), TEXT("brink_watch"), TEXT("M3 station approach fixture must be reachable inside the station approach bubble."));
+			bValid = false;
+		}
+	}
+
+	FFrameResolvedTransform GateTransform;
+	if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, TEXT("frontier_gate_a"), ClockSnapshot, 0.0, GateTransform))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m3_gate_approach_unresolved"), TEXT("frontier_gate_a"), TEXT("M3 must resolve the gate for local approach telemetry."));
+		bValid = false;
+	}
+	else
+	{
+		const FGateDefinition* Gate = SystemDefinition.Gates.FindByPredicate([](const FGateDefinition& Candidate)
+		{
+			return Candidate.GateId == FName(TEXT("frontier_gate_a"));
+		});
+		if (!Gate || Gate->ActivationRangeCm <= 0.0)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m3_gate_activation_missing"), TEXT("frontier_gate_a"), TEXT("M3 gate approach requires a positive activation range, even though transition is not implemented yet."));
+			bValid = false;
+		}
 	}
 
 	return bValid && !Report.HasBlockingIssues();

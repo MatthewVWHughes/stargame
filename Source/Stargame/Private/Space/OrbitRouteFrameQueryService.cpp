@@ -119,10 +119,21 @@ void UOrbitRouteFrameQueryService::BuildSystemMapViewModel(
 	});
 }
 
+bool UOrbitRouteFrameQueryService::ProjectSystemPositionToLocalBubble(
+	const FStargameScaleContract& Scale,
+	const FVector& BubbleOriginSystemPositionCm,
+	const FVector& SystemPositionCm,
+	FVector& OutActorPositionCm)
+{
+	OutActorPositionCm = SystemPositionCm - BubbleOriginSystemPositionCm;
+	return OutActorPositionCm.Size() <= Scale.LocalBubbleRadiusCm;
+}
+
 FString UOrbitRouteFrameQueryService::GetScaleDebugSummary(const FStargameScaleContract& Scale)
 {
 	return FString::Printf(
-		TEXT("LocalBubbleRadiusCm=%.0f\nOriginShiftThresholdCm=%.0f\nStationApproachBubbleRadiusCm=%.0f\nDockingCorridorLengthCm=%.0f\nSupercruiseMinSpeedCmPerSec=%.0f\nSupercruiseMaxSpeedCmPerSec=%.0f\nGravitySlowdownRadiusCm=%.0f\nGravityLockoutRadiusCm=%.0f\nAtmosphereTransitionRadiusCm=%.0f\nMapDistanceScaleCmPerUnit=%.0f\nMapMinIconScale=%.2f\nMapMaxIconScale=%.2f"),
+		TEXT("NormalFlightMaxSpeedCmPerSec=%.0f\nLocalBubbleRadiusCm=%.0f\nOriginShiftThresholdCm=%.0f\nStationApproachBubbleRadiusCm=%.0f\nDockingCorridorLengthCm=%.0f\nSupercruiseMinSpeedCmPerSec=%.0f\nSupercruiseMaxSpeedCmPerSec=%.0f\nGravitySlowdownRadiusCm=%.0f\nGravityLockoutRadiusCm=%.0f\nAtmosphereTransitionRadiusCm=%.0f\nMapDistanceScaleCmPerUnit=%.0f\nMapMinIconScale=%.2f\nMapMaxIconScale=%.2f"),
+		Scale.NormalFlightMaxSpeedCmPerSec,
 		Scale.LocalBubbleRadiusCm,
 		Scale.OriginShiftThresholdCm,
 		Scale.StationApproachBubbleRadiusCm,

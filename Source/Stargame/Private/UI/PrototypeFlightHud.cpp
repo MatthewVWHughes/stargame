@@ -34,15 +34,39 @@ void APrototypeFlightHud::DrawHUD()
 	const float ViewHeight = Canvas->ClipY;
 	const float Scale = FMath::Clamp(ViewHeight / 1440.0f, 0.82f, 1.20f);
 
-	DrawTopStrip(ViewWidth, Scale);
+	TArray<FNavigationTargetViewModel> TargetViewModels;
+	BuildHudTargetViewModels(FlightPawn, TargetViewModels);
+
+	DrawTopStrip(ViewWidth, Scale, TargetViewModels);
 	DrawCenterSymbology(ViewWidth, ViewHeight, Scale);
 	DrawFlightCluster(ViewWidth, ViewHeight, Scale, SpeedMeters, AccelerationMeters, Throttle);
 	DrawSystemsCluster(ViewWidth, ViewHeight, Scale);
-	DrawNavigationTargets(ViewWidth, Scale);
+	DrawNavigationTargets(ViewWidth, Scale, TargetViewModels);
 	DrawRadarReserve(ViewWidth, ViewHeight, Scale);
 }
 
-void APrototypeFlightHud::DrawTopStrip(float ViewWidth, float Scale)
+void APrototypeFlightHud::BuildHudTargetViewModels(const ASpaceFlightPawn* FlightPawn, TArray<FNavigationTargetViewModel>& OutTargets) const
+{
+	OutTargets.Reset();
+
+	UWorld* World = GetWorld();
+	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	const UGameInstance* GameInstance = GetGameInstance();
+	const UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!StarSystem || !Session || !FlightPawn)
+	{
+		return;
+	}
+
+	StarSystem->BuildNavigationTargetViewModels(
+		Session->GetSelectedTargetId(),
+		FlightPawn->GetActorLocation(),
+		FVector::ZeroVector,
+		Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds,
+		OutTargets);
+}
+
+void APrototypeFlightHud::DrawTopStrip(float ViewWidth, float Scale, const TArray<FNavigationTargetViewModel>& Targets)
 {
 	const FLinearColor Cyan(0.72f, 0.94f, 1.0f, 0.95f);
 	const FLinearColor SoftCyan(0.72f, 0.94f, 1.0f, 0.34f);
@@ -58,14 +82,12 @@ void APrototypeFlightHud::DrawTopStrip(float ViewWidth, float Scale)
 	DrawLine(CenterX + Gap, Top + 26.0f * Scale, CenterX + Gap + Wing, Top + 26.0f * Scale, SoftCyan, 1.6f * Scale);
 
 	FString TargetLabel = TEXT("TARGET  NONE");
-	if (const UGameInstance* GameInstance = GetGameInstance())
+	for (const FNavigationTargetViewModel& Target : Targets)
 	{
-		if (const UStargameSessionSubsystem* Session = GameInstance->GetSubsystem<UStargameSessionSubsystem>())
+		if (Target.bIsSelected)
 		{
-			if (!Session->GetSelectedTargetId().IsNone())
-			{
-				TargetLabel = FString::Printf(TEXT("TARGET  %s"), *Session->GetSelectedTargetId().ToString().ToUpper());
-			}
+			TargetLabel = FString::Printf(TEXT("TARGET  %s  %.1f km"), *Target.TargetId.ToString().ToUpper(), Target.DistanceCm / 100000.0);
+			break;
 		}
 	}
 	DrawText(TargetLabel, Yellow, ViewWidth - 276.0f * Scale, Top + 3.0f * Scale, GEngine->GetSmallFont(), Scale, false);
@@ -153,38 +175,25 @@ void APrototypeFlightHud::DrawSystemsCluster(float ViewWidth, float ViewHeight, 
 	DrawBar(X, Bottom + 4.0f * Scale, Width, Height, 1.0f, Green, Cyan);
 }
 
-void APrototypeFlightHud::DrawNavigationTargets(float ViewWidth, float Scale)
+void APrototypeFlightHud::DrawNavigationTargets(float ViewWidth, float Scale, const TArray<FNavigationTargetViewModel>& Targets)
 {
 	const FLinearColor Cyan(0.72f, 0.94f, 1.0f, 0.82f);
 	const FLinearColor Text(1.0f, 0.93f, 0.72f, 0.92f);
-
-	UWorld* World = GetWorld();
-	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
-	if (!StarSystem)
-	{
-		return;
-	}
-
-	TArray<FNavigationTargetDefinition> Targets;
-	StarSystem->GetNavigationTargets(Targets);
+	const FLinearColor Selected(1.0f, 0.86f, 0.30f, 0.95f);
 
 	const float X = ViewWidth - 310.0f * Scale;
 	float Y = 118.0f * Scale;
 	DrawText(TEXT("TARGETS"), Cyan, X, Y, GEngine->GetSmallFont(), Scale, false);
 	Y += 26.0f * Scale;
 
-	for (const FNavigationTargetDefinition& Target : Targets)
+	for (const FNavigationTargetViewModel& Target : Targets)
 	{
-		if (!Target.bCanTarget || !Target.bShowInHud)
-		{
-			continue;
-		}
-
 		const FString Line = FString::Printf(
-			TEXT("%s  %s"),
+			TEXT("%s  %s  %.1f km"),
 			*Target.TargetType.ToString().ToUpper(),
-			*Target.DisplayName.ToString());
-		DrawText(Line, Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
+			*Target.DisplayName.ToString(),
+			Target.DistanceCm / 100000.0);
+		DrawText(Line, Target.bIsSelected ? Selected : Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
 		Y += 22.0f * Scale;
 	}
 }

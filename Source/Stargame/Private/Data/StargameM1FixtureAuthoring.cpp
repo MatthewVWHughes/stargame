@@ -221,7 +221,7 @@ int32 UStargameCreateM1FixtureAssetsCommandlet::Main(const FString& Params)
 	Movement->Definition.SupportedFlightModeTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Stargame.FlightMode.Supercruise"), false));
 	Movement->Definition.NormalFlightTuningId = TEXT("normal_basic");
 	Movement->Definition.SupercruiseTuningId = TEXT("supercruise_basic");
-	Movement->Definition.MaxLocalSpeedCmPerSec = 50000.0;
+	Movement->Definition.MaxLocalSpeedCmPerSec = 24000.0;
 	Movement->Definition.MaxAngularSpeedDegPerSec = 80.0;
 	AssetsToSave.Add(Movement);
 
@@ -308,7 +308,8 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 
 	const bool bValidateM1 = ProfileString.Equals(TEXT("M1"), ESearchCase::IgnoreCase);
 	const bool bValidateM2 = ProfileString.Equals(TEXT("M2"), ESearchCase::IgnoreCase);
-	if (!bValidateM1 && !bValidateM2)
+	const bool bValidateM3 = ProfileString.Equals(TEXT("M3"), ESearchCase::IgnoreCase);
+	if (!bValidateM1 && !bValidateM2 && !bValidateM3)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Unsupported validation profile '%s'."), *ProfileString);
 		return 1;
@@ -318,13 +319,13 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	UStarCatalogSubsystem* Catalog = NewObject<UStarCatalogSubsystem>(ValidationGameInstance);
 	if (!Catalog->BuildAssetCatalogCache(false))
 	{
-		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM2 ? TEXT("M2") : TEXT("M1"));
+		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1")));
 		return 1;
 	}
 
-	const FStargameValidationReport Report = bValidateM2
-		? Catalog->ValidateM2Fixture(SystemId)
-		: Catalog->ValidateM1Fixture(SystemId);
+	const FStargameValidationReport Report = bValidateM3
+		? Catalog->ValidateM3Fixture(SystemId)
+		: (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId));
 	for (const FStargameValidationIssue& Issue : Report.Issues)
 	{
 		const ELogVerbosity::Type Verbosity = (Issue.Severity == EStargameValidationSeverity::Error || Issue.Severity == EStargameValidationSeverity::Fatal)
@@ -341,6 +342,6 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 		return 1;
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM2 ? TEXT("M2") : TEXT("M1"), *SystemId.ToString());
+	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1")), *SystemId.ToString());
 	return 0;
 }
