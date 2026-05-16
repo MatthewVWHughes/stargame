@@ -2,6 +2,7 @@
 
 #include "Flight/SpaceFlightPawn.h"
 #include "GameFramework/PlayerController.h"
+#include "Space/OrbitRouteFrameQueryService.h"
 #include "Space/M0SystemMarkerActor.h"
 
 void UStarSystemSubsystem::OnWorldBeginPlay(UWorld& InWorld)
@@ -33,9 +34,17 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 	}
 
 	ActiveSystemDefinition = SystemDefinition;
+	const FSimulationClockSnapshot BuildClock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
 	for (const FBodyDefinition& Body : SystemDefinition.Bodies)
 	{
-		if (!RegisterEntity(Body.BodyId, TEXT("body"), Body.Transform, Body.VisualRadiusCm) ||
+		FFrameResolvedTransform ResolvedTransform;
+		if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, Body.BodyId, BuildClock, BuildClock.AuthoritativeSimulationTimeSeconds, ResolvedTransform))
+		{
+			TearDownActiveSystem();
+			return false;
+		}
+
+		if (!RegisterEntity(Body.BodyId, TEXT("body"), FTransform(ResolvedTransform.Rotation, ResolvedTransform.PositionCm), Body.VisualRadiusCm) ||
 			!RegisterNavigationTarget(Body.NavigationTarget))
 		{
 			TearDownActiveSystem();
@@ -45,7 +54,14 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 
 	for (const FStationDefinition& Station : SystemDefinition.Stations)
 	{
-		if (!RegisterEntity(Station.StationId, TEXT("station"), Station.Transform, Station.VisualRadiusCm) ||
+		FFrameResolvedTransform ResolvedTransform;
+		if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, Station.StationId, BuildClock, BuildClock.AuthoritativeSimulationTimeSeconds, ResolvedTransform))
+		{
+			TearDownActiveSystem();
+			return false;
+		}
+
+		if (!RegisterEntity(Station.StationId, TEXT("station"), FTransform(ResolvedTransform.Rotation, ResolvedTransform.PositionCm), Station.VisualRadiusCm) ||
 			!RegisterNavigationTarget(Station.NavigationTarget))
 		{
 			TearDownActiveSystem();
@@ -64,7 +80,14 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 
 	for (const FGateDefinition& Gate : SystemDefinition.Gates)
 	{
-		if (!RegisterEntity(Gate.GateId, TEXT("gate"), Gate.Transform, Gate.VisualRadiusCm) ||
+		FFrameResolvedTransform ResolvedTransform;
+		if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, Gate.GateId, BuildClock, BuildClock.AuthoritativeSimulationTimeSeconds, ResolvedTransform))
+		{
+			TearDownActiveSystem();
+			return false;
+		}
+
+		if (!RegisterEntity(Gate.GateId, TEXT("gate"), FTransform(ResolvedTransform.Rotation, ResolvedTransform.PositionCm), Gate.VisualRadiusCm) ||
 			!RegisterNavigationTarget(Gate.NavigationTarget))
 		{
 			TearDownActiveSystem();

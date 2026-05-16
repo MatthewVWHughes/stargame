@@ -6,9 +6,23 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Runtime/StargameM0SaveGame.h"
+#include "Space/OrbitRouteFrameQueryService.h"
 #include "Space/StarSystemSubsystem.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogStargameStartup, Log, All);
+
+namespace
+{
+	bool ValidateNativeFallbackFixture(const UStarCatalogSubsystem* Catalog, const FStarSystemDefinition& SystemDefinition, FString& OutError)
+	{
+		if (Catalog && Catalog->IsUsingAssetCatalog())
+		{
+			return true;
+		}
+
+		return FFrontierTestFixtureProvider::ValidateM0Fixture(SystemDefinition, OutError);
+	}
+}
 
 EStartSessionResult UStargameSessionSubsystem::StartNewSession(FName InStartProfileId)
 {
@@ -49,6 +63,11 @@ bool UStargameSessionSubsystem::SaveDevelopmentSlot()
 	return SaveDevelopmentSlot(MakeCurrentM0SaveState());
 }
 
+void UStargameSessionSubsystem::AdvanceSimulationClock(double DeltaSeconds)
+{
+	ClockSnapshot.AuthoritativeSimulationTimeSeconds += FMath::Max(0.0, DeltaSeconds) * ClockSnapshot.TimeScale;
+}
+
 bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 {
 	FStargameM0SaveState LoadedState;
@@ -69,7 +88,7 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 	}
 
 	FString ValidationError;
-	if (!FFrontierTestFixtureProvider::ValidateM0Fixture(SystemDefinition, ValidationError))
+	if (!ValidateNativeFallbackFixture(Catalog, SystemDefinition, ValidationError))
 	{
 		ReportStartupError(ValidationError);
 		return false;
@@ -86,6 +105,11 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 	CurrentSystemId = LoadedState.SystemId;
 	CurrentSpawnZoneId = LoadedState.SpawnZoneId;
 	SelectedTargetId = LoadedState.SelectedTargetId;
+	ClockSnapshot = LoadedState.ClockSnapshot;
+	if (ClockSnapshot.ClockOwner.IsNone())
+	{
+		ClockSnapshot = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(CurrentSystemId, LoadedState.ShipLocation.AuthoritativeSimulationTimeSeconds);
+	}
 
 	APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
 	if (!StarSystem->SpawnPlayerAtSpawnZone(CurrentSpawnZoneId, PlayerController))
@@ -137,6 +161,14 @@ FStargameM0SaveState UStargameSessionSubsystem::MakeCurrentM0SaveState() const
 	State.SystemId = CurrentSystemId;
 	State.SpawnZoneId = CurrentSpawnZoneId;
 	State.SelectedTargetId = SelectedTargetId;
+	State.ClockSnapshot = ClockSnapshot;
+	State.ShipLocation.SystemId = CurrentSystemId;
+	State.ShipLocation.CoordinateFrame.FrameType = TEXT("local_free_flight");
+	State.ShipLocation.CoordinateFrame.AnchorId = CurrentSpawnZoneId;
+	State.ShipLocation.LocationMode = EShipLocationMode::Respawn;
+	State.ShipLocation.AnchorId = CurrentSpawnZoneId;
+	State.ShipLocation.VelocityFrame = State.ShipLocation.CoordinateFrame;
+	State.ShipLocation.AuthoritativeSimulationTimeSeconds = ClockSnapshot.AuthoritativeSimulationTimeSeconds;
 	return State;
 }
 
@@ -147,11 +179,13 @@ FString UStargameSessionSubsystem::GetM0DebugSummary() const
 		: TEXT("missing");
 
 	return FString::Printf(
-		TEXT("StartProfile=%s\nCurrentSystem=%s\nSpawnZone=%s\nSelectedTarget=%s\nLastStartResult=%d\nLastSessionError=%s\nSaveSlot=%s"),
+		TEXT("StartProfile=%s\nCurrentSystem=%s\nSpawnZone=%s\nSelectedTarget=%s\nClockOwner=%s\nSimulationTimeSeconds=%.2f\nLastStartResult=%d\nLastSessionError=%s\nSaveSlot=%s"),
 		*StartProfileId.ToString(),
 		*CurrentSystemId.ToString(),
 		*CurrentSpawnZoneId.ToString(),
 		*SelectedTargetId.ToString(),
+		*ClockSnapshot.ClockOwner.ToString(),
+		ClockSnapshot.AuthoritativeSimulationTimeSeconds,
 		static_cast<int32>(LastStartSessionResult),
 		*LastSessionError,
 		*SaveSlotStatus);
@@ -172,7 +206,7 @@ bool UStargameSessionSubsystem::BuildAndSpawnFromStartProfile(const FStartProfil
 	}
 
 	FString ValidationError;
-	if (!FFrontierTestFixtureProvider::ValidateM0Fixture(SystemDefinition, ValidationError))
+	if (!ValidateNativeFallbackFixture(Catalog, SystemDefinition, ValidationError))
 	{
 		LastStartSessionResult = EStartSessionResult::ValidationFailed;
 		ReportStartupError(ValidationError);
@@ -207,6 +241,7 @@ bool UStargameSessionSubsystem::BuildAndSpawnFromStartProfile(const FStartProfil
 	CurrentSystemId = StartProfile.SystemId;
 	CurrentSpawnZoneId = StartProfile.SpawnZoneId;
 	SelectedTargetId = NAME_None;
+	ClockSnapshot = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(CurrentSystemId, 0.0);
 
 	APlayerController* PlayerController = World->GetFirstPlayerController();
 	if (!StarSystem->SpawnPlayerAtSpawnZone(CurrentSpawnZoneId, PlayerController))

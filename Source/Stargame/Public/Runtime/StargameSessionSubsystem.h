@@ -35,6 +35,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stargame|Session")
 	FString GetLastSessionError() const { return LastSessionError; }
 
+	UFUNCTION(BlueprintPure, Category = "Stargame|Session")
+	FSimulationClockSnapshot GetSimulationClockSnapshot() const { return ClockSnapshot; }
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Session")
+	void AdvanceSimulationClock(double DeltaSeconds);
+
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Session")
 	bool SaveDevelopmentSlot();
 
@@ -67,6 +73,9 @@ private:
 
 	UPROPERTY()
 	FName SelectedTargetId;
+
+	UPROPERTY()
+	FSimulationClockSnapshot ClockSnapshot;
 
 	EStartSessionResult LastStartSessionResult = EStartSessionResult::ValidationFailed;
 	FString LastSessionError;

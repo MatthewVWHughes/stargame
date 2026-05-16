@@ -67,19 +67,40 @@ namespace
 		FFrontierTestFixtureProvider::ResolveSystemDefinition(FFrontierTestFixtureProvider::FrontierSystemId, SystemDefinition);
 		SystemDefinition.SourceType = ESystemSourceType::Authored;
 		SystemDefinition.Seed = 101;
+		SystemDefinition.Scale = FStargameScaleContract();
 
-		if (SystemDefinition.Bodies.Num() > 0)
-		{
-			SystemDefinition.Bodies[0].VisualProfileId = FPrimaryAssetId(UBodyVisualProfileAsset::AssetType, TEXT("ember_visual"));
-			SystemDefinition.Bodies[0].PhysicalReferenceRadiusCm = 45000.0;
-			SystemDefinition.Bodies[0].CollisionRadiusCm = 45000.0;
-			SystemDefinition.Bodies[0].NavigationTarget = MakeNavigationTarget(TEXT("ember"), TEXT("Ember"), TEXT("body"));
-		}
-		if (SystemDefinition.Stations.Num() > 0)
-		{
-			SystemDefinition.Stations[0].StationProfileId = FPrimaryAssetId(UStationProfileAsset::AssetType, TEXT("frontier_station_basic"));
-			SystemDefinition.Stations[0].NavigationTarget = MakeNavigationTarget(TEXT("brink_watch"), TEXT("Brink Watch"), TEXT("station"));
+		SystemDefinition.Bodies.Reset();
+		SystemDefinition.Stations.Reset();
 
+		auto MakeBody = [](FName BodyId, const TCHAR* DisplayName, FName BodyType, double RadiusCm, FName ParentId, double SemiMajorAxisCm, double PeriodSeconds, double PhaseOffsetRadians)
+		{
+			FBodyDefinition Body;
+			Body.BodyId = BodyId;
+			Body.DisplayName = FText::FromString(DisplayName);
+			Body.BodyType = BodyType;
+			Body.FrameType = ParentId.IsNone() ? FName(TEXT("system_barycentric")) : FName(TEXT("body_relative"));
+			Body.AnchorId = ParentId;
+			Body.VisualRadiusCm = RadiusCm;
+			Body.PhysicalReferenceRadiusCm = RadiusCm;
+			Body.CollisionRadiusCm = RadiusCm;
+			Body.VisualProfileId = FPrimaryAssetId(UBodyVisualProfileAsset::AssetType, TEXT("ember_visual"));
+			Body.NavigationTarget = MakeNavigationTarget(BodyId, DisplayName, TEXT("body"));
+			Body.NavigationTarget.FrameType = Body.FrameType;
+			Body.NavigationTarget.AnchorId = ParentId;
+			Body.Orbit.ParentId = ParentId;
+			Body.Orbit.SemiMajorAxisCm = SemiMajorAxisCm;
+			Body.Orbit.PeriodSeconds = PeriodSeconds;
+			Body.Orbit.PhaseOffsetRadians = PhaseOffsetRadians;
+			return Body;
+		};
+
+		SystemDefinition.Bodies.Add(MakeBody(TEXT("frontier_primary"), TEXT("Frontier Primary"), TEXT("star"), 200000.0, NAME_None, 0.0, 0.0, 0.0));
+		SystemDefinition.Bodies.Add(MakeBody(TEXT("ember"), TEXT("Ember"), TEXT("rocky_planet"), 45000.0, TEXT("frontier_primary"), 12000000.0, 900.0, 0.2));
+		SystemDefinition.Bodies.Add(MakeBody(TEXT("brink"), TEXT("Brink"), TEXT("outer_planet"), 90000.0, TEXT("frontier_primary"), 40000000.0, 1800.0, 2.2));
+		SystemDefinition.Bodies.Add(MakeBody(TEXT("brink_minor"), TEXT("Brink Minor"), TEXT("moon"), 18000.0, TEXT("brink"), 3500000.0, 240.0, 0.7));
+
+		auto MakeDockingPort = []()
+		{
 			FDockingPortDefinition DockingPort;
 			DockingPort.PortId = TEXT("pad_01");
 			DockingPort.DisplayName = FText::FromString(TEXT("Pad 01"));
@@ -87,26 +108,72 @@ namespace
 			DockingPort.DockedTransform = FTransform(FRotator::ZeroRotator, FVector(0.0, -12000.0, 0.0));
 			DockingPort.UndockTransform = FTransform(FRotator::ZeroRotator, FVector(0.0, -22000.0, 0.0));
 			DockingPort.AllowedShipClasses.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Stargame.ShipClass.Light"), false));
-			SystemDefinition.Stations[0].DockingPorts = { DockingPort };
-		}
+			return DockingPort;
+		};
+
+		FStationDefinition BrinkWatch;
+		BrinkWatch.StationId = TEXT("brink_watch");
+		BrinkWatch.DisplayName = FText::FromString(TEXT("Brink Watch"));
+		BrinkWatch.FrameType = TEXT("station_relative");
+		BrinkWatch.AnchorId = TEXT("brink");
+		BrinkWatch.VisualRadiusCm = 12000.0;
+		BrinkWatch.StationProfileId = FPrimaryAssetId(UStationProfileAsset::AssetType, TEXT("frontier_station_basic"));
+		BrinkWatch.DockingPorts = { MakeDockingPort() };
+		BrinkWatch.NavigationTarget = MakeNavigationTarget(TEXT("brink_watch"), TEXT("Brink Watch"), TEXT("station"));
+		BrinkWatch.NavigationTarget.FrameType = BrinkWatch.FrameType;
+		BrinkWatch.NavigationTarget.AnchorId = BrinkWatch.AnchorId;
+		BrinkWatch.Orbit.ParentId = TEXT("brink");
+		BrinkWatch.Orbit.SemiMajorAxisCm = 3000000.0;
+		BrinkWatch.Orbit.PeriodSeconds = 90.0;
+		BrinkWatch.Orbit.PhaseOffsetRadians = 1.4;
+		SystemDefinition.Stations.Add(BrinkWatch);
+
+		FStationDefinition WayfarerDepot;
+		WayfarerDepot.StationId = TEXT("wayfarer_depot");
+		WayfarerDepot.DisplayName = FText::FromString(TEXT("Wayfarer Depot"));
+		WayfarerDepot.FrameType = TEXT("station_relative");
+		WayfarerDepot.AnchorId = TEXT("frontier_primary");
+		WayfarerDepot.VisualRadiusCm = 14000.0;
+		WayfarerDepot.StationProfileId = FPrimaryAssetId(UStationProfileAsset::AssetType, TEXT("frontier_station_basic"));
+		WayfarerDepot.DockingPorts = { MakeDockingPort() };
+		WayfarerDepot.NavigationTarget = MakeNavigationTarget(TEXT("wayfarer_depot"), TEXT("Wayfarer Depot"), TEXT("station"));
+		WayfarerDepot.NavigationTarget.FrameType = WayfarerDepot.FrameType;
+		WayfarerDepot.NavigationTarget.AnchorId = WayfarerDepot.AnchorId;
+		WayfarerDepot.Orbit.ParentId = TEXT("frontier_primary");
+		WayfarerDepot.Orbit.SemiMajorAxisCm = 26000000.0;
+		WayfarerDepot.Orbit.PeriodSeconds = 1500.0;
+		WayfarerDepot.Orbit.PhaseOffsetRadians = 3.0;
+		SystemDefinition.Stations.Add(WayfarerDepot);
+
 		if (SystemDefinition.Gates.Num() > 0)
 		{
 			SystemDefinition.Gates[0].GateProfileId = FPrimaryAssetId(UGateProfileAsset::AssetType, TEXT("frontier_gate_basic"));
 			SystemDefinition.Gates[0].NavigationTarget = MakeNavigationTarget(TEXT("frontier_gate_a"), TEXT("Frontier Gate A"), TEXT("gate"));
 		}
 
-		FGravityWellDefinition Well;
-		Well.WellId = TEXT("ember_gravity_well");
-		Well.AnchorBodyId = TEXT("ember");
-		Well.SlowdownRadiusCm = 120000.0;
-		Well.LockoutRadiusCm = 90000.0;
-		Well.DropoutRadiusCm = 45000.0;
-		SystemDefinition.GravityWells = { Well };
+		FGravityWellDefinition EmberWell;
+		EmberWell.WellId = TEXT("ember_gravity_well");
+		EmberWell.AnchorBodyId = TEXT("ember");
+		EmberWell.SlowdownRadiusCm = SystemDefinition.Scale.GravitySlowdownRadiusCm;
+		EmberWell.LockoutRadiusCm = SystemDefinition.Scale.GravityLockoutRadiusCm;
+		EmberWell.DropoutRadiusCm = 350000.0;
+
+		FGravityWellDefinition BrinkWell;
+		BrinkWell.WellId = TEXT("brink_gravity_well");
+		BrinkWell.AnchorBodyId = TEXT("brink");
+		BrinkWell.SlowdownRadiusCm = SystemDefinition.Scale.GravitySlowdownRadiusCm;
+		BrinkWell.LockoutRadiusCm = SystemDefinition.Scale.GravityLockoutRadiusCm;
+		BrinkWell.DropoutRadiusCm = 350000.0;
+		SystemDefinition.GravityWells = { EmberWell, BrinkWell };
 
 		SystemDefinition.MapEntries.Reset();
 		const TArray<TPair<FName, FName>> MapSources = {
+			{ TEXT("frontier_primary"), TEXT("body") },
 			{ TEXT("ember"), TEXT("body") },
+			{ TEXT("brink"), TEXT("body") },
+			{ TEXT("brink_minor"), TEXT("body") },
 			{ TEXT("brink_watch"), TEXT("station") },
+			{ TEXT("wayfarer_depot"), TEXT("station") },
 			{ TEXT("frontier_gate_a"), TEXT("gate") }
 		};
 		for (const TPair<FName, FName>& MapSource : MapSources)
@@ -239,7 +306,9 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 		SystemId = FName(*SystemIdString);
 	}
 
-	if (!ProfileString.Equals(TEXT("M1"), ESearchCase::IgnoreCase))
+	const bool bValidateM1 = ProfileString.Equals(TEXT("M1"), ESearchCase::IgnoreCase);
+	const bool bValidateM2 = ProfileString.Equals(TEXT("M2"), ESearchCase::IgnoreCase);
+	if (!bValidateM1 && !bValidateM2)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Unsupported validation profile '%s'."), *ProfileString);
 		return 1;
@@ -249,11 +318,13 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	UStarCatalogSubsystem* Catalog = NewObject<UStarCatalogSubsystem>(ValidationGameInstance);
 	if (!Catalog->BuildAssetCatalogCache(false))
 	{
-		UE_LOG(LogTemp, Error, TEXT("M1 validation could not build an Asset Manager-backed catalog."));
+		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM2 ? TEXT("M2") : TEXT("M1"));
 		return 1;
 	}
 
-	const FStargameValidationReport Report = Catalog->ValidateM1Fixture(SystemId);
+	const FStargameValidationReport Report = bValidateM2
+		? Catalog->ValidateM2Fixture(SystemId)
+		: Catalog->ValidateM1Fixture(SystemId);
 	for (const FStargameValidationIssue& Issue : Report.Issues)
 	{
 		const ELogVerbosity::Type Verbosity = (Issue.Severity == EStargameValidationSeverity::Error || Issue.Severity == EStargameValidationSeverity::Fatal)
@@ -270,6 +341,6 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 		return 1;
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("M1 validation passed for system '%s'."), *SystemId.ToString());
+	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM2 ? TEXT("M2") : TEXT("M1"), *SystemId.ToString());
 	return 0;
 }

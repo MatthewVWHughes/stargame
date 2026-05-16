@@ -42,7 +42,17 @@ enum class EStargameValidationProfile : uint8
 	Build,
 	Cook,
 	M0,
-	M1
+	M1,
+	M2
+};
+
+UENUM(BlueprintType)
+enum class EShipLocationMode : uint8
+{
+	FreeFlight,
+	StationDocked,
+	GateArrival,
+	Respawn
 };
 
 UENUM(BlueprintType)
@@ -123,6 +133,264 @@ struct STARGAME_API FOrbitDefinition
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Orbit", meta = (Units = "deg"))
 	double InclinationDegrees = 0.0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FStargameCoordinateFrame
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Frame")
+	FName FrameType = TEXT("system_barycentric");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Frame")
+	FName AnchorId;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSectorPosition
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Location", meta = (Units = "ly"))
+	FVector PositionLy = FVector::ZeroVector;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSystemSpaceLocation
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Location")
+	FName SystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Location", meta = (Units = "cm"))
+	FVector PositionCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Location")
+	FRotator Rotation = FRotator::ZeroRotator;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FBodyRelativeLocation
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Location")
+	FName SystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Location")
+	FName BodyId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Location", meta = (Units = "cm"))
+	FVector PositionCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Location")
+	FRotator Rotation = FRotator::ZeroRotator;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FLocalSpaceLocation
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Location")
+	FName SystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Location", meta = (Units = "cm"))
+	FVector BubbleOriginCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Location", meta = (Units = "cm"))
+	FVector PositionCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Location")
+	FRotator Rotation = FRotator::ZeroRotator;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSimulationClockSnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Simulation")
+	double AuthoritativeSimulationTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Simulation")
+	double TimeScale = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Simulation")
+	FName ClockOwner = TEXT("session");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Simulation")
+	FName RngStreamId = TEXT("frontier_test_01");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Simulation")
+	int64 RngCounter = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Simulation")
+	int64 ProcessedEventWatermark = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Simulation")
+	TMap<FName, int64> ProcessedEventWatermarks;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FFrameResolvedTransform
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Frame")
+	FStargameCoordinateFrame CoordinateFrame;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Frame")
+	FName AnchorId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Frame")
+	double SimulationTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Frame", meta = (Units = "cm"))
+	FVector PositionCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Frame")
+	FRotator Rotation = FRotator::ZeroRotator;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Frame", meta = (Units = "cm/s"))
+	FVector LinearVelocityCmPerSec = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Frame", meta = (Units = "rad/s"))
+	FVector AngularVelocityRadPerSec = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Frame")
+	bool bActorSpaceValid = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Frame")
+	FTransform ActorSpaceTransform = FTransform::Identity;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FLocalBubbleState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Local Bubble")
+	FName SystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Local Bubble", meta = (Units = "cm"))
+	FVector BubbleOriginCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Local Bubble", meta = (Units = "cm"))
+	double LocalBubbleRadiusCm = 5000000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Local Bubble", meta = (Units = "cm"))
+	double OriginShiftThresholdCm = 2000000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Local Bubble")
+	int32 RebaseGeneration = 0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FShipSaveLocation
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FName SystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FStargameCoordinateFrame CoordinateFrame;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	EShipLocationMode LocationMode = EShipLocationMode::Respawn;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FName AnchorId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save", meta = (Units = "cm"))
+	FVector PositionCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FRotator Rotation = FRotator::ZeroRotator;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save", meta = (Units = "cm/s"))
+	FVector LinearVelocityCmPerSec = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FStargameCoordinateFrame VelocityFrame;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	bool bInheritAnchorVelocity = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	double AuthoritativeSimulationTimeSeconds = 0.0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FStargameScaleContract
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm"))
+	double LocalBubbleRadiusCm = 5000000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm"))
+	double OriginShiftThresholdCm = 2000000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm"))
+	double StationApproachBubbleRadiusCm = 500000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm"))
+	double DockingCorridorLengthCm = 25000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm/s"))
+	double SupercruiseMinSpeedCmPerSec = 100000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm/s"))
+	double SupercruiseMaxSpeedCmPerSec = 20000000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm"))
+	double GravitySlowdownRadiusCm = 2000000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm"))
+	double GravityLockoutRadiusCm = 500000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm"))
+	double AtmosphereTransitionRadiusCm = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale")
+	double MapDistanceScaleCmPerUnit = 1000000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale")
+	double MapMinIconScale = 0.75;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale")
+	double MapMaxIconScale = 2.0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSystemMapEntryViewModel
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Map")
+	FName EntryId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Map")
+	FName SourceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Map")
+	FName ParentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Map")
+	FName EntryType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Map", meta = (Units = "cm"))
+	FVector PositionCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Map")
+	FVector2D MapPosition = FVector2D::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Map")
+	double IconScale = 1.0;
 };
 
 USTRUCT(BlueprintType)
@@ -273,6 +541,9 @@ struct STARGAME_API FStationDefinition
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
 	FTransform Transform = FTransform::Identity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+	FOrbitDefinition Orbit;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System", meta = (Units = "cm"))
 	double VisualRadiusCm = 12000.0;
@@ -426,6 +697,9 @@ struct STARGAME_API FStarSystemDefinition
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
 	int32 Seed = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+	FStargameScaleContract Scale;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
 	TArray<FGravityWellDefinition> GravityWells;
@@ -591,6 +865,12 @@ struct STARGAME_API FStargameM0SaveState
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
 	FName SelectedTargetId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FSimulationClockSnapshot ClockSnapshot;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FShipSaveLocation ShipLocation;
 };
 
 USTRUCT(BlueprintType)

@@ -4,6 +4,7 @@
 #include "Engine/AssetManager.h"
 #include "Engine/AssetManagerSettings.h"
 #include "Flight/SpaceFlightPawn.h"
+#include "Space/OrbitRouteFrameQueryService.h"
 
 namespace
 {
@@ -390,6 +391,26 @@ FStargameValidationReport UStarCatalogSubsystem::ValidateM1Fixture(FName SystemI
 	return Report;
 }
 
+FStargameValidationReport UStarCatalogSubsystem::ValidateM2Fixture(FName SystemId) const
+{
+	FStargameValidationReport Report = ValidateM1Fixture(SystemId);
+	Report.Profile = EStargameValidationProfile::M2;
+	if (Report.HasBlockingIssues())
+	{
+		return Report;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	if (!ResolveSystemDefinition(SystemId, SystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_system"), SystemId, TEXT("Required system definition could not be resolved."));
+		return Report;
+	}
+
+	ValidateM2SystemDefinition(SystemDefinition, Report);
+	return Report;
+}
+
 void UStarCatalogSubsystem::GetKnownSystemIds(TArray<FName>& OutSystemIds) const
 {
 	SystemsById.GenerateKeyArray(OutSystemIds);
@@ -714,6 +735,115 @@ bool UStarCatalogSubsystem::ValidateSystemDefinition(const FStarSystemDefinition
 	}
 
 	return !Report.HasBlockingIssues();
+}
+
+bool UStarCatalogSubsystem::ValidateM2SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const
+{
+	bool bValid = true;
+	const FStargameScaleContract& Scale = SystemDefinition.Scale;
+	if (Scale.LocalBubbleRadiusCm != 5000000.0 || Scale.OriginShiftThresholdCm != 2000000.0 ||
+		Scale.MapDistanceScaleCmPerUnit != 1000000.0 || Scale.MapMinIconScale != 0.75 || Scale.MapMaxIconScale != 2.0)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("invalid_m2_scale_contract"), SystemDefinition.SystemId, TEXT("M2 fixture scale values must match the documented provisional scale contract."));
+		bValid = false;
+	}
+	if (Scale.LocalBubbleRadiusCm <= Scale.OriginShiftThresholdCm || Scale.MapMinIconScale <= 0.0 || Scale.MapMaxIconScale < Scale.MapMinIconScale)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("invalid_m2_scale_ranges"), SystemDefinition.SystemId, TEXT("M2 scale values have invalid ranges."));
+		bValid = false;
+	}
+
+	auto HasBody = [&SystemDefinition](FName BodyId)
+	{
+		return SystemDefinition.Bodies.ContainsByPredicate([BodyId](const FBodyDefinition& Body)
+		{
+			return Body.BodyId == BodyId;
+		});
+	};
+	auto HasStation = [&SystemDefinition](FName StationId)
+	{
+		return SystemDefinition.Stations.ContainsByPredicate([StationId](const FStationDefinition& Station)
+		{
+			return Station.StationId == StationId;
+		});
+	};
+	if (!HasBody(TEXT("frontier_primary")) || !HasBody(TEXT("brink")) || !HasBody(TEXT("brink_minor")) || !HasStation(TEXT("wayfarer_depot")))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("missing_m2_fixture_entities"), SystemDefinition.SystemId, TEXT("M2 fixture requires frontier_primary, brink, brink_minor, and wayfarer_depot authored entities."));
+		bValid = false;
+	}
+
+	const FSimulationClockSnapshot ClockSnapshot = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	FFrameResolvedTransform BrinkMinorAt0;
+	FFrameResolvedTransform BrinkMinorAt0Repeat;
+	FFrameResolvedTransform BrinkMinorAt60;
+	if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, TEXT("brink_minor"), ClockSnapshot, 0.0, BrinkMinorAt0) ||
+		!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, TEXT("brink_minor"), ClockSnapshot, 0.0, BrinkMinorAt0Repeat) ||
+		!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, TEXT("brink_minor"), ClockSnapshot, 60.0, BrinkMinorAt60))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m2_frame_query_failed"), TEXT("brink_minor"), TEXT("M2 frame query service could not resolve nested moon transforms."));
+		bValid = false;
+	}
+	else
+	{
+		if (!BrinkMinorAt0.PositionCm.Equals(BrinkMinorAt0Repeat.PositionCm, 0.01))
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m2_frame_query_not_deterministic"), TEXT("brink_minor"), TEXT("Same-time M2 frame queries must produce identical transforms."));
+			bValid = false;
+		}
+		if (BrinkMinorAt0.PositionCm.Equals(BrinkMinorAt60.PositionCm, 0.01))
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m2_orbit_not_time_varying"), TEXT("brink_minor"), TEXT("Nested moon orbit must vary across requested simulation time."));
+			bValid = false;
+		}
+	}
+
+	FFrameResolvedTransform BrinkWatchAt0;
+	FFrameResolvedTransform BrinkWatchAt30;
+	if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, TEXT("brink_watch"), ClockSnapshot, 0.0, BrinkWatchAt0) ||
+		!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, TEXT("brink_watch"), ClockSnapshot, 30.0, BrinkWatchAt30))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m2_station_frame_query_failed"), TEXT("brink_watch"), TEXT("M2 frame query service could not resolve orbiting station transforms."));
+		bValid = false;
+	}
+	else if (BrinkWatchAt0.PositionCm.Equals(BrinkWatchAt30.PositionCm, 0.01))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m2_station_orbit_not_time_varying"), TEXT("brink_watch"), TEXT("Orbiting station transform must vary across requested simulation time."));
+		bValid = false;
+	}
+
+	TArray<FSystemMapEntryViewModel> MapEntries;
+	UOrbitRouteFrameQueryService::BuildSystemMapViewModel(SystemDefinition, ClockSnapshot, 0.0, MapEntries);
+	if (MapEntries.Num() < 7)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m2_map_entries_incomplete"), SystemDefinition.SystemId, TEXT("M2 system map view model must include body, station, and gate hierarchy from registry data."));
+		bValid = false;
+	}
+	if (!MapEntries.ContainsByPredicate([](const FSystemMapEntryViewModel& Entry)
+	{
+		return Entry.EntryId == FName(TEXT("brink_minor")) && Entry.ParentId == FName(TEXT("brink"));
+	}))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m2_map_hierarchy_missing"), TEXT("brink_minor"), TEXT("M2 system map must preserve nested body hierarchy."));
+		bValid = false;
+	}
+
+	FShipSaveLocation SaveLocation;
+	SaveLocation.SystemId = SystemDefinition.SystemId;
+	SaveLocation.CoordinateFrame.FrameType = TEXT("body_relative");
+	SaveLocation.CoordinateFrame.AnchorId = TEXT("brink");
+	SaveLocation.LocationMode = EShipLocationMode::FreeFlight;
+	SaveLocation.AnchorId = TEXT("brink");
+	SaveLocation.PositionCm = FVector(1000.0, 2000.0, 300.0);
+	SaveLocation.VelocityFrame = SaveLocation.CoordinateFrame;
+	SaveLocation.AuthoritativeSimulationTimeSeconds = ClockSnapshot.AuthoritativeSimulationTimeSeconds;
+	if (SaveLocation.SystemId.IsNone() || SaveLocation.CoordinateFrame.FrameType.IsNone() || SaveLocation.LocationMode != EShipLocationMode::FreeFlight || SaveLocation.AnchorId.IsNone())
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m2_logical_save_location_invalid"), SystemDefinition.SystemId, TEXT("M2 logical ship save location must preserve system, frame, mode, anchor, position, velocity frame, and simulation time."));
+		bValid = false;
+	}
+
+	return bValid && !Report.HasBlockingIssues();
 }
 
 bool UStarCatalogSubsystem::ValidateShipArchetype(const FStartProfileDefinition& StartProfile, FStargameValidationReport& Report) const
