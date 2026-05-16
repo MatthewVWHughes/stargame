@@ -1,0 +1,29 @@
+# Unreal generated folders
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+.vscode/
+
+# Unreal generated files
+Makefile
+*.code-workspace
+*.sln
+*.suo
+*.opensdf
+*.sdf
+*.VC.db
+*.VC.opendb
+.ignore
+
+# Local/editor user settings
+*.user
+*.userprefs
+*.sln.DotSettings.user
+Config/DefaultEditorPerProjectUserSettings.ini
+
+# OS cruft
+.DS_Store
+Thumbs.db
