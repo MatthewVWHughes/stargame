@@ -1,6 +1,7 @@
 #include "Runtime/StargameSessionSubsystem.h"
 
 #include "Data/FrontierTestFixtureProvider.h"
+#include "Data/StarCatalogSubsystem.h"
 #include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
@@ -19,7 +20,11 @@ EStartSessionResult UStargameSessionSubsystem::StartNewSession(FName InStartProf
 		: InStartProfileId;
 
 	FStartProfileDefinition StartProfile;
-	if (!FFrontierTestFixtureProvider::ResolveStartProfile(RequestedStartProfileId, StartProfile))
+	UStarCatalogSubsystem* Catalog = GetGameInstance() ? GetGameInstance()->GetSubsystem<UStarCatalogSubsystem>() : nullptr;
+	const bool bResolvedStartProfile = Catalog
+		? Catalog->ResolveStartProfile(RequestedStartProfileId, StartProfile)
+		: FFrontierTestFixtureProvider::ResolveStartProfile(RequestedStartProfileId, StartProfile);
+	if (!bResolvedStartProfile)
 	{
 		LastStartSessionResult = EStartSessionResult::MissingStartProfile;
 		ReportStartupError(FString::Printf(TEXT("Missing start profile '%s'."), *RequestedStartProfileId.ToString()));
@@ -53,7 +58,11 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 	}
 
 	FStarSystemDefinition SystemDefinition;
-	if (!FFrontierTestFixtureProvider::ResolveSystemDefinition(LoadedState.SystemId, SystemDefinition))
+	UStarCatalogSubsystem* Catalog = GetGameInstance() ? GetGameInstance()->GetSubsystem<UStarCatalogSubsystem>() : nullptr;
+	const bool bResolvedSystem = Catalog
+		? Catalog->ResolveSystemDefinition(LoadedState.SystemId, SystemDefinition)
+		: FFrontierTestFixtureProvider::ResolveSystemDefinition(LoadedState.SystemId, SystemDefinition);
+	if (!bResolvedSystem)
 	{
 		ReportStartupError(FString::Printf(TEXT("Saved system '%s' could not be resolved."), *LoadedState.SystemId.ToString()));
 		return false;
@@ -151,7 +160,11 @@ FString UStargameSessionSubsystem::GetM0DebugSummary() const
 bool UStargameSessionSubsystem::BuildAndSpawnFromStartProfile(const FStartProfileDefinition& StartProfile)
 {
 	FStarSystemDefinition SystemDefinition;
-	if (!FFrontierTestFixtureProvider::ResolveSystemDefinition(StartProfile.SystemId, SystemDefinition))
+	UStarCatalogSubsystem* Catalog = GetGameInstance() ? GetGameInstance()->GetSubsystem<UStarCatalogSubsystem>() : nullptr;
+	const bool bResolvedSystem = Catalog
+		? Catalog->ResolveSystemDefinition(StartProfile.SystemId, SystemDefinition)
+		: FFrontierTestFixtureProvider::ResolveSystemDefinition(StartProfile.SystemId, SystemDefinition);
+	if (!bResolvedSystem)
 	{
 		LastStartSessionResult = EStartSessionResult::MissingSystemDefinition;
 		ReportStartupError(FString::Printf(TEXT("Missing system definition '%s'."), *StartProfile.SystemId.ToString()));

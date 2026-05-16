@@ -12,11 +12,13 @@ public class Stargame : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"EnhancedInput",
+			"GameplayTags",
 			"InputCore"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
+			"AssetRegistry",
 			"UMG"
 		});
 	}

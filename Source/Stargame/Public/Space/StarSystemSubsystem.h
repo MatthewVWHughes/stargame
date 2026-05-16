@@ -27,6 +27,24 @@ struct STARGAME_API FActiveSystemEntityEntry
 	TWeakObjectPtr<AActor> Actor;
 };
 
+USTRUCT(BlueprintType)
+struct STARGAME_API FDockingPortRegistryEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Space")
+	FName StationId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Space")
+	FName PortId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Space")
+	int32 BuildGeneration = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Space")
+	FDockingPortDefinition Definition;
+};
+
 UCLASS()
 class STARGAME_API UStarSystemSubsystem : public UWorldSubsystem
 {
@@ -70,10 +88,28 @@ public:
 	void GetRegisteredEntities(TArray<FActiveSystemEntityEntry>& OutEntities) const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	void GetRegisteredSpawnZoneIds(TArray<FName>& OutSpawnZoneIds) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	void GetRegisteredGravityWellIds(TArray<FName>& OutGravityWellIds) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	void GetRegisteredDockingPortIds(TArray<FName>& OutDockingPortIds) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	void GetRegisteredDockingPorts(TArray<FDockingPortRegistryEntry>& OutDockingPorts) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	void GetRegisteredMapEntryIds(TArray<FName>& OutMapEntryIds) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	bool FindSpawnZone(FName SpawnZoneId, FSpawnZoneDefinition& OutSpawnZone) const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	FString GetM0DebugSummary() const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	FString GetM1DebugSummary() const;
 
 	UPROPERTY(BlueprintAssignable, Category = "Stargame|Space")
 	FStarSystemBuildComplete OnSystemBuildComplete;
@@ -82,6 +118,11 @@ private:
 	bool ValidateSystemForBuild(const FStarSystemDefinition& SystemDefinition, FString& OutError) const;
 	bool RegisterEntity(FName EntityId, FName EntityType, const FTransform& Transform, double VisualRadiusCm);
 	bool RegisterNavigationTarget(const FNavigationTargetDefinition& Target);
+	bool RegisterSpawnZone(const FSpawnZoneDefinition& SpawnZone);
+	bool RegisterDockingPort(FName StationId, const FDockingPortDefinition& DockingPort);
+	bool RegisterGravityWell(const FGravityWellDefinition& GravityWell);
+	bool RegisterMapEntry(const FMapEntryDefinition& MapEntry);
+	static FName MakeDockingPortRegistryId(FName StationId, FName PortId);
 
 	double GameTimeSeconds = 0.0;
 
@@ -93,6 +134,18 @@ private:
 
 	UPROPERTY()
 	TMap<FName, FNavigationTargetDefinition> NavigationTargetsById;
+
+	UPROPERTY()
+	TMap<FName, FSpawnZoneDefinition> SpawnZonesById;
+
+	UPROPERTY()
+	TMap<FName, FDockingPortRegistryEntry> DockingPortsById;
+
+	UPROPERTY()
+	TMap<FName, FGravityWellDefinition> GravityWellsById;
+
+	UPROPERTY()
+	TMap<FName, FMapEntryDefinition> MapEntriesById;
 
 	UPROPERTY()
 	TArray<TObjectPtr<AActor>> SpawnedSystemActors;
