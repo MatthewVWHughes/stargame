@@ -119,7 +119,7 @@ void UStarCatalogSubsystem::BuildNativeFixtureCache()
 		}
 
 		FGravityWellDefinition Well;
-		Well.WellId = TEXT("ember_gravity_well");
+		Well.WellId = TEXT("ember_well");
 		Well.AnchorBodyId = TEXT("ember");
 		Well.SlowdownRadiusCm = 120000.0;
 		Well.LockoutRadiusCm = 90000.0;
@@ -301,7 +301,15 @@ bool UStarCatalogSubsystem::BuildAssetCatalogCache(bool bAllowNativeFallback)
 		}
 	}
 
-	bUsingAssetCatalog = StartProfilesById.Num() > 0 && SystemsById.Num() > 0;
+	bUsingAssetCatalog =
+		StartProfilesById.Num() > 0 &&
+		SystemsById.Num() > 0 &&
+		CatalogEntries.Num() > 0 &&
+		ShipArchetypesById.Num() > 0 &&
+		MovementProfilesById.Num() > 0 &&
+		DurabilityProfilesById.Num() > 0 &&
+		LoadoutProfilesById.Num() > 0 &&
+		ResourceProfilesById.Num() > 0;
 	if (!bUsingAssetCatalog && bAllowNativeFallback)
 	{
 		BuildNativeFixtureCache();
@@ -428,6 +436,33 @@ FStargameValidationReport UStarCatalogSubsystem::ValidateM3Fixture(FName SystemI
 	}
 
 	ValidateM3SystemDefinition(SystemDefinition, Report);
+	return Report;
+}
+
+FStargameValidationReport UStarCatalogSubsystem::ValidateM4Fixture(FName SystemId) const
+{
+	FStargameValidationReport Report = ValidateM3Fixture(SystemId);
+	Report.Profile = EStargameValidationProfile::M4;
+	if (Report.HasBlockingIssues())
+	{
+		return Report;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	if (!ResolveSystemDefinition(SystemId, SystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_system"), SystemId, TEXT("Required system definition could not be resolved."));
+		return Report;
+	}
+
+	FStartProfileDefinition StartProfile;
+	if (!ResolveStartProfile(FFrontierTestFixtureProvider::DefaultStartProfileId, StartProfile))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_start_profile"), FFrontierTestFixtureProvider::DefaultStartProfileId, TEXT("Required start profile could not be resolved."));
+		return Report;
+	}
+
+	ValidateM4SystemDefinition(SystemDefinition, StartProfile, Report);
 	return Report;
 }
 
@@ -955,6 +990,107 @@ bool UStarCatalogSubsystem::ValidateM3SystemDefinition(const FStarSystemDefiniti
 		if (!Gate || Gate->ActivationRangeCm <= 0.0)
 		{
 			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m3_gate_activation_missing"), TEXT("frontier_gate_a"), TEXT("M3 gate approach requires a positive activation range, even though transition is not implemented yet."));
+			bValid = false;
+		}
+	}
+
+	return bValid && !Report.HasBlockingIssues();
+}
+
+bool UStarCatalogSubsystem::ValidateM4SystemDefinition(const FStarSystemDefinition& SystemDefinition, const FStartProfileDefinition& StartProfile, FStargameValidationReport& Report) const
+{
+	bool bValid = true;
+	const FStargameScaleContract& Scale = SystemDefinition.Scale;
+	if (Scale.SupercruiseMinSpeedCmPerSec != 100000.0 ||
+		Scale.SupercruiseMaxSpeedCmPerSec != 20000000.0 ||
+		Scale.SupercruiseSpoolSeconds != 3.0 ||
+		Scale.DropoutCooldownSeconds != 5.0 ||
+		Scale.SupercruiseTargetDropoutMinRadiusCm != 250000.0 ||
+		Scale.SupercruiseTargetDropoutMaxRadiusCm != 750000.0)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("invalid_m4_supercruise_scale_contract"), SystemDefinition.SystemId, TEXT("M4 fixture scale values must match the documented provisional supercruise contract."));
+		bValid = false;
+	}
+	if (Scale.SupercruiseMinSpeedCmPerSec <= Scale.NormalFlightMaxSpeedCmPerSec ||
+		Scale.SupercruiseMaxSpeedCmPerSec <= Scale.SupercruiseMinSpeedCmPerSec ||
+		Scale.SupercruiseTargetDropoutMinRadiusCm <= 0.0 ||
+		Scale.SupercruiseTargetDropoutMaxRadiusCm <= Scale.SupercruiseTargetDropoutMinRadiusCm)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("invalid_m4_supercruise_scale_ranges"), SystemDefinition.SystemId, TEXT("M4 supercruise speed and dropout ranges are invalid."));
+		bValid = false;
+	}
+
+	for (const FGravityWellDefinition& GravityWell : SystemDefinition.GravityWells)
+	{
+		if (GravityWell.SlowdownRadiusCm < GravityWell.LockoutRadiusCm ||
+			GravityWell.LockoutRadiusCm < GravityWell.DropoutRadiusCm ||
+			GravityWell.DropoutRadiusCm <= 0.0)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("invalid_m4_gravity_well_radii"), GravityWell.WellId, TEXT("M4 gravity wells must satisfy slowdown >= lockout >= dropout > 0."));
+			bValid = false;
+		}
+	}
+
+	const FShipArchetypeDefinition* Ship = ShipArchetypesById.Find(StartProfile.ShipArchetypeId);
+	const FShipMovementProfileDefinition* Movement = Ship ? MovementProfilesById.Find(Ship->MovementProfileId) : nullptr;
+	if (!Movement)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("missing_m4_movement_profile"), StartProfile.ShipArchetypeId, TEXT("M4 requires the start ship movement profile to resolve."));
+		bValid = false;
+	}
+	else
+	{
+		if (Movement->SupercruiseTuningId.IsNone() ||
+			!Movement->SupportedFlightModeTags.HasTagExact(FGameplayTag::RequestGameplayTag(TEXT("Stargame.FlightMode.Supercruise"), false)))
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("missing_m4_supercruise_tuning"), Movement->MovementProfileId, TEXT("M4 movement profile must declare supercruise tuning and support tag."));
+			bValid = false;
+		}
+		if (Movement->SupercruiseAccelerationCurve.IsNull() || !Movement->SupercruiseAccelerationCurve.LoadSynchronous() ||
+			Movement->SupercruiseDecelerationCurve.IsNull() || !Movement->SupercruiseDecelerationCurve.LoadSynchronous() ||
+			Movement->SupercruiseTurnResponseCurve.IsNull() || !Movement->SupercruiseTurnResponseCurve.LoadSynchronous())
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("missing_m4_supercruise_curves"), Movement->MovementProfileId, TEXT("M4 movement profile must reference acceleration, deceleration, and turn-response curve assets."));
+			bValid = false;
+		}
+	}
+
+	const FSimulationClockSnapshot ClockSnapshot = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	FFrameResolvedTransform SpawnTransform;
+	FFrameResolvedTransform DistantTargetTransform;
+	if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, StartProfile.SpawnZoneId, ClockSnapshot, 0.0, SpawnTransform))
+	{
+		SpawnTransform.PositionCm = FVector::ZeroVector;
+	}
+	if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, TEXT("brink_watch"), ClockSnapshot, 0.0, DistantTargetTransform))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m4_distant_target_unresolved"), TEXT("brink_watch"), TEXT("M4 requires the distant supercruise target leg to resolve."));
+		bValid = false;
+	}
+	else if (FVector::Distance(SpawnTransform.PositionCm, DistantTargetTransform.PositionCm) <= Scale.LocalBubbleRadiusCm)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m4_missing_distant_travel_leg"), TEXT("brink_watch"), TEXT("M4 requires a fixture target leg longer than the local bubble so supercruise is meaningful."));
+		bValid = false;
+	}
+
+	FFrameResolvedTransform EmberTransform;
+	if (UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, TEXT("ember"), ClockSnapshot, 0.0, EmberTransform))
+	{
+		FGravityWellQueryResult LockoutQuery;
+		const FVector LockoutPosition = EmberTransform.PositionCm + FVector(Scale.GravityLockoutRadiusCm * 0.5, 0.0, 0.0);
+		if (!UOrbitRouteFrameQueryService::QueryNearestGravityWell(SystemDefinition, LockoutPosition, FVector::ZeroVector, EShipFlightMode::Normal, ClockSnapshot, 0.0, LockoutQuery) ||
+			!LockoutQuery.bInsideLockout)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m4_lockout_query_failed"), TEXT("ember_well"), TEXT("M4 gravity query must detect lockout before supercruise entry."));
+			bValid = false;
+		}
+
+		FGravityWellQueryResult DropoutQuery;
+		const FVector DropoutPosition = EmberTransform.PositionCm + FVector(Scale.GravityLockoutRadiusCm * 0.25, 0.0, 0.0);
+		if (!UOrbitRouteFrameQueryService::QueryNearestGravityWell(SystemDefinition, DropoutPosition, FVector::ZeroVector, EShipFlightMode::Supercruise, ClockSnapshot, 0.0, DropoutQuery) ||
+			!DropoutQuery.bForcedDropout)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m4_dropout_query_failed"), TEXT("ember_well"), TEXT("M4 gravity query must force dropout inside the configured dropout radius."));
 			bValid = false;
 		}
 	}

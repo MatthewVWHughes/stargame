@@ -18,6 +18,7 @@ private:
 	void DrawFlightCluster(float ViewWidth, float ViewHeight, float Scale, float SpeedMeters, float AccelerationMeters, float Throttle);
 	void DrawSystemsCluster(float ViewWidth, float ViewHeight, float Scale);
 	void DrawNavigationTargets(float ViewWidth, float Scale, const TArray<FNavigationTargetViewModel>& Targets);
+	void DrawSupercruiseTelemetry(float ViewWidth, float Scale, const FSupercruiseTelemetry& Telemetry);
 	void DrawCenterSymbology(float ViewWidth, float ViewHeight, float Scale);
 	void DrawTopStrip(float ViewWidth, float Scale, const TArray<FNavigationTargetViewModel>& Targets);
 	void DrawRadarReserve(float ViewWidth, float ViewHeight, float Scale);

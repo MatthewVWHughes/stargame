@@ -42,6 +42,7 @@ void APrototypeFlightHud::DrawHUD()
 	DrawFlightCluster(ViewWidth, ViewHeight, Scale, SpeedMeters, AccelerationMeters, Throttle);
 	DrawSystemsCluster(ViewWidth, ViewHeight, Scale);
 	DrawNavigationTargets(ViewWidth, Scale, TargetViewModels);
+	DrawSupercruiseTelemetry(ViewWidth, Scale, FlightPawn->GetSupercruiseTelemetry());
 	DrawRadarReserve(ViewWidth, ViewHeight, Scale);
 }
 
@@ -60,8 +61,8 @@ void APrototypeFlightHud::BuildHudTargetViewModels(const ASpaceFlightPawn* Fligh
 
 	StarSystem->BuildNavigationTargetViewModels(
 		Session->GetSelectedTargetId(),
-		FlightPawn->GetActorLocation(),
-		FVector::ZeroVector,
+		FlightPawn->GetLogicalSystemPositionCm(),
+		FlightPawn->GetLinearVelocityCmPerSec(),
 		Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds,
 		OutTargets);
 }
@@ -196,6 +197,28 @@ void APrototypeFlightHud::DrawNavigationTargets(float ViewWidth, float Scale, co
 		DrawText(Line, Target.bIsSelected ? Selected : Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
 		Y += 22.0f * Scale;
 	}
+}
+
+void APrototypeFlightHud::DrawSupercruiseTelemetry(float ViewWidth, float Scale, const FSupercruiseTelemetry& Telemetry)
+{
+	const FLinearColor Cyan(0.72f, 0.94f, 1.0f, 0.82f);
+	const FLinearColor Text(1.0f, 0.93f, 0.72f, 0.92f);
+	const FLinearColor Warning(1.0f, 0.38f, 0.28f, 0.95f);
+
+	const float X = 34.0f * Scale;
+	float Y = 118.0f * Scale;
+	DrawText(TEXT("SUPERCRUISE"), Cyan, X, Y, GEngine->GetSmallFont(), Scale, false);
+	Y += 26.0f * Scale;
+
+	DrawText(FString::Printf(TEXT("MODE  %s"), *UEnum::GetValueAsString(Telemetry.SupercruiseState)), Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
+	Y += 22.0f * Scale;
+	DrawText(FString::Printf(TEXT("LIMIT %.0f km/s"), Telemetry.SpeedLimitCmPerSec / 100000.0), Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
+	Y += 22.0f * Scale;
+	DrawText(FString::Printf(TEXT("WELL  %s"), *Telemetry.Gravity.NearestWellId.ToString()), Telemetry.Gravity.bInsideLockout ? Warning : Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
+	Y += 22.0f * Scale;
+	DrawText(FString::Printf(TEXT("LOCKOUT %s"), Telemetry.Gravity.bInsideLockout ? TEXT("YES") : TEXT("NO")), Telemetry.Gravity.bInsideLockout ? Warning : Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
+	Y += 22.0f * Scale;
+	DrawText(FString::Printf(TEXT("DROP %.1f km"), Telemetry.Target.DistanceToDropoutBandCm / 100000.0), Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
 }
 
 void APrototypeFlightHud::DrawRadarReserve(float ViewWidth, float ViewHeight, float Scale)

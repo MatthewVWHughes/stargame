@@ -42,8 +42,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
 	FVector GetLinearVelocityCmPerSec() const { return LinearVelocity; }
 
+	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
+	FVector GetLogicalSystemPositionCm() const { return LogicalSystemPositionCm; }
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
+	FSupercruiseTelemetry GetSupercruiseTelemetry() const;
+
 	UFUNCTION(Exec)
 	void CycleNavigationTarget();
+
+	UFUNCTION(Exec)
+	void RequestSupercruise();
 
 protected:
 	virtual void BeginPlay() override;
@@ -64,6 +73,7 @@ private:
 	void UpdateThrottle(float DeltaSeconds);
 	void UpdateSteering(float DeltaSeconds);
 	void UpdateNormalFlight(float DeltaSeconds);
+	void UpdateSupercruise(float DeltaSeconds);
 	void UpdateShipVisuals(float DeltaSeconds);
 	void UpdateCameraResponse(float DeltaSeconds, const FVector& PreviousVelocity);
 	void InitializeAtmosphericDust();
@@ -104,6 +114,9 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0"))
 	float NormalMaxSpeed = 24000.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0"))
+	float SupercruiseActorRepresentationScale = 0.02f;
 
 	UPROPERTY(EditAnywhere, Category = "Flight|Collision", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float CollisionBounceRestitution = 0.45f;
@@ -188,6 +201,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
 	FVector LinearVelocity = FVector::ZeroVector;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
+	FVector LogicalSystemPositionCm = FVector::ZeroVector;
 
 	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
 	FVector LastAcceleration = FVector::ZeroVector;

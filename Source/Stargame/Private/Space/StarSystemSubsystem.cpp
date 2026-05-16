@@ -8,18 +8,12 @@
 void UStarSystemSubsystem::OnWorldBeginPlay(UWorld& InWorld)
 {
 	Super::OnWorldBeginPlay(InWorld);
-	GameTimeSeconds = 0.0;
 }
 
 void UStarSystemSubsystem::Deinitialize()
 {
 	TearDownActiveSystem();
 	Super::Deinitialize();
-}
-
-void UStarSystemSubsystem::AdvanceGameTime(double DeltaSeconds)
-{
-	GameTimeSeconds += FMath::Max(0.0, DeltaSeconds);
 }
 
 bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefinition)
@@ -148,7 +142,7 @@ void UStarSystemSubsystem::TearDownActiveSystem()
 	bBuildComplete = false;
 }
 
-bool UStarSystemSubsystem::SpawnPlayerAtSpawnZone(FName SpawnZoneId, APlayerController* PlayerController)
+bool UStarSystemSubsystem::SpawnPlayerAtSpawnZone(FName SpawnZoneId, APlayerController* PlayerController, TSubclassOf<APawn> PawnClass)
 {
 	FSpawnZoneDefinition SpawnZone;
 	if (!FindSpawnZone(SpawnZoneId, SpawnZone))
@@ -169,7 +163,12 @@ bool UStarSystemSubsystem::SpawnPlayerAtSpawnZone(FName SpawnZoneId, APlayerCont
 	{
 		FActorSpawnParameters SpawnParameters;
 		SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		Pawn = World->SpawnActor<ASpaceFlightPawn>(ASpaceFlightPawn::StaticClass(), SpawnZone.Transform, SpawnParameters);
+		TSubclassOf<APawn> SpawnClass = PawnClass;
+		if (!SpawnClass)
+		{
+			SpawnClass = ASpaceFlightPawn::StaticClass();
+		}
+		Pawn = World->SpawnActor<APawn>(SpawnClass, SpawnZone.Transform, SpawnParameters);
 		if (PlayerController && Pawn)
 		{
 			PlayerController->Possess(Pawn);
@@ -290,6 +289,68 @@ void UStarSystemSubsystem::BuildNavigationTargetViewModels(
 			OutViewModels.Add(ViewModel);
 		}
 	}
+}
+
+bool UStarSystemSubsystem::QueryNearestGravityWell(
+	const FVector& ShipSystemPositionCm,
+	const FVector& ShipSystemVelocityCmPerSec,
+	EShipFlightMode FlightMode,
+	double SimulationTimeSeconds,
+	FGravityWellQueryResult& OutResult) const
+{
+	const FSimulationClockSnapshot ClockSnapshot = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(ActiveSystemDefinition.SystemId, SimulationTimeSeconds);
+	return UOrbitRouteFrameQueryService::QueryNearestGravityWell(
+		ActiveSystemDefinition,
+		ShipSystemPositionCm,
+		ShipSystemVelocityCmPerSec,
+		FlightMode,
+		ClockSnapshot,
+		SimulationTimeSeconds,
+		OutResult);
+}
+
+bool UStarSystemSubsystem::BuildSupercruiseTargetTelemetry(
+	FName TargetId,
+	const FVector& ObserverSystemPositionCm,
+	const FVector& ObserverVelocityCmPerSec,
+	double SimulationTimeSeconds,
+	FSupercruiseTargetTelemetry& OutTelemetry) const
+{
+	FNavigationTargetViewModel TargetViewModel;
+	if (!BuildNavigationTargetViewModel(TargetId, TargetId, ObserverSystemPositionCm, ObserverVelocityCmPerSec, SimulationTimeSeconds, TargetViewModel))
+	{
+		return false;
+	}
+
+	OutTelemetry = UOrbitRouteFrameQueryService::BuildSupercruiseTargetTelemetry(ActiveSystemDefinition.Scale, TargetViewModel);
+	return true;
+}
+
+bool UStarSystemSubsystem::RefreshRegisteredEntityTransforms(double SimulationTimeSeconds)
+{
+	if (!bBuildComplete)
+	{
+		LastBuildError = TEXT("Cannot refresh entity transforms before a system is built.");
+		return false;
+	}
+
+	const FSimulationClockSnapshot ClockSnapshot = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(ActiveSystemDefinition.SystemId, SimulationTimeSeconds);
+	for (TPair<FName, FActiveSystemEntityEntry>& EntryPair : RegisteredEntities)
+	{
+		FFrameResolvedTransform ResolvedTransform;
+		if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(ActiveSystemDefinition, EntryPair.Key, ClockSnapshot, SimulationTimeSeconds, ResolvedTransform))
+		{
+			LastBuildError = FString::Printf(TEXT("Failed to refresh entity transform for '%s'."), *EntryPair.Key.ToString());
+			return false;
+		}
+
+		if (AActor* Actor = EntryPair.Value.Actor.Get())
+		{
+			Actor->SetActorTransform(FTransform(ResolvedTransform.Rotation, ResolvedTransform.PositionCm), false, nullptr, ETeleportType::TeleportPhysics);
+		}
+	}
+
+	return true;
 }
 
 void UStarSystemSubsystem::GetRegisteredEntityIds(TArray<FName>& OutEntityIds) const
@@ -478,6 +539,36 @@ FString UStarSystemSubsystem::GetM3DebugSummary(
 		ActiveSystemDefinition.Scale.StationApproachBubbleRadiusCm,
 		ActiveSystemDefinition.Scale.NormalFlightMaxSpeedCmPerSec,
 		*FString::Join(TargetLines, TEXT(",")));
+}
+
+FString UStarSystemSubsystem::GetM4DebugSummary(
+	FName SelectedTargetId,
+	const FVector& ObserverSystemPositionCm,
+	const FVector& ObserverVelocityCmPerSec,
+	double SimulationTimeSeconds,
+	const FSupercruiseTelemetry& Telemetry) const
+{
+	return FString::Printf(
+		TEXT("ActiveSystem=%s\nBuildComplete=%s\nFlightMode=%s\nSupercruiseState=%s\nSelectedTarget=%s\nObserverPositionCm=%s\nObserverVelocityCmPerSec=%s\nSupercruiseSpeedCmPerSec=%.0f\nSpeedLimitCmPerSec=%.0f\nNearestGravityWell=%s\nGravityDistanceCm=%.0f\nInsideLockout=%s\nInsideDropout=%s\nTargetDistanceCm=%.0f\nTargetApproachReady=%s\nSupercruiseMinSpeedCmPerSec=%.0f\nSupercruiseMaxSpeedCmPerSec=%.0f\nDropoutBandCm=%.0f-%.0f"),
+		*GetActiveSystemId().ToString(),
+		bBuildComplete ? TEXT("true") : TEXT("false"),
+		*UEnum::GetValueAsString(Telemetry.FlightMode),
+		*UEnum::GetValueAsString(Telemetry.SupercruiseState),
+		*SelectedTargetId.ToString(),
+		*ObserverSystemPositionCm.ToCompactString(),
+		*ObserverVelocityCmPerSec.ToCompactString(),
+		Telemetry.CurrentSpeedCmPerSec,
+		Telemetry.SpeedLimitCmPerSec,
+		*Telemetry.Gravity.NearestWellId.ToString(),
+		Telemetry.Gravity.DistanceCm,
+		Telemetry.Gravity.bInsideLockout ? TEXT("true") : TEXT("false"),
+		Telemetry.Gravity.bInsideDropout ? TEXT("true") : TEXT("false"),
+		Telemetry.Target.DistanceCm,
+		Telemetry.Target.bApproachReady ? TEXT("true") : TEXT("false"),
+		ActiveSystemDefinition.Scale.SupercruiseMinSpeedCmPerSec,
+		ActiveSystemDefinition.Scale.SupercruiseMaxSpeedCmPerSec,
+		ActiveSystemDefinition.Scale.SupercruiseTargetDropoutMinRadiusCm,
+		ActiveSystemDefinition.Scale.SupercruiseTargetDropoutMaxRadiusCm);
 }
 
 bool UStarSystemSubsystem::ValidateSystemForBuild(const FStarSystemDefinition& SystemDefinition, FString& OutError) const

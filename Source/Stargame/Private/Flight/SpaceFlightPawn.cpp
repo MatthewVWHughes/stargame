@@ -75,12 +75,18 @@ EShipFlightMode ASpaceFlightPawn::GetFlightMode() const
 	return FlightModeComponent ? FlightModeComponent->GetFlightMode() : EShipFlightMode::Normal;
 }
 
+FSupercruiseTelemetry ASpaceFlightPawn::GetSupercruiseTelemetry() const
+{
+	return FlightModeComponent ? FlightModeComponent->GetSupercruiseTelemetry() : FSupercruiseTelemetry();
+}
+
 void ASpaceFlightPawn::BeginPlay()
 {
 	Super::BeginPlay();
 
 	CurrentCameraArmLength = CameraArmLength;
 	CurrentCameraTargetOffset = CameraTargetOffset;
+	LogicalSystemPositionCm = GetActorLocation();
 	InitializeAtmosphericDust();
 
 	if (const UWorld* World = GetWorld())
@@ -94,6 +100,7 @@ void ASpaceFlightPawn::BeginPlay()
 				if (FlightModeComponent)
 				{
 					FlightModeComponent->SetNormalFlightMaxSpeedCmPerSec(Scale.NormalFlightMaxSpeedCmPerSec);
+					FlightModeComponent->ConfigureSupercruiseFromScale(Scale);
 				}
 			}
 		}
@@ -118,7 +125,14 @@ void ASpaceFlightPawn::Tick(float DeltaSeconds)
 	UpdateThrottle(DeltaSeconds);
 	UpdateSteering(DeltaSeconds);
 	const FVector PreviousVelocity = LinearVelocity;
-	UpdateNormalFlight(DeltaSeconds);
+	if (GetFlightMode() == EShipFlightMode::Supercruise)
+	{
+		UpdateSupercruise(DeltaSeconds);
+	}
+	else
+	{
+		UpdateNormalFlight(DeltaSeconds);
+	}
 	UpdateShipVisuals(DeltaSeconds);
 	UpdateCameraResponse(DeltaSeconds, PreviousVelocity);
 	UpdateAtmosphericDust(DeltaSeconds);
@@ -139,6 +153,7 @@ void ASpaceFlightPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	PlayerInputComponent->BindAction(TEXT("SecondaryMouse"), IE_Pressed, this, &ASpaceFlightPawn::StartSecondaryMouse);
 	PlayerInputComponent->BindAction(TEXT("SecondaryMouse"), IE_Released, this, &ASpaceFlightPawn::StopSecondaryMouse);
 	PlayerInputComponent->BindAction(TEXT("CycleTarget"), IE_Pressed, this, &ASpaceFlightPawn::CycleNavigationTarget);
+	PlayerInputComponent->BindAction(TEXT("RequestSupercruise"), IE_Pressed, this, &ASpaceFlightPawn::RequestSupercruise);
 }
 
 void ASpaceFlightPawn::Throttle(float Value)
@@ -204,6 +219,31 @@ void ASpaceFlightPawn::CycleNavigationTarget()
 	{
 		Session->CycleNavigationTarget();
 	}
+}
+
+void ASpaceFlightPawn::RequestSupercruise()
+{
+	if (!FlightModeComponent)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	const UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!StarSystem || !Session)
+	{
+		return;
+	}
+
+	const double SimulationTimeSeconds = Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds;
+	FGravityWellQueryResult Gravity;
+	StarSystem->QueryNearestGravityWell(LogicalSystemPositionCm, LinearVelocity, GetFlightMode(), SimulationTimeSeconds, Gravity);
+
+	FSupercruiseTargetTelemetry Target;
+	StarSystem->BuildSupercruiseTargetTelemetry(Session->GetSelectedTargetId(), LogicalSystemPositionCm, LinearVelocity, SimulationTimeSeconds, Target);
+	FlightModeComponent->RequestEnterSupercruise(Gravity, Target);
 }
 
 void ASpaceFlightPawn::UpdateThrottle(float DeltaSeconds)
@@ -304,6 +344,7 @@ void ASpaceFlightPawn::UpdateNormalFlight(float DeltaSeconds)
 
 	FHitResult Hit;
 	AddActorWorldOffset(LinearVelocity * DeltaSeconds, true, &Hit);
+	LogicalSystemPositionCm = GetActorLocation();
 	if (Hit.bBlockingHit)
 	{
 		const FVector IncomingVelocity = LinearVelocity;
@@ -314,6 +355,52 @@ void ASpaceFlightPawn::UpdateNormalFlight(float DeltaSeconds)
 		AddActorWorldOffset(Hit.ImpactNormal * 20.0f, false);
 	}
 
+	LastAcceleration = DeltaSeconds > SMALL_NUMBER
+		? (LinearVelocity - PreviousVelocity) / DeltaSeconds
+		: FVector::ZeroVector;
+}
+
+void ASpaceFlightPawn::UpdateSupercruise(float DeltaSeconds)
+{
+	if (!FlightModeComponent)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	const UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	const double SimulationTimeSeconds = Session ? Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds : 0.0;
+
+	FGravityWellQueryResult Gravity;
+	if (StarSystem)
+	{
+		StarSystem->QueryNearestGravityWell(LogicalSystemPositionCm, LinearVelocity, GetFlightMode(), SimulationTimeSeconds, Gravity);
+	}
+
+	FSupercruiseTargetTelemetry Target;
+	if (StarSystem && Session)
+	{
+		StarSystem->BuildSupercruiseTargetTelemetry(Session->GetSelectedTargetId(), LogicalSystemPositionCm, LinearVelocity, SimulationTimeSeconds, Target);
+	}
+
+	const FVector PreviousVelocity = LinearVelocity;
+	FlightModeComponent->TickSupercruise(DeltaSeconds, Gravity, Target);
+
+	if (FlightModeComponent->GetSupercruiseState() == ESupercruiseState::DropoutCooldown ||
+		FlightModeComponent->GetSupercruiseState() == ESupercruiseState::Inactive)
+	{
+		LinearVelocity = LinearVelocity.GetClampedToMaxSize(NormalMaxSpeed);
+	}
+	else
+	{
+		LinearVelocity = GetActorForwardVector() * FlightModeComponent->GetCurrentSupercruiseSpeedCmPerSec();
+	}
+
+	const FVector LogicalDeltaCm = LinearVelocity * DeltaSeconds;
+	LogicalSystemPositionCm += LogicalDeltaCm;
+	AddActorWorldOffset(LogicalDeltaCm * SupercruiseActorRepresentationScale, false);
 	LastAcceleration = DeltaSeconds > SMALL_NUMBER
 		? (LinearVelocity - PreviousVelocity) / DeltaSeconds
 		: FVector::ZeroVector;

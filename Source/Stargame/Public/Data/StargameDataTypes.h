@@ -6,6 +6,7 @@
 #include "StargameDataTypes.generated.h"
 
 class APawn;
+class UCurveFloat;
 
 UENUM(BlueprintType)
 enum class EShipFlightMode : uint8
@@ -18,6 +19,29 @@ enum class EShipFlightMode : uint8
 	GateArrival,
 	Disabled,
 	DockingAutopilot
+};
+
+UENUM(BlueprintType)
+enum class ESupercruiseState : uint8
+{
+	Inactive,
+	Spooling,
+	Cruising,
+	ForcedDropout,
+	ManualDropout,
+	DropoutCooldown
+};
+
+UENUM(BlueprintType)
+enum class ESupercruiseRequestResult : uint8
+{
+	Success,
+	AlreadyInSupercruise,
+	InsideLockout,
+	DriveDisabled,
+	NoValidLogicalLocation,
+	TargetTooClose,
+	SpoolInterrupted
 };
 
 UENUM(BlueprintType)
@@ -48,7 +72,8 @@ enum class EStargameValidationProfile : uint8
 	M0,
 	M1,
 	M2,
-	M3
+	M3,
+	M4
 };
 
 UENUM(BlueprintType)
@@ -355,6 +380,24 @@ struct STARGAME_API FStargameScaleContract
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm/s"))
 	double SupercruiseMaxSpeedCmPerSec = 20000000.0;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "s"))
+	double SupercruiseSpoolSeconds = 3.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "s"))
+	double DropoutCooldownSeconds = 5.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm"))
+	double SupercruiseTargetDropoutMinRadiusCm = 250000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm"))
+	double SupercruiseTargetDropoutMaxRadiusCm = 750000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm/s^2"))
+	double SupercruiseAccelerationCmPerSec2 = 250000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm/s^2"))
+	double SupercruiseBrakingCmPerSec2 = 450000.0;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm"))
 	double GravitySlowdownRadiusCm = 2000000.0;
 
@@ -372,6 +415,111 @@ struct STARGAME_API FStargameScaleContract
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale")
 	double MapMaxIconScale = 2.0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FGravityWellQueryResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Gravity")
+	FName NearestWellId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Gravity")
+	FName AnchorBodyId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Gravity", meta = (Units = "cm"))
+	double DistanceCm = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Gravity")
+	double SlowdownFactor = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Gravity", meta = (Units = "cm/s"))
+	double SpeedCeilingCmPerSec = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Gravity")
+	bool bInsideSlowdown = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Gravity")
+	bool bInsideLockout = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Gravity")
+	bool bInsideDropout = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Gravity")
+	bool bForcedDropout = false;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSupercruiseTargetTelemetry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise")
+	FName TargetId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise", meta = (Units = "cm"))
+	double DistanceCm = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise", meta = (Units = "cm/s"))
+	double ClosingSpeedCmPerSec = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise", meta = (Units = "cm"))
+	double DistanceToDropoutBandCm = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise")
+	bool bInsideDropoutBand = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise")
+	bool bApproachReady = false;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSupercruiseGuidanceResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise", meta = (Units = "cm/s"))
+	double GravitySpeedLimitCmPerSec = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise", meta = (Units = "cm/s"))
+	double BrakingSpeedLimitCmPerSec = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise", meta = (Units = "cm/s"))
+	double DesiredSpeedCmPerSec = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise")
+	bool bTargetDropoutReady = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise")
+	bool bGravityDropoutRequired = false;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSupercruiseTelemetry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise")
+	EShipFlightMode FlightMode = EShipFlightMode::Normal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise")
+	ESupercruiseState SupercruiseState = ESupercruiseState::Inactive;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise", meta = (Units = "cm/s"))
+	double CurrentSpeedCmPerSec = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise", meta = (Units = "cm/s"))
+	double SpeedLimitCmPerSec = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise", meta = (Units = "s"))
+	double StateRemainingSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise")
+	FGravityWellQueryResult Gravity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Supercruise")
+	FSupercruiseTargetTelemetry Target;
 };
 
 USTRUCT(BlueprintType)
@@ -786,6 +934,15 @@ struct STARGAME_API FShipMovementProfileDefinition
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ship", meta = (Units = "deg/s"))
 	double MaxAngularSpeedDegPerSec = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ship")
+	TSoftObjectPtr<UCurveFloat> SupercruiseAccelerationCurve;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ship")
+	TSoftObjectPtr<UCurveFloat> SupercruiseDecelerationCurve;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ship")
+	TSoftObjectPtr<UCurveFloat> SupercruiseTurnResponseCurve;
 };
 
 USTRUCT(BlueprintType)

@@ -8,6 +8,7 @@
 #include "Engine/GameInstance.h"
 #include "Flight/SpaceFlightPawn.h"
 #include "Misc/Parse.h"
+#include "Curves/CurveFloat.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 
@@ -46,6 +47,20 @@ namespace
 		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
 		SaveArgs.SaveFlags = SAVE_NoError;
 		return UPackage::SavePackage(Package, Asset, *FileName, SaveArgs);
+	}
+
+	void SetCurveKeys(UCurveFloat* Curve, const TArray<TPair<float, float>>& Keys)
+	{
+		if (!Curve)
+		{
+			return;
+		}
+
+		Curve->FloatCurve.Reset();
+		for (const TPair<float, float>& Key : Keys)
+		{
+			Curve->FloatCurve.AddKey(Key.Key, Key.Value);
+		}
 	}
 
 	FNavigationTargetDefinition MakeNavigationTarget(FName TargetId, const TCHAR* DisplayName, FName TargetType)
@@ -99,14 +114,14 @@ namespace
 		SystemDefinition.Bodies.Add(MakeBody(TEXT("brink"), TEXT("Brink"), TEXT("outer_planet"), 90000.0, TEXT("frontier_primary"), 40000000.0, 1800.0, 2.2));
 		SystemDefinition.Bodies.Add(MakeBody(TEXT("brink_minor"), TEXT("Brink Minor"), TEXT("moon"), 18000.0, TEXT("brink"), 3500000.0, 240.0, 0.7));
 
-		auto MakeDockingPort = []()
+		auto MakeDockingPort = [](FName PortId, const TCHAR* DisplayName)
 		{
 			FDockingPortDefinition DockingPort;
-			DockingPort.PortId = TEXT("pad_01");
-			DockingPort.DisplayName = FText::FromString(TEXT("Pad 01"));
-			DockingPort.ApproachTransform = FTransform(FRotator::ZeroRotator, FVector(0.0, -18000.0, 0.0));
-			DockingPort.DockedTransform = FTransform(FRotator::ZeroRotator, FVector(0.0, -12000.0, 0.0));
-			DockingPort.UndockTransform = FTransform(FRotator::ZeroRotator, FVector(0.0, -22000.0, 0.0));
+			DockingPort.PortId = PortId;
+			DockingPort.DisplayName = FText::FromString(DisplayName);
+			DockingPort.ApproachTransform = FTransform(FRotator::ZeroRotator, FVector(0.0, -25000.0, 0.0));
+			DockingPort.DockedTransform = FTransform(FRotator::ZeroRotator, FVector(0.0, -1200.0, 0.0));
+			DockingPort.UndockTransform = FTransform(FRotator::ZeroRotator, FVector(0.0, -6000.0, 0.0));
 			DockingPort.AllowedShipClasses.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Stargame.ShipClass.Light"), false));
 			return DockingPort;
 		};
@@ -118,7 +133,7 @@ namespace
 		BrinkWatch.AnchorId = TEXT("brink");
 		BrinkWatch.VisualRadiusCm = 12000.0;
 		BrinkWatch.StationProfileId = FPrimaryAssetId(UStationProfileAsset::AssetType, TEXT("frontier_station_basic"));
-		BrinkWatch.DockingPorts = { MakeDockingPort() };
+		BrinkWatch.DockingPorts = { MakeDockingPort(TEXT("brink_watch_port_a"), TEXT("Brink Watch Port A")) };
 		BrinkWatch.NavigationTarget = MakeNavigationTarget(TEXT("brink_watch"), TEXT("Brink Watch"), TEXT("station"));
 		BrinkWatch.NavigationTarget.FrameType = BrinkWatch.FrameType;
 		BrinkWatch.NavigationTarget.AnchorId = BrinkWatch.AnchorId;
@@ -135,7 +150,7 @@ namespace
 		WayfarerDepot.AnchorId = TEXT("frontier_primary");
 		WayfarerDepot.VisualRadiusCm = 14000.0;
 		WayfarerDepot.StationProfileId = FPrimaryAssetId(UStationProfileAsset::AssetType, TEXT("frontier_station_basic"));
-		WayfarerDepot.DockingPorts = { MakeDockingPort() };
+		WayfarerDepot.DockingPorts = { MakeDockingPort(TEXT("wayfarer_depot_port_a"), TEXT("Wayfarer Depot Port A")) };
 		WayfarerDepot.NavigationTarget = MakeNavigationTarget(TEXT("wayfarer_depot"), TEXT("Wayfarer Depot"), TEXT("station"));
 		WayfarerDepot.NavigationTarget.FrameType = WayfarerDepot.FrameType;
 		WayfarerDepot.NavigationTarget.AnchorId = WayfarerDepot.AnchorId;
@@ -152,19 +167,29 @@ namespace
 		}
 
 		FGravityWellDefinition EmberWell;
-		EmberWell.WellId = TEXT("ember_gravity_well");
+		EmberWell.WellId = TEXT("ember_well");
 		EmberWell.AnchorBodyId = TEXT("ember");
 		EmberWell.SlowdownRadiusCm = SystemDefinition.Scale.GravitySlowdownRadiusCm;
 		EmberWell.LockoutRadiusCm = SystemDefinition.Scale.GravityLockoutRadiusCm;
 		EmberWell.DropoutRadiusCm = 350000.0;
+		EmberWell.Strength = 0.55;
 
 		FGravityWellDefinition BrinkWell;
-		BrinkWell.WellId = TEXT("brink_gravity_well");
+		BrinkWell.WellId = TEXT("brink_well");
 		BrinkWell.AnchorBodyId = TEXT("brink");
 		BrinkWell.SlowdownRadiusCm = SystemDefinition.Scale.GravitySlowdownRadiusCm;
 		BrinkWell.LockoutRadiusCm = SystemDefinition.Scale.GravityLockoutRadiusCm;
 		BrinkWell.DropoutRadiusCm = 350000.0;
-		SystemDefinition.GravityWells = { EmberWell, BrinkWell };
+		BrinkWell.Strength = 0.75;
+
+		FGravityWellDefinition BrinkMinorWell;
+		BrinkMinorWell.WellId = TEXT("brink_minor_well");
+		BrinkMinorWell.AnchorBodyId = TEXT("brink_minor");
+		BrinkMinorWell.SlowdownRadiusCm = 900000.0;
+		BrinkMinorWell.LockoutRadiusCm = 250000.0;
+		BrinkMinorWell.DropoutRadiusCm = 175000.0;
+		BrinkMinorWell.Strength = 0.35;
+		SystemDefinition.GravityWells = { EmberWell, BrinkWell, BrinkMinorWell };
 
 		SystemDefinition.MapEntries.Reset();
 		const TArray<TPair<FName, FName>> MapSources = {
@@ -215,6 +240,30 @@ int32 UStargameCreateM1FixtureAssetsCommandlet::Main(const FString& Params)
 	AssetsToSave.Add(GateProfile);
 
 	UShipMovementProfileAsset* Movement = CreateOrLoadAsset<UShipMovementProfileAsset>(TEXT("/Game/Data/Ships/Profiles/wayfarer_movement_basic"), TEXT("wayfarer_movement_basic"));
+	UCurveFloat* SupercruiseAccelerationCurve = CreateOrLoadAsset<UCurveFloat>(TEXT("/Game/Data/Ships/Curves/supercruise_accel_basic"), TEXT("supercruise_accel_basic"));
+	SetCurveKeys(SupercruiseAccelerationCurve, {
+		{ 0.0f, 0.0f },
+		{ 0.35f, 0.55f },
+		{ 1.0f, 1.0f }
+	});
+	AssetsToSave.Add(SupercruiseAccelerationCurve);
+
+	UCurveFloat* SupercruiseDecelerationCurve = CreateOrLoadAsset<UCurveFloat>(TEXT("/Game/Data/Ships/Curves/supercruise_decel_basic"), TEXT("supercruise_decel_basic"));
+	SetCurveKeys(SupercruiseDecelerationCurve, {
+		{ 0.0f, 0.0f },
+		{ 0.55f, 0.82f },
+		{ 1.0f, 1.0f }
+	});
+	AssetsToSave.Add(SupercruiseDecelerationCurve);
+
+	UCurveFloat* SupercruiseTurnResponseCurve = CreateOrLoadAsset<UCurveFloat>(TEXT("/Game/Data/Ships/Curves/supercruise_turn_basic"), TEXT("supercruise_turn_basic"));
+	SetCurveKeys(SupercruiseTurnResponseCurve, {
+		{ 0.0f, 1.0f },
+		{ 0.5f, 0.42f },
+		{ 1.0f, 0.18f }
+	});
+	AssetsToSave.Add(SupercruiseTurnResponseCurve);
+
 	Movement->Definition.MovementProfileId = TEXT("wayfarer_movement_basic");
 	Movement->Definition.SupportedFlightModeTags.Reset();
 	Movement->Definition.SupportedFlightModeTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Stargame.FlightMode.Normal"), false));
@@ -223,6 +272,9 @@ int32 UStargameCreateM1FixtureAssetsCommandlet::Main(const FString& Params)
 	Movement->Definition.SupercruiseTuningId = TEXT("supercruise_basic");
 	Movement->Definition.MaxLocalSpeedCmPerSec = 24000.0;
 	Movement->Definition.MaxAngularSpeedDegPerSec = 80.0;
+	Movement->Definition.SupercruiseAccelerationCurve = SupercruiseAccelerationCurve;
+	Movement->Definition.SupercruiseDecelerationCurve = SupercruiseDecelerationCurve;
+	Movement->Definition.SupercruiseTurnResponseCurve = SupercruiseTurnResponseCurve;
 	AssetsToSave.Add(Movement);
 
 	UShipDurabilityProfileAsset* Durability = CreateOrLoadAsset<UShipDurabilityProfileAsset>(TEXT("/Game/Data/Ships/Profiles/wayfarer_durability_basic"), TEXT("wayfarer_durability_basic"));
@@ -309,7 +361,9 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	const bool bValidateM1 = ProfileString.Equals(TEXT("M1"), ESearchCase::IgnoreCase);
 	const bool bValidateM2 = ProfileString.Equals(TEXT("M2"), ESearchCase::IgnoreCase);
 	const bool bValidateM3 = ProfileString.Equals(TEXT("M3"), ESearchCase::IgnoreCase);
-	if (!bValidateM1 && !bValidateM2 && !bValidateM3)
+	const bool bValidateM4 = ProfileString.Equals(TEXT("M4"), ESearchCase::IgnoreCase);
+	const bool bValidateM0 = ProfileString.Equals(TEXT("M0"), ESearchCase::IgnoreCase);
+	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Unsupported validation profile '%s'."), *ProfileString);
 		return 1;
@@ -317,15 +371,34 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 
 	UGameInstance* ValidationGameInstance = NewObject<UGameInstance>();
 	UStarCatalogSubsystem* Catalog = NewObject<UStarCatalogSubsystem>(ValidationGameInstance);
+	if (bValidateM0)
+	{
+		FStartProfileDefinition StartProfile;
+		FStarSystemDefinition SystemDefinition;
+		FString ValidationError;
+		if (!FFrontierTestFixtureProvider::ResolveStartProfile(FFrontierTestFixtureProvider::DefaultStartProfileId, StartProfile) ||
+			StartProfile.SystemId != FFrontierTestFixtureProvider::FrontierSystemId ||
+			StartProfile.SpawnZoneId != FFrontierTestFixtureProvider::DeepSpaceSpawnZoneId ||
+			!FFrontierTestFixtureProvider::ResolveSystemDefinition(SystemId, SystemDefinition) ||
+			!FFrontierTestFixtureProvider::ValidateM0Fixture(SystemDefinition, ValidationError))
+		{
+			UE_LOG(LogTemp, Error, TEXT("M0 validation failed for system '%s': %s"), *SystemId.ToString(), *ValidationError);
+			return 1;
+		}
+
+		UE_LOG(LogTemp, Display, TEXT("M0 validation passed for system '%s'."), *SystemId.ToString());
+		return 0;
+	}
+
 	if (!Catalog->BuildAssetCatalogCache(false))
 	{
-		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1")));
+		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))));
 		return 1;
 	}
 
-	const FStargameValidationReport Report = bValidateM3
-		? Catalog->ValidateM3Fixture(SystemId)
-		: (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId));
+	const FStargameValidationReport Report = bValidateM4
+		? Catalog->ValidateM4Fixture(SystemId)
+		: (bValidateM3 ? Catalog->ValidateM3Fixture(SystemId) : (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId)));
 	for (const FStargameValidationIssue& Issue : Report.Issues)
 	{
 		const ELogVerbosity::Type Verbosity = (Issue.Severity == EStargameValidationSeverity::Error || Issue.Severity == EStargameValidationSeverity::Fatal)
@@ -342,6 +415,6 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 		return 1;
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1")), *SystemId.ToString());
+	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))), *SystemId.ToString());
 	return 0;
 }

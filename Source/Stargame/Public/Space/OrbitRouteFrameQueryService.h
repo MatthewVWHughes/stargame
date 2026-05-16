@@ -48,6 +48,21 @@ public:
 		const FVector& SystemPositionCm,
 		FVector& OutActorPositionCm);
 
+	UFUNCTION(BlueprintPure, Category = "Stargame|Gravity")
+	static bool QueryNearestGravityWell(
+		const FStarSystemDefinition& SystemDefinition,
+		const FVector& ShipSystemPositionCm,
+		const FVector& ShipSystemVelocityCmPerSec,
+		EShipFlightMode FlightMode,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double RequestedSimulationTimeSeconds,
+		FGravityWellQueryResult& OutResult);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Supercruise")
+	static FSupercruiseTargetTelemetry BuildSupercruiseTargetTelemetry(
+		const FStargameScaleContract& Scale,
+		const FNavigationTargetViewModel& TargetViewModel);
+
 	UFUNCTION(BlueprintPure, Category = "Stargame|Frame")
 	static FString GetScaleDebugSummary(const FStargameScaleContract& Scale);
 

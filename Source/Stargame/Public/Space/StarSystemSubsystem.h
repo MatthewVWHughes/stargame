@@ -6,6 +6,7 @@
 #include "StarSystemSubsystem.generated.h"
 
 class APlayerController;
+class APawn;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FStarSystemBuildComplete);
 
@@ -54,12 +55,6 @@ public:
 	virtual void OnWorldBeginPlay(UWorld& InWorld) override;
 	virtual void Deinitialize() override;
 
-	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
-	double GetGameTimeSeconds() const { return GameTimeSeconds; }
-
-	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
-	void AdvanceGameTime(double DeltaSeconds);
-
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
 	bool BuildSystem(const FStarSystemDefinition& SystemDefinition);
 
@@ -67,7 +62,7 @@ public:
 	void TearDownActiveSystem();
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
-	bool SpawnPlayerAtSpawnZone(FName SpawnZoneId, APlayerController* PlayerController);
+	bool SpawnPlayerAtSpawnZone(FName SpawnZoneId, APlayerController* PlayerController, TSubclassOf<APawn> PawnClass = nullptr);
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	FName GetActiveSystemId() const { return ActiveSystemDefinition.SystemId; }
@@ -92,6 +87,15 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	void BuildNavigationTargetViewModels(FName SelectedTargetId, const FVector& ObserverSystemPositionCm, const FVector& ObserverVelocityCmPerSec, double SimulationTimeSeconds, TArray<FNavigationTargetViewModel>& OutViewModels) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	bool QueryNearestGravityWell(const FVector& ShipSystemPositionCm, const FVector& ShipSystemVelocityCmPerSec, EShipFlightMode FlightMode, double SimulationTimeSeconds, FGravityWellQueryResult& OutResult) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	bool BuildSupercruiseTargetTelemetry(FName TargetId, const FVector& ObserverSystemPositionCm, const FVector& ObserverVelocityCmPerSec, double SimulationTimeSeconds, FSupercruiseTargetTelemetry& OutTelemetry) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
+	bool RefreshRegisteredEntityTransforms(double SimulationTimeSeconds);
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	void GetRegisteredEntityIds(TArray<FName>& OutEntityIds) const;
@@ -126,6 +130,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	FString GetM3DebugSummary(FName SelectedTargetId, const FVector& ObserverSystemPositionCm, const FVector& ObserverVelocityCmPerSec, double SimulationTimeSeconds) const;
 
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	FString GetM4DebugSummary(FName SelectedTargetId, const FVector& ObserverSystemPositionCm, const FVector& ObserverVelocityCmPerSec, double SimulationTimeSeconds, const FSupercruiseTelemetry& Telemetry) const;
+
 	UPROPERTY(BlueprintAssignable, Category = "Stargame|Space")
 	FStarSystemBuildComplete OnSystemBuildComplete;
 
@@ -138,8 +145,6 @@ private:
 	bool RegisterGravityWell(const FGravityWellDefinition& GravityWell);
 	bool RegisterMapEntry(const FMapEntryDefinition& MapEntry);
 	static FName MakeDockingPortRegistryId(FName StationId, FName PortId);
-
-	double GameTimeSeconds = 0.0;
 
 	UPROPERTY()
 	FStarSystemDefinition ActiveSystemDefinition;

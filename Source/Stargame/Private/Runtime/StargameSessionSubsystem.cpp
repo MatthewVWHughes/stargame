@@ -167,8 +167,25 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 		ClockSnapshot = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(CurrentSystemId, LoadedState.ShipLocation.AuthoritativeSimulationTimeSeconds);
 	}
 
+	TSubclassOf<APawn> PawnClass = nullptr;
+	FStartProfileDefinition StartProfile;
+	const FName LoadStartProfileId = StartProfileId.IsNone()
+		? FFrontierTestFixtureProvider::DefaultStartProfileId
+		: StartProfileId;
+	const bool bResolvedLoadStartProfile = Catalog
+		? Catalog->ResolveStartProfile(LoadStartProfileId, StartProfile)
+		: FFrontierTestFixtureProvider::ResolveStartProfile(LoadStartProfileId, StartProfile);
+	if (bResolvedLoadStartProfile && StartProfile.SystemId == LoadedState.SystemId && StartProfile.SpawnZoneId == LoadedState.SpawnZoneId)
+	{
+		FShipArchetypeDefinition Ship;
+		if (Catalog && Catalog->ResolveShipArchetype(StartProfile.ShipArchetypeId, Ship))
+		{
+			PawnClass = Ship.PawnClass.LoadSynchronous();
+		}
+	}
+
 	APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
-	if (!StarSystem->SpawnPlayerAtSpawnZone(CurrentSpawnZoneId, PlayerController))
+	if (!StarSystem->SpawnPlayerAtSpawnZone(CurrentSpawnZoneId, PlayerController, PawnClass))
 	{
 		ReportStartupError(StarSystem->GetLastBuildError());
 		return false;
@@ -299,8 +316,18 @@ bool UStargameSessionSubsystem::BuildAndSpawnFromStartProfile(const FStartProfil
 	SelectedTargetId = NAME_None;
 	ClockSnapshot = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(CurrentSystemId, 0.0);
 
+	TSubclassOf<APawn> PawnClass = nullptr;
+	if (Catalog)
+	{
+		FShipArchetypeDefinition Ship;
+		if (Catalog->ResolveShipArchetype(StartProfile.ShipArchetypeId, Ship))
+		{
+			PawnClass = Ship.PawnClass.LoadSynchronous();
+		}
+	}
+
 	APlayerController* PlayerController = World->GetFirstPlayerController();
-	if (!StarSystem->SpawnPlayerAtSpawnZone(CurrentSpawnZoneId, PlayerController))
+	if (!StarSystem->SpawnPlayerAtSpawnZone(CurrentSpawnZoneId, PlayerController, PawnClass))
 	{
 		LastStartSessionResult = EStartSessionResult::MissingSpawnZone;
 		ReportStartupError(StarSystem->GetLastBuildError());

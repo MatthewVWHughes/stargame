@@ -129,10 +129,86 @@ bool UOrbitRouteFrameQueryService::ProjectSystemPositionToLocalBubble(
 	return OutActorPositionCm.Size() <= Scale.LocalBubbleRadiusCm;
 }
 
+bool UOrbitRouteFrameQueryService::QueryNearestGravityWell(
+	const FStarSystemDefinition& SystemDefinition,
+	const FVector& ShipSystemPositionCm,
+	const FVector& ShipSystemVelocityCmPerSec,
+	EShipFlightMode FlightMode,
+	const FSimulationClockSnapshot& ClockSnapshot,
+	double RequestedSimulationTimeSeconds,
+	FGravityWellQueryResult& OutResult)
+{
+	OutResult = FGravityWellQueryResult();
+	OutResult.SpeedCeilingCmPerSec = SystemDefinition.Scale.SupercruiseMaxSpeedCmPerSec;
+
+	double BestDistance = TNumericLimits<double>::Max();
+	for (const FGravityWellDefinition& GravityWell : SystemDefinition.GravityWells)
+	{
+		FFrameResolvedTransform AnchorTransform;
+		if (!ResolveEntityFrame(SystemDefinition, GravityWell.AnchorBodyId, ClockSnapshot, RequestedSimulationTimeSeconds, AnchorTransform))
+		{
+			continue;
+		}
+
+		const double DistanceCm = FVector::Distance(ShipSystemPositionCm, AnchorTransform.PositionCm);
+		if (DistanceCm >= BestDistance)
+		{
+			continue;
+		}
+
+		BestDistance = DistanceCm;
+		OutResult.NearestWellId = GravityWell.WellId;
+		OutResult.AnchorBodyId = GravityWell.AnchorBodyId;
+		OutResult.DistanceCm = DistanceCm;
+		OutResult.bInsideSlowdown = GravityWell.SlowdownRadiusCm > 0.0 && DistanceCm <= GravityWell.SlowdownRadiusCm;
+		OutResult.bInsideLockout = GravityWell.LockoutRadiusCm > 0.0 && DistanceCm <= GravityWell.LockoutRadiusCm;
+		OutResult.bInsideDropout = GravityWell.DropoutRadiusCm > 0.0 && DistanceCm <= GravityWell.DropoutRadiusCm;
+		OutResult.bForcedDropout = FlightMode == EShipFlightMode::Supercruise && OutResult.bInsideDropout;
+
+		if (OutResult.bInsideSlowdown && GravityWell.SlowdownRadiusCm > GravityWell.LockoutRadiusCm)
+		{
+			const double SlowdownAlpha = FMath::Clamp(
+				(DistanceCm - GravityWell.LockoutRadiusCm) / (GravityWell.SlowdownRadiusCm - GravityWell.LockoutRadiusCm),
+				0.0,
+				1.0);
+			OutResult.SlowdownFactor = FMath::Lerp(0.15, 1.0, SlowdownAlpha);
+		}
+		else
+		{
+			OutResult.SlowdownFactor = 1.0;
+		}
+
+		OutResult.SpeedCeilingCmPerSec = FMath::Clamp(
+			SystemDefinition.Scale.SupercruiseMaxSpeedCmPerSec * OutResult.SlowdownFactor,
+			SystemDefinition.Scale.SupercruiseMinSpeedCmPerSec,
+			SystemDefinition.Scale.SupercruiseMaxSpeedCmPerSec);
+	}
+
+	return !OutResult.NearestWellId.IsNone();
+}
+
+FSupercruiseTargetTelemetry UOrbitRouteFrameQueryService::BuildSupercruiseTargetTelemetry(
+	const FStargameScaleContract& Scale,
+	const FNavigationTargetViewModel& TargetViewModel)
+{
+	FSupercruiseTargetTelemetry Telemetry;
+	Telemetry.TargetId = TargetViewModel.TargetId;
+	Telemetry.DistanceCm = TargetViewModel.DistanceCm;
+	Telemetry.ClosingSpeedCmPerSec = TargetViewModel.ClosingSpeedCmPerSec;
+	Telemetry.bInsideDropoutBand =
+		TargetViewModel.DistanceCm >= Scale.SupercruiseTargetDropoutMinRadiusCm &&
+		TargetViewModel.DistanceCm <= Scale.SupercruiseTargetDropoutMaxRadiusCm;
+	Telemetry.DistanceToDropoutBandCm = TargetViewModel.DistanceCm > Scale.SupercruiseTargetDropoutMaxRadiusCm
+		? TargetViewModel.DistanceCm - Scale.SupercruiseTargetDropoutMaxRadiusCm
+		: FMath::Max(0.0, Scale.SupercruiseTargetDropoutMinRadiusCm - TargetViewModel.DistanceCm);
+	Telemetry.bApproachReady = Telemetry.bInsideDropoutBand && FMath::Abs(TargetViewModel.ClosingSpeedCmPerSec) <= Scale.SupercruiseMinSpeedCmPerSec;
+	return Telemetry;
+}
+
 FString UOrbitRouteFrameQueryService::GetScaleDebugSummary(const FStargameScaleContract& Scale)
 {
 	return FString::Printf(
-		TEXT("NormalFlightMaxSpeedCmPerSec=%.0f\nLocalBubbleRadiusCm=%.0f\nOriginShiftThresholdCm=%.0f\nStationApproachBubbleRadiusCm=%.0f\nDockingCorridorLengthCm=%.0f\nSupercruiseMinSpeedCmPerSec=%.0f\nSupercruiseMaxSpeedCmPerSec=%.0f\nGravitySlowdownRadiusCm=%.0f\nGravityLockoutRadiusCm=%.0f\nAtmosphereTransitionRadiusCm=%.0f\nMapDistanceScaleCmPerUnit=%.0f\nMapMinIconScale=%.2f\nMapMaxIconScale=%.2f"),
+		TEXT("NormalFlightMaxSpeedCmPerSec=%.0f\nLocalBubbleRadiusCm=%.0f\nOriginShiftThresholdCm=%.0f\nStationApproachBubbleRadiusCm=%.0f\nDockingCorridorLengthCm=%.0f\nSupercruiseMinSpeedCmPerSec=%.0f\nSupercruiseMaxSpeedCmPerSec=%.0f\nSupercruiseSpoolSeconds=%.1f\nDropoutCooldownSeconds=%.1f\nSupercruiseTargetDropoutMinRadiusCm=%.0f\nSupercruiseTargetDropoutMaxRadiusCm=%.0f\nSupercruiseAccelerationCmPerSec2=%.0f\nSupercruiseBrakingCmPerSec2=%.0f\nGravitySlowdownRadiusCm=%.0f\nGravityLockoutRadiusCm=%.0f\nAtmosphereTransitionRadiusCm=%.0f\nMapDistanceScaleCmPerUnit=%.0f\nMapMinIconScale=%.2f\nMapMaxIconScale=%.2f"),
 		Scale.NormalFlightMaxSpeedCmPerSec,
 		Scale.LocalBubbleRadiusCm,
 		Scale.OriginShiftThresholdCm,
@@ -140,6 +216,12 @@ FString UOrbitRouteFrameQueryService::GetScaleDebugSummary(const FStargameScaleC
 		Scale.DockingCorridorLengthCm,
 		Scale.SupercruiseMinSpeedCmPerSec,
 		Scale.SupercruiseMaxSpeedCmPerSec,
+		Scale.SupercruiseSpoolSeconds,
+		Scale.DropoutCooldownSeconds,
+		Scale.SupercruiseTargetDropoutMinRadiusCm,
+		Scale.SupercruiseTargetDropoutMaxRadiusCm,
+		Scale.SupercruiseAccelerationCmPerSec2,
+		Scale.SupercruiseBrakingCmPerSec2,
 		Scale.GravitySlowdownRadiusCm,
 		Scale.GravityLockoutRadiusCm,
 		Scale.AtmosphereTransitionRadiusCm,
@@ -250,6 +332,19 @@ bool UOrbitRouteFrameQueryService::FindEntityDefinition(
 		OutTransform = Gate->Transform;
 		OutOrbit = FOrbitDefinition();
 		OutVisualRadiusCm = Gate->VisualRadiusCm;
+		return true;
+	}
+
+	if (const FSpawnZoneDefinition* SpawnZone = SystemDefinition.SpawnZones.FindByPredicate([EntityId](const FSpawnZoneDefinition& Candidate)
+	{
+		return Candidate.SpawnZoneId == EntityId;
+	}))
+	{
+		OutEntityType = TEXT("spawn_zone");
+		OutAnchorId = SpawnZone->AnchorId;
+		OutTransform = SpawnZone->Transform;
+		OutOrbit = FOrbitDefinition();
+		OutVisualRadiusCm = SpawnZone->RadiusCm;
 		return true;
 	}
 
