@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Environment/GasGiantAtmosphereTypes.h"
 #include "GameFramework/HUD.h"
 #include "PrototypeFlightHud.generated.h"
 
@@ -15,12 +14,11 @@ public:
 
 private:
 	void DrawFlightCluster(float ViewWidth, float ViewHeight, float Scale, float SpeedMeters, float AccelerationMeters, float Throttle);
-	void DrawAtmosphereCluster(float ViewWidth, float ViewHeight, float Scale, const FGasGiantAtmosphereState& AtmosphereState);
 	void DrawSystemsCluster(float ViewWidth, float ViewHeight, float Scale);
+	void DrawNavigationTargets(float ViewWidth, float Scale);
 	void DrawCenterSymbology(float ViewWidth, float ViewHeight, float Scale);
 	void DrawTopStrip(float ViewWidth, float Scale);
 	void DrawRadarReserve(float ViewWidth, float ViewHeight, float Scale);
 	void DrawOutlinedRect(float X, float Y, float Width, float Height, const FLinearColor& Color, float Thickness = 1.0f);
 	void DrawBar(float X, float Y, float Width, float Height, float Fraction, const FLinearColor& FillColor, const FLinearColor& FrameColor);
-	FString AtmosphereZoneLabel(EGasGiantAtmosphereZone Zone) const;
 };

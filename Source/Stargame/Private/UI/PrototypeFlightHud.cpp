@@ -4,6 +4,8 @@
 #include "Engine/Engine.h"
 #include "Flight/SpaceFlightPawn.h"
 #include "GameFramework/PlayerController.h"
+#include "Runtime/StargameSessionSubsystem.h"
+#include "Space/StarSystemSubsystem.h"
 
 void APrototypeFlightHud::DrawHUD()
 {
@@ -27,7 +29,6 @@ void APrototypeFlightHud::DrawHUD()
 	const float SpeedMeters = FlightPawn->GetSpeedMetersPerSecond();
 	const float AccelerationMeters = FlightPawn->GetAccelerationMetersPerSecondSquared();
 	const float Throttle = FlightPawn->GetThrottlePercent() * 100.0f;
-	const FGasGiantAtmosphereState AtmosphereState = FlightPawn->GetAtmosphereState();
 
 	const float ViewWidth = Canvas->ClipX;
 	const float ViewHeight = Canvas->ClipY;
@@ -36,8 +37,8 @@ void APrototypeFlightHud::DrawHUD()
 	DrawTopStrip(ViewWidth, Scale);
 	DrawCenterSymbology(ViewWidth, ViewHeight, Scale);
 	DrawFlightCluster(ViewWidth, ViewHeight, Scale, SpeedMeters, AccelerationMeters, Throttle);
-	DrawAtmosphereCluster(ViewWidth, ViewHeight, Scale, AtmosphereState);
 	DrawSystemsCluster(ViewWidth, ViewHeight, Scale);
+	DrawNavigationTargets(ViewWidth, Scale);
 	DrawRadarReserve(ViewWidth, ViewHeight, Scale);
 }
 
@@ -52,11 +53,22 @@ void APrototypeFlightHud::DrawTopStrip(float ViewWidth, float Scale)
 	const float Wing = 156.0f * Scale;
 	const float Gap = 76.0f * Scale;
 
-	DrawText(TEXT("ATMOSPHERIC FLIGHT"), Cyan, CenterX - 116.0f * Scale, Top, GEngine->GetMediumFont(), Scale, false);
+	DrawText(TEXT("FRONTIER TEST FLIGHT"), Cyan, CenterX - 120.0f * Scale, Top, GEngine->GetMediumFont(), Scale, false);
 	DrawLine(CenterX - Gap - Wing, Top + 26.0f * Scale, CenterX - Gap, Top + 26.0f * Scale, SoftCyan, 1.6f * Scale);
 	DrawLine(CenterX + Gap, Top + 26.0f * Scale, CenterX + Gap + Wing, Top + 26.0f * Scale, SoftCyan, 1.6f * Scale);
 
-	DrawText(TEXT("TARGET  GAS GIANT"), Yellow, ViewWidth - 276.0f * Scale, Top + 3.0f * Scale, GEngine->GetSmallFont(), Scale, false);
+	FString TargetLabel = TEXT("TARGET  NONE");
+	if (const UGameInstance* GameInstance = GetGameInstance())
+	{
+		if (const UStargameSessionSubsystem* Session = GameInstance->GetSubsystem<UStargameSessionSubsystem>())
+		{
+			if (!Session->GetSelectedTargetId().IsNone())
+			{
+				TargetLabel = FString::Printf(TEXT("TARGET  %s"), *Session->GetSelectedTargetId().ToString().ToUpper());
+			}
+		}
+	}
+	DrawText(TargetLabel, Yellow, ViewWidth - 276.0f * Scale, Top + 3.0f * Scale, GEngine->GetSmallFont(), Scale, false);
 	DrawText(TEXT("NAV  FREE FLIGHT"), Cyan, 28.0f * Scale, Top + 3.0f * Scale, GEngine->GetSmallFont(), Scale, false);
 }
 
@@ -116,33 +128,6 @@ void APrototypeFlightHud::DrawFlightCluster(float ViewWidth, float ViewHeight, f
 	DrawLine(LadderX - 4.0f * Scale, ThrottleY, LadderX + 92.0f * Scale, ThrottleY, Yellow, 3.0f * Scale);
 }
 
-void APrototypeFlightHud::DrawAtmosphereCluster(float ViewWidth, float ViewHeight, float Scale, const FGasGiantAtmosphereState& AtmosphereState)
-{
-	const FLinearColor Frame(0.72f, 0.94f, 1.0f, 0.30f);
-	const FLinearColor Cyan(0.72f, 0.94f, 1.0f, 0.92f);
-	const FLinearColor Amber(1.0f, 0.64f, 0.24f, 0.94f);
-	const FLinearColor Red(1.0f, 0.26f, 0.16f, 0.94f);
-	const FLinearColor Text(1.0f, 0.93f, 0.72f, 0.95f);
-
-	const float Width = 260.0f * Scale;
-	const float X = 34.0f * Scale;
-	const float Y = 122.0f * Scale;
-	const float AltitudeKilometers = AtmosphereState.VisualAltitude / 100000.0f;
-	const float DistanceKilometers = AtmosphereState.DistanceFromCenter / 100000.0f;
-	const float DensityPercent = AtmosphereState.RenderFogDensity * 100.0f;
-	const FLinearColor ZoneColor = AtmosphereState.Zone == EGasGiantAtmosphereZone::Crush
-		? Red
-		: (AtmosphereState.Zone == EGasGiantAtmosphereZone::Deep || AtmosphereState.Zone == EGasGiantAtmosphereZone::Dense ? Amber : Cyan);
-
-	DrawText(TEXT("ATM"), Cyan, X, Y, GEngine->GetSmallFont(), Scale, false);
-	DrawLine(X + 42.0f * Scale, Y + 12.0f * Scale, X + Width, Y + 12.0f * Scale, Frame, 1.0f * Scale);
-	DrawText(AtmosphereZoneLabel(AtmosphereState.Zone), ZoneColor, X, Y + 24.0f * Scale, GEngine->GetMediumFont(), Scale * 0.96f, false);
-	DrawText(FString::Printf(TEXT("ALT %+0.1f km"), AltitudeKilometers), Text, X, Y + 58.0f * Scale, GEngine->GetSmallFont(), Scale, false);
-	DrawText(FString::Printf(TEXT("RNG %0.1f km"), DistanceKilometers), Text, X, Y + 84.0f * Scale, GEngine->GetSmallFont(), Scale, false);
-	DrawText(FString::Printf(TEXT("GAS %0.0f%%"), DensityPercent), Text, X, Y + 110.0f * Scale, GEngine->GetSmallFont(), Scale, false);
-	DrawBar(X + 76.0f * Scale, Y + 116.0f * Scale, 150.0f * Scale, 10.0f * Scale, AtmosphereState.RenderFogDensity, ZoneColor, Frame);
-}
-
 void APrototypeFlightHud::DrawSystemsCluster(float ViewWidth, float ViewHeight, float Scale)
 {
 	const FLinearColor Cyan(0.72f, 0.94f, 1.0f, 0.32f);
@@ -166,6 +151,42 @@ void APrototypeFlightHud::DrawSystemsCluster(float ViewWidth, float ViewHeight, 
 	DrawBar(X, Bottom - 26.0f * Scale, Width, Height, 1.0f, Blue, Cyan);
 	DrawText(TEXT("HULL"), Green, X - 54.0f * Scale, Bottom, GEngine->GetSmallFont(), Scale, false);
 	DrawBar(X, Bottom + 4.0f * Scale, Width, Height, 1.0f, Green, Cyan);
+}
+
+void APrototypeFlightHud::DrawNavigationTargets(float ViewWidth, float Scale)
+{
+	const FLinearColor Cyan(0.72f, 0.94f, 1.0f, 0.82f);
+	const FLinearColor Text(1.0f, 0.93f, 0.72f, 0.92f);
+
+	UWorld* World = GetWorld();
+	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	if (!StarSystem)
+	{
+		return;
+	}
+
+	TArray<FNavigationTargetDefinition> Targets;
+	StarSystem->GetNavigationTargets(Targets);
+
+	const float X = ViewWidth - 310.0f * Scale;
+	float Y = 118.0f * Scale;
+	DrawText(TEXT("TARGETS"), Cyan, X, Y, GEngine->GetSmallFont(), Scale, false);
+	Y += 26.0f * Scale;
+
+	for (const FNavigationTargetDefinition& Target : Targets)
+	{
+		if (!Target.bCanTarget || !Target.bShowInHud)
+		{
+			continue;
+		}
+
+		const FString Line = FString::Printf(
+			TEXT("%s  %s"),
+			*Target.TargetType.ToString().ToUpper(),
+			*Target.DisplayName.ToString());
+		DrawText(Line, Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
+		Y += 22.0f * Scale;
+	}
 }
 
 void APrototypeFlightHud::DrawRadarReserve(float ViewWidth, float ViewHeight, float Scale)
@@ -193,22 +214,4 @@ void APrototypeFlightHud::DrawBar(float X, float Y, float Width, float Height, f
 {
 	DrawOutlinedRect(X, Y, Width, Height, FrameColor, 1.0f);
 	DrawRect(FillColor, X + 2.0f, Y + 2.0f, (Width - 4.0f) * FMath::Clamp(Fraction, 0.0f, 1.0f), Height - 4.0f);
-}
-
-FString APrototypeFlightHud::AtmosphereZoneLabel(EGasGiantAtmosphereZone Zone) const
-{
-	switch (Zone)
-	{
-	case EGasGiantAtmosphereZone::Entry:
-		return TEXT("ENTRY LAYER");
-	case EGasGiantAtmosphereZone::Dense:
-		return TEXT("DENSE LAYER");
-	case EGasGiantAtmosphereZone::Deep:
-		return TEXT("DEEP LAYER");
-	case EGasGiantAtmosphereZone::Crush:
-		return TEXT("CRUSH DEPTH");
-	case EGasGiantAtmosphereZone::Far:
-	default:
-		return TEXT("SPACE");
-	}
 }

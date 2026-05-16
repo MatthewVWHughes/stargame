@@ -5,12 +5,13 @@
 #include "Components/InputComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "EngineUtils.h"
-#include "Environment/GasGiantPlanetActor.h"
+#include "Engine/GameInstance.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "Runtime/StargameSessionSubsystem.h"
+#include "Space/StarSystemSubsystem.h"
 #include "UObject/ConstructorHelpers.h"
 
 ASpaceFlightPawn::ASpaceFlightPawn()
@@ -94,7 +95,6 @@ void ASpaceFlightPawn::Tick(float DeltaSeconds)
 	UpdateSteering(DeltaSeconds);
 	const FVector PreviousVelocity = LinearVelocity;
 	UpdateNormalFlight(DeltaSeconds);
-	UpdateAtmosphereState();
 	UpdateShipVisuals(DeltaSeconds);
 	UpdateCameraResponse(DeltaSeconds, PreviousVelocity);
 	UpdateAtmosphericDust(DeltaSeconds);
@@ -114,6 +114,7 @@ void ASpaceFlightPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	PlayerInputComponent->BindAction(TEXT("PrimaryMouse"), IE_Released, this, &ASpaceFlightPawn::StopPrimaryMouse);
 	PlayerInputComponent->BindAction(TEXT("SecondaryMouse"), IE_Pressed, this, &ASpaceFlightPawn::StartSecondaryMouse);
 	PlayerInputComponent->BindAction(TEXT("SecondaryMouse"), IE_Released, this, &ASpaceFlightPawn::StopSecondaryMouse);
+	PlayerInputComponent->BindAction(TEXT("CycleTarget"), IE_Pressed, this, &ASpaceFlightPawn::CycleNavigationTarget);
 }
 
 void ASpaceFlightPawn::Throttle(float Value)
@@ -168,6 +169,44 @@ void ASpaceFlightPawn::StartSecondaryMouse()
 void ASpaceFlightPawn::StopSecondaryMouse()
 {
 	bSecondaryMouseHeld = false;
+}
+
+void ASpaceFlightPawn::CycleNavigationTarget()
+{
+	UWorld* World = GetWorld();
+	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!StarSystem || !Session)
+	{
+		return;
+	}
+
+	TArray<FNavigationTargetDefinition> Targets;
+	StarSystem->GetNavigationTargets(Targets);
+	Targets.RemoveAll([](const FNavigationTargetDefinition& Target)
+	{
+		return !Target.bCanTarget || !Target.bShowInHud;
+	});
+
+	if (Targets.Num() == 0)
+	{
+		Session->SetSelectedTargetId(NAME_None);
+		return;
+	}
+
+	const FName CurrentTargetId = Session->GetSelectedTargetId();
+	int32 NextIndex = 0;
+	for (int32 Index = 0; Index < Targets.Num(); ++Index)
+	{
+		if (Targets[Index].TargetId == CurrentTargetId)
+		{
+			NextIndex = (Index + 1) % Targets.Num();
+			break;
+		}
+	}
+
+	Session->SetSelectedTargetId(Targets[NextIndex].TargetId);
 }
 
 void ASpaceFlightPawn::UpdateThrottle(float DeltaSeconds)
@@ -355,13 +394,12 @@ void ASpaceFlightPawn::UpdateAtmosphericDust(float DeltaSeconds)
 		return;
 	}
 
-	const float AtmosphereInfluence = ComputeAtmosphereInfluence();
 	const float Speed = LinearVelocity.Size();
 	const float SpeedInfluence = FMath::Clamp(
 		(Speed - AtmosphericDustMinSpeed) / FMath::Max(NormalMaxSpeed - AtmosphericDustMinSpeed, 1.0f),
 		0.0f,
 		1.0f);
-	const float Visibility = AtmosphereInfluence * SpeedInfluence;
+	const float Visibility = SpeedInfluence;
 	const float Travel = FMath::Max(Speed, AtmosphericDustMinSpeed) * AtmosphericDustTravelMultiplier * DeltaSeconds;
 	const float LoopLength = AtmosphericDustForwardRange + AtmosphericDustRearRange;
 
@@ -388,31 +426,4 @@ void ASpaceFlightPawn::UpdateAtmosphericDust(float DeltaSeconds)
 	}
 
 	AtmosphericDust->MarkRenderStateDirty();
-}
-
-float ASpaceFlightPawn::ComputeAtmosphereInfluence() const
-{
-	return CurrentAtmosphereState.RenderFogDensity;
-}
-
-void ASpaceFlightPawn::UpdateAtmosphereState()
-{
-	if (!GetWorld())
-	{
-		CurrentAtmosphereState = FGasGiantAtmosphereState();
-		return;
-	}
-
-	FGasGiantAtmosphereState StrongestState;
-	for (TActorIterator<AGasGiantPlanetActor> It(GetWorld()); It; ++It)
-	{
-		const AGasGiantPlanetActor* Planet = *It;
-		const FGasGiantAtmosphereState CandidateState = Planet->ComputeAtmosphereState(GetActorLocation());
-		if (CandidateState.RenderFogDensity > StrongestState.RenderFogDensity)
-		{
-			StrongestState = CandidateState;
-		}
-	}
-
-	CurrentAtmosphereState = StrongestState;
 }

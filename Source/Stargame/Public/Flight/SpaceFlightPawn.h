@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Environment/GasGiantAtmosphereTypes.h"
 #include "GameFramework/Pawn.h"
 #include "SpaceFlightPawn.generated.h"
 
@@ -35,8 +34,8 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
 	float GetThrottlePercent() const { return ThrottlePercent; }
 
-	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
-	FGasGiantAtmosphereState GetAtmosphereState() const { return CurrentAtmosphereState; }
+	UFUNCTION(Exec)
+	void CycleNavigationTarget();
 
 protected:
 	virtual void BeginPlay() override;
@@ -61,8 +60,6 @@ private:
 	void UpdateCameraResponse(float DeltaSeconds, const FVector& PreviousVelocity);
 	void InitializeAtmosphericDust();
 	void UpdateAtmosphericDust(float DeltaSeconds);
-	void UpdateAtmosphereState();
-	float ComputeAtmosphereInfluence() const;
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<UBoxComponent> CollisionRoot;
@@ -154,28 +151,25 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Flight|Visuals", meta = (ClampMin = "0.0"))
 	float VisualRotationInterpSpeed = 7.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Atmosphere", meta = (ClampMin = "0"))
+	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "0"))
 	int32 AtmosphericDustCount = 90;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Atmosphere", meta = (ClampMin = "0.0", Units = "cm"))
-	float AtmosphericDustActivationAltitude = 5000000.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Flight|Atmosphere", meta = (ClampMin = "1.0", Units = "cm/s"))
+	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "1.0", Units = "cm/s"))
 	float AtmosphericDustMinSpeed = 3000.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Atmosphere", meta = (ClampMin = "1.0", Units = "cm"))
+	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "1.0", Units = "cm"))
 	float AtmosphericDustForwardRange = 2600.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Atmosphere", meta = (ClampMin = "1.0", Units = "cm"))
+	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "1.0", Units = "cm"))
 	float AtmosphericDustRearRange = 700.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Atmosphere", meta = (ClampMin = "1.0", Units = "cm"))
+	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "1.0", Units = "cm"))
 	float AtmosphericDustHorizontalSpread = 1150.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Atmosphere", meta = (ClampMin = "1.0", Units = "cm"))
+	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "1.0", Units = "cm"))
 	float AtmosphericDustVerticalSpread = 560.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Atmosphere", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "0.0"))
 	float AtmosphericDustTravelMultiplier = 1.25f;
 
 	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
@@ -228,7 +222,4 @@ private:
 
 	UPROPERTY()
 	TArray<float> AtmosphericDustSizeFactors;
-
-	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
-	FGasGiantAtmosphereState CurrentAtmosphereState;
 };
