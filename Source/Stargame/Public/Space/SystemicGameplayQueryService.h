@@ -18,6 +18,9 @@ public:
 	static FSystemicGameplayState MakeM10FixtureState(const FStarSystemDefinition& SystemDefinition);
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
+	static FSystemicGameplayState MakeM11FixtureState(const FStarSystemDefinition& SystemDefinition);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
 	static bool ValidateSystemicGameplayState(
 		const FStarSystemDefinition& SystemDefinition,
 		const FSystemicGameplayState& State,
@@ -27,6 +30,31 @@ public:
 	static bool ValidateLogicalEncounterState(
 		const FStarSystemDefinition& SystemDefinition,
 		const FSystemicGameplayState& State,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
+	static bool ValidateRealizedAISliceState(
+		const FStarSystemDefinition& SystemDefinition,
+		const FSystemicGameplayState& State,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
+	static bool SelectRealizedPromotionCandidates(
+		const FStarSystemDefinition& SystemDefinition,
+		const FSystemicGameplayState& State,
+		FName ActorBudgetProfileId,
+		const FMovingFrameTarget& ObserverTarget,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double SimulationTimeSeconds,
+		TArray<FRealizedActorMappingRecord>& OutPromotions,
+		TArray<FName>& OutBlockedShipIds,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
+	static bool ApplyDamageEventOnce(
+		FSystemicGameplayState& InOutState,
+		const FDamageEventRecord& DamageEvent,
+		FDamageEventRecord& OutResult,
 		FString& OutFailureReason);
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")

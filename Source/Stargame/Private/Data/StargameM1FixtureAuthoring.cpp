@@ -152,16 +152,16 @@ namespace
 		WayfarerDepot.StationId = TEXT("wayfarer_depot");
 		WayfarerDepot.DisplayName = FText::FromString(TEXT("Wayfarer Depot"));
 		WayfarerDepot.FrameType = TEXT("station_relative");
-		WayfarerDepot.AnchorId = TEXT("frontier_primary");
+		WayfarerDepot.AnchorId = TEXT("brink_minor");
 		WayfarerDepot.VisualRadiusCm = 14000.0;
 		WayfarerDepot.StationProfileId = FPrimaryAssetId(UStationProfileAsset::AssetType, TEXT("frontier_station_basic"));
 		WayfarerDepot.DockingPorts = { MakeDockingPort(TEXT("wayfarer_depot_port_a"), TEXT("Wayfarer Depot Port A")) };
 		WayfarerDepot.NavigationTarget = MakeNavigationTarget(TEXT("wayfarer_depot"), TEXT("Wayfarer Depot"), TEXT("station"));
 		WayfarerDepot.NavigationTarget.FrameType = WayfarerDepot.FrameType;
 		WayfarerDepot.NavigationTarget.AnchorId = WayfarerDepot.AnchorId;
-		WayfarerDepot.Orbit.ParentId = TEXT("frontier_primary");
-		WayfarerDepot.Orbit.SemiMajorAxisCm = 26000000.0;
-		WayfarerDepot.Orbit.PeriodSeconds = 1500.0;
+		WayfarerDepot.Orbit.ParentId = TEXT("brink_minor");
+		WayfarerDepot.Orbit.SemiMajorAxisCm = 1800000.0;
+		WayfarerDepot.Orbit.PeriodSeconds = 900.0;
 		WayfarerDepot.Orbit.PhaseOffsetRadians = 3.0;
 		SystemDefinition.Stations.Add(WayfarerDepot);
 
@@ -224,6 +224,59 @@ namespace
 		const FActiveTrafficSimulationState M8TrafficState = ULogicalTrafficQueryService::MakeM8FixtureTrafficState(SystemDefinition, 0.0);
 		SystemDefinition.LogicalTraffic = M8TrafficState.Ships;
 		SystemDefinition.ShipGroups = M8TrafficState.Groups;
+		if (FShipGroupState* TraderGroup = SystemDefinition.ShipGroups.FindByPredicate([](const FShipGroupState& Candidate)
+		{
+			return Candidate.GroupId == FName(TEXT("m8_brink_trade_group"));
+		}))
+		{
+			TraderGroup->GroupId = TEXT("group_traders_m7_trade_lane");
+			TraderGroup->LeaderShipInstanceId = TEXT("trader_brink_01");
+			TraderGroup->MemberShipInstanceIds.Reset();
+			TraderGroup->FormationSlots.Reset();
+
+			SystemDefinition.LogicalTraffic[0].GroupId = TraderGroup->GroupId;
+			TraderGroup->MemberShipInstanceIds.Add(SystemDefinition.LogicalTraffic[0].ShipInstanceId);
+			FShipFormationSlot LeadSlot;
+			LeadSlot.SlotId = SystemDefinition.LogicalTraffic[0].FormationSlotId;
+			LeadSlot.ShipInstanceId = SystemDefinition.LogicalTraffic[0].ShipInstanceId;
+			LeadSlot.SlotFrame = TEXT("leader_route_sample");
+			TraderGroup->FormationSlots.Add(LeadSlot);
+
+			FShipTrafficInstance Trader2 = SystemDefinition.LogicalTraffic[0];
+			Trader2.ShipInstanceId = TEXT("trader_brink_02");
+			Trader2.FormationSlotId = TEXT("slot_trade_wing_01");
+			Trader2.CurrentGoal.GoalId = TEXT("m11_trade_route_brink_02");
+			Trader2.CurrentGoal.RouteProgress01 = 0.12;
+			Trader2.CurrentGoal.TargetFrame.RouteProgress01 = 0.12;
+			Trader2.LastDecisionReason = TEXT("m11_actor_cap_trade_offset");
+			SystemDefinition.LogicalTraffic.Add(Trader2);
+			TraderGroup->MemberShipInstanceIds.Add(Trader2.ShipInstanceId);
+			FShipFormationSlot Trader2Slot;
+			Trader2Slot.SlotId = Trader2.FormationSlotId;
+			Trader2Slot.ShipInstanceId = Trader2.ShipInstanceId;
+			Trader2Slot.SlotFrame = TEXT("leader_route_sample");
+			Trader2Slot.LocalOffsetCm = FVector(-2500.0, -8000.0, 0.0);
+			Trader2Slot.RouteProgressOffset = -0.02;
+			TraderGroup->FormationSlots.Add(Trader2Slot);
+
+			FShipTrafficInstance ReverseTrader = SystemDefinition.LogicalTraffic[0];
+			ReverseTrader.ShipInstanceId = TEXT("trader_wayfarer_01");
+			ReverseTrader.FormationSlotId = TEXT("slot_trade_reverse_01");
+			ReverseTrader.CurrentGoal.GoalId = TEXT("m11_trade_route_wayfarer_01");
+			ReverseTrader.CurrentGoal.RouteProgress01 = 0.88;
+			ReverseTrader.CurrentGoal.TargetFrame.RouteProgress01 = 0.88;
+			ReverseTrader.CurrentGoal.DesiredRouteSpeedFractionPerSecond = -0.018;
+			ReverseTrader.LastDecisionReason = TEXT("m11_reverse_trade_route");
+			SystemDefinition.LogicalTraffic.Add(ReverseTrader);
+			TraderGroup->MemberShipInstanceIds.Add(ReverseTrader.ShipInstanceId);
+			FShipFormationSlot ReverseSlot;
+			ReverseSlot.SlotId = ReverseTrader.FormationSlotId;
+			ReverseSlot.ShipInstanceId = ReverseTrader.ShipInstanceId;
+			ReverseSlot.SlotFrame = TEXT("leader_route_sample");
+			ReverseSlot.LocalOffsetCm = FVector(2500.0, 9000.0, 0.0);
+			ReverseSlot.RouteProgressOffset = 0.03;
+			TraderGroup->FormationSlots.Add(ReverseSlot);
+		}
 
 		FShipGoalState PirateGoal;
 		PirateGoal.GoalId = TEXT("m10_pirate_ambush_trade_lane");
@@ -249,6 +302,15 @@ namespace
 		PirateShip.TrafficTier = ELogicalTrafficTier::Tier2Logical;
 		SystemDefinition.LogicalTraffic.Add(PirateShip);
 
+		FShipTrafficInstance PirateWing = PirateShip;
+		PirateWing.ShipInstanceId = TEXT("pirate_raider_02");
+		PirateWing.FormationSlotId = TEXT("slot_pirate_wing");
+		PirateWing.CurrentGoal.GoalId = TEXT("m11_pirate_ambush_wing_trade_lane");
+		PirateWing.CurrentGoal.RouteProgress01 = 0.57;
+		PirateWing.CurrentGoal.TargetFrame.RouteProgress01 = 0.57;
+		PirateWing.LastDecisionReason = TEXT("m11_pirate_group_wing");
+		SystemDefinition.LogicalTraffic.Add(PirateWing);
+
 		FShipGoalState PatrolGoal;
 		PatrolGoal.GoalId = TEXT("m10_patrol_cover_trade_lane");
 		PatrolGoal.GoalKind = EShipGoalKind::Patrol;
@@ -273,21 +335,52 @@ namespace
 		PatrolShip.TrafficTier = ELogicalTrafficTier::Tier2Logical;
 		SystemDefinition.LogicalTraffic.Add(PatrolShip);
 
+		FShipTrafficInstance PatrolWing = PatrolShip;
+		PatrolWing.ShipInstanceId = TEXT("patrol_frontier_local_02");
+		PatrolWing.FormationSlotId = TEXT("slot_patrol_wing");
+		PatrolWing.CurrentGoal.GoalId = TEXT("m11_patrol_wing_cover_trade_lane");
+		PatrolWing.CurrentGoal.RouteProgress01 = 0.28;
+		PatrolWing.CurrentGoal.TargetFrame.RouteProgress01 = 0.28;
+		PatrolWing.LastDecisionReason = TEXT("m11_patrol_group_wing");
+		SystemDefinition.LogicalTraffic.Add(PatrolWing);
+
 		FShipGroupState PirateGroup;
 		PirateGroup.GroupId = TEXT("pirate_group_01");
 		PirateGroup.LeaderShipInstanceId = PirateShip.ShipInstanceId;
 		PirateGroup.GroupRole = TEXT("pirate");
-		PirateGroup.MemberShipInstanceIds = { PirateShip.ShipInstanceId };
+		PirateGroup.MemberShipInstanceIds = { PirateShip.ShipInstanceId, PirateWing.ShipInstanceId };
+		FShipFormationSlot PirateLeadSlot;
+		PirateLeadSlot.SlotId = PirateShip.FormationSlotId;
+		PirateLeadSlot.ShipInstanceId = PirateShip.ShipInstanceId;
+		PirateLeadSlot.SlotFrame = TEXT("leader_route_sample");
+		FShipFormationSlot PirateWingSlot;
+		PirateWingSlot.SlotId = PirateWing.FormationSlotId;
+		PirateWingSlot.ShipInstanceId = PirateWing.ShipInstanceId;
+		PirateWingSlot.SlotFrame = TEXT("leader_route_sample");
+		PirateWingSlot.LocalOffsetCm = FVector(3000.0, -5000.0, 0.0);
+		PirateWingSlot.RouteProgressOffset = 0.02;
+		PirateGroup.FormationSlots = { PirateLeadSlot, PirateWingSlot };
 		SystemDefinition.ShipGroups.Add(PirateGroup);
 
 		FShipGroupState PatrolGroup;
 		PatrolGroup.GroupId = TEXT("patrol_group_01");
 		PatrolGroup.LeaderShipInstanceId = PatrolShip.ShipInstanceId;
 		PatrolGroup.GroupRole = TEXT("patrol");
-		PatrolGroup.MemberShipInstanceIds = { PatrolShip.ShipInstanceId };
+		PatrolGroup.MemberShipInstanceIds = { PatrolShip.ShipInstanceId, PatrolWing.ShipInstanceId };
+		FShipFormationSlot PatrolLeadSlot;
+		PatrolLeadSlot.SlotId = PatrolShip.FormationSlotId;
+		PatrolLeadSlot.ShipInstanceId = PatrolShip.ShipInstanceId;
+		PatrolLeadSlot.SlotFrame = TEXT("leader_route_sample");
+		FShipFormationSlot PatrolWingSlot;
+		PatrolWingSlot.SlotId = PatrolWing.FormationSlotId;
+		PatrolWingSlot.ShipInstanceId = PatrolWing.ShipInstanceId;
+		PatrolWingSlot.SlotFrame = TEXT("leader_route_sample");
+		PatrolWingSlot.LocalOffsetCm = FVector(-3000.0, -6000.0, 0.0);
+		PatrolWingSlot.RouteProgressOffset = 0.03;
+		PatrolGroup.FormationSlots = { PatrolLeadSlot, PatrolWingSlot };
 		SystemDefinition.ShipGroups.Add(PatrolGroup);
 
-		SystemDefinition.SystemicGameplay = USystemicGameplayQueryService::MakeM10FixtureState(SystemDefinition);
+		SystemDefinition.SystemicGameplay = USystemicGameplayQueryService::MakeM11FixtureState(SystemDefinition);
 
 		SystemDefinition.MapEntries.Reset();
 		const TArray<TPair<FName, FName>> MapSources = {
@@ -464,6 +557,7 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	const bool bValidateM6 = ProfileString.Equals(TEXT("M6"), ESearchCase::IgnoreCase);
 	const bool bValidateM7 = ProfileString.Equals(TEXT("M7"), ESearchCase::IgnoreCase);
 	const bool bValidateM10 = ProfileString.Equals(TEXT("M10"), ESearchCase::IgnoreCase);
+	const bool bValidateM11 = ProfileString.Equals(TEXT("M11"), ESearchCase::IgnoreCase);
 	const bool bBuildAlias = ProfileString.Equals(TEXT("Build"), ESearchCase::IgnoreCase) ||
 		ProfileString.Equals(TEXT("Cook"), ESearchCase::IgnoreCase) ||
 		ProfileString.Equals(TEXT("MCP"), ESearchCase::IgnoreCase) ||
@@ -476,7 +570,7 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 		UE_LOG(LogTemp, Error, TEXT("Validation profile M5.5 is documented but not implemented in the current M0-M10 branch."));
 		return 1;
 	}
-	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4 && !bValidateM5 && !bValidateM6 && !bValidateM7 && !bValidateM8 && !bValidateM9 && !bValidateM10)
+	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4 && !bValidateM5 && !bValidateM6 && !bValidateM7 && !bValidateM8 && !bValidateM9 && !bValidateM10 && !bValidateM11)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Unsupported validation profile '%s'."), *ProfileString);
 		return 1;
@@ -505,7 +599,7 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 
 	if (!Catalog->BuildAssetCatalogCache(false))
 	{
-		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM10 ? TEXT("M10") : (bValidateM9 ? TEXT("M9") : (bValidateM8 ? TEXT("M8") : (bValidateM7 ? TEXT("M7") : (bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))))))))));
+		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM11 ? TEXT("M11") : (bValidateM10 ? TEXT("M10") : (bValidateM9 ? TEXT("M9") : (bValidateM8 ? TEXT("M8") : (bValidateM7 ? TEXT("M7") : (bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1")))))))))));
 		return 1;
 	}
 
@@ -524,7 +618,9 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	}
 	else
 	{
-		Report = bValidateM10
+		Report = bValidateM11
+			? Catalog->ValidateM11Fixture(SystemId)
+			: (bValidateM10
 			? Catalog->ValidateM10Fixture(SystemId)
 			: (bValidateM9
 			? Catalog->ValidateM9Fixture(SystemId)
@@ -534,7 +630,7 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 			? Catalog->ValidateM7Fixture(SystemId)
 			: (bValidateM5
 			? Catalog->ValidateM5Fixture(SystemId)
-			: (bValidateM4 ? Catalog->ValidateM4Fixture(SystemId) : (bValidateM3 ? Catalog->ValidateM3Fixture(SystemId) : (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId))))))));
+			: (bValidateM4 ? Catalog->ValidateM4Fixture(SystemId) : (bValidateM3 ? Catalog->ValidateM3Fixture(SystemId) : (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId)))))))));
 	}
 	for (const FStargameValidationIssue& Issue : Report.Issues)
 	{
@@ -552,6 +648,6 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 		return 1;
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM10 ? TEXT("M10") : (bValidateM9 ? TEXT("M9") : (bValidateM8 ? TEXT("M8") : (bValidateM7 ? TEXT("M7") : (bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))))))))), *Report.SystemId.ToString());
+	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM11 ? TEXT("M11") : (bValidateM10 ? TEXT("M10") : (bValidateM9 ? TEXT("M9") : (bValidateM8 ? TEXT("M8") : (bValidateM7 ? TEXT("M7") : (bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1")))))))))), *Report.SystemId.ToString());
 	return 0;
 }

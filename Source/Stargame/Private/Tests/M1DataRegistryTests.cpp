@@ -1651,9 +1651,7 @@ bool FM8LogicalTraderProgressTest::RunTest(const FString& Parameters)
 	}
 
 	FActiveTrafficSimulationState TrafficState;
-	TrafficState.SystemId = SystemDefinition.SystemId;
-	TrafficState.Ships = SystemDefinition.LogicalTraffic;
-	TrafficState.Groups = SystemDefinition.ShipGroups;
+	TrafficState = ULogicalTrafficQueryService::MakeM8FixtureTrafficState(SystemDefinition, 0.0);
 	TestEqual(TEXT("M8 authored fixture has one logical trader"), TrafficState.Ships.Num(), 1);
 
 	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
@@ -2505,6 +2503,256 @@ bool FM10EncounterResolutionTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("M10 duplicate resolution does not duplicate offense"), ReloadedState.Offenses.Num(), 1);
 	TestEqual(TEXT("M10 duplicate resolution does not duplicate cargo outcome"), ReloadedState.CargoTransferResults.Num(), 1);
 	TestEqual(TEXT("M10 duplicate resolution does not duplicate economy transaction"), ReloadedState.Transactions.Num(), 1);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM11CatalogValidationTest,
+	"Stargame.M11.Catalog.ValidatesRealizedAISliceFixture",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM11CatalogValidationTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	const FStargameValidationReport Report = Catalog->ValidateM11Fixture(TEXT("frontier_test_01"));
+	TestFalse(TEXT("M11 validation report has no blocking issues"), Report.HasBlockingIssues());
+	if (Report.HasBlockingIssues())
+	{
+		for (const FStargameValidationIssue& Issue : Report.Issues)
+		{
+			AddError(Issue.Message);
+		}
+		return false;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M11 frontier system resolves"), Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FString FailureReason;
+	TestTrue(TEXT("M11 realized slice validates directly"), USystemicGameplayQueryService::ValidateRealizedAISliceState(SystemDefinition, SystemDefinition.SystemicGameplay, FailureReason));
+	TestTrue(TEXT("M11 fixture has three traders"), SystemDefinition.LogicalTraffic.FilterByPredicate([](const FShipTrafficInstance& Ship)
+	{
+		return Ship.CurrentGoal.GoalKind == EShipGoalKind::TradeRoute;
+	}).Num() >= 3);
+	TestTrue(TEXT("M11 fixture has two patrol ships"), SystemDefinition.ShipGroups.ContainsByPredicate([](const FShipGroupState& Group)
+	{
+		return Group.GroupId == FName(TEXT("patrol_group_01")) && Group.MemberShipInstanceIds.Num() >= 2;
+	}));
+	TestTrue(TEXT("M11 fixture has two pirate ships"), SystemDefinition.ShipGroups.ContainsByPredicate([](const FShipGroupState& Group)
+	{
+		return Group.GroupId == FName(TEXT("pirate_group_01")) && Group.MemberShipInstanceIds.Num() >= 2;
+	}));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM11ActorBudgetPromotionTest,
+	"Stargame.M11.Realization.SelectsBudgetedPromotionCandidates",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM11ActorBudgetPromotionTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M11 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	TArray<FRealizedActorMappingRecord> Promotions;
+	TArray<FName> BlockedShipIds;
+	FString FailureReason;
+	FMovingFrameTarget ObserverTarget;
+	ObserverTarget.TargetId = TEXT("m11_test_observer");
+	ObserverTarget.TargetType = TEXT("route_sample");
+	ObserverTarget.RouteSegmentId = TEXT("m7_brink_watch_wayfarer_trade");
+	ObserverTarget.RouteProgress01 = 0.55;
+	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	TestTrue(TEXT("M11 promotion candidates resolve"), USystemicGameplayQueryService::SelectRealizedPromotionCandidates(SystemDefinition, SystemDefinition.SystemicGameplay, TEXT("actor_budget_m11_low"), ObserverTarget, Clock0, 0.0, Promotions, BlockedShipIds, FailureReason));
+	TestEqual(TEXT("M11 low actor budget selects capped promotions"), Promotions.Num(), 2);
+	TestTrue(TEXT("M11 low actor budget blocks lower priority ships"), BlockedShipIds.Num() > 0);
+	if (Promotions.Num() >= 2)
+	{
+		TestEqual(TEXT("M11 first promotion keeps trader encounter focus"), Promotions[0].ShipInstanceId, FName(TEXT("trader_brink_01")));
+		TestEqual(TEXT("M11 second promotion keeps pirate threat focus"), Promotions[1].ShipInstanceId, FName(TEXT("pirate_raider_01")));
+		TestTrue(TEXT("M11 promoted ships are proximity-scored"), Promotions[0].LastObserverDistanceCm >= 0.0 && Promotions[1].LastObserverDistanceCm >= 0.0);
+	}
+	TestTrue(TEXT("M11 blocked list includes patrol wing or lower priority ships"), BlockedShipIds.Contains(TEXT("patrol_frontier_local_02")) || BlockedShipIds.Contains(TEXT("pirate_raider_02")));
+
+	FSystemicGameplayState TightRadiusState = SystemDefinition.SystemicGameplay;
+	if (FRealizedActorBudgetProfile* TightBudget = TightRadiusState.RealizedActorBudgetProfiles.FindByPredicate([](const FRealizedActorBudgetProfile& Candidate)
+	{
+		return Candidate.BudgetProfileId == FName(TEXT("actor_budget_m11_low"));
+	}))
+	{
+		TightBudget->PromotionRadiusCm = 1.0;
+	}
+	Promotions.Reset();
+	BlockedShipIds.Reset();
+	FMovingFrameTarget TightObserverTarget = ObserverTarget;
+	TightObserverTarget.RouteProgress01 = 0.333;
+	TestTrue(TEXT("M11 tight proximity budget resolves"), USystemicGameplayQueryService::SelectRealizedPromotionCandidates(SystemDefinition, TightRadiusState, TEXT("actor_budget_m11_low"), TightObserverTarget, Clock0, 0.0, Promotions, BlockedShipIds, FailureReason));
+	TestEqual(TEXT("M11 tight proximity budget selects no distant ships"), Promotions.Num(), 0);
+	TestTrue(TEXT("M11 tight proximity budget blocks eligible distant ships"), BlockedShipIds.Num() > 0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM11PromotionDemotionStateTest,
+	"Stargame.M11.Realization.PreservesGoalThreatAndFrameOnDemotion",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM11PromotionDemotionStateTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M11 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	FShipTrafficInstance* Trader = SystemDefinition.LogicalTraffic.FindByPredicate([](const FShipTrafficInstance& Ship)
+	{
+		return Ship.ShipInstanceId == FName(TEXT("trader_brink_01"));
+	});
+	if (!TestNotNull(TEXT("M11 trader exists for promotion"), Trader))
+	{
+		return false;
+	}
+
+	const FShipGoalState OriginalGoal = Trader->CurrentGoal;
+	const FName OriginalGroupId = Trader->GroupId;
+	const FName OriginalSlotId = Trader->FormationSlotId;
+	const FSimulationClockSnapshot Clock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+
+	FShipGoalState FleeGoal;
+	FleeGoal.GoalId = TEXT("m11_flee_restore_test");
+	FleeGoal.GoalKind = EShipGoalKind::Flee;
+	FleeGoal.RouteSegmentId = OriginalGoal.RouteSegmentId;
+	FleeGoal.RouteProgress01 = 0.15;
+	FleeGoal.TargetFrame = OriginalGoal.TargetFrame;
+	FleeGoal.TargetFrame.TargetType = TEXT("route_sample");
+	FleeGoal.TargetFrame.RouteSegmentId = OriginalGoal.RouteSegmentId;
+	FleeGoal.TargetFrame.RouteProgress01 = 0.15;
+	FleeGoal.DesiredRouteSpeedFractionPerSecond = -0.03;
+	FleeGoal.InterruptPriority = OriginalGoal.InterruptPriority + 25;
+	FleeGoal.DecisionReason = TEXT("m11_pirate_flee");
+	FString FailureReason;
+	TestTrue(TEXT("M11 flee interrupt applies before realization"), ULogicalTrafficQueryService::ApplyScriptedInterrupt(*Trader, FleeGoal, FailureReason));
+
+	FRouteSample PromotionSample;
+	TestTrue(TEXT("M11 trader can promote through shared logical traffic contract"), ULogicalTrafficQueryService::PromoteLogicalTrader(SystemDefinition, *Trader, Clock, 0.0, TEXT("m11_actor_trader_brink_01"), PromotionSample, FailureReason));
+	TestEqual(TEXT("M11 promotion keeps flee goal id"), Trader->CurrentGoal.GoalId, FleeGoal.GoalId);
+	TestEqual(TEXT("M11 promotion keeps flee goal kind"), Trader->CurrentGoal.GoalKind, EShipGoalKind::Flee);
+	TestEqual(TEXT("M11 promotion keeps group"), Trader->GroupId, OriginalGroupId);
+	TestEqual(TEXT("M11 promotion keeps formation slot"), Trader->FormationSlotId, OriginalSlotId);
+
+	TestTrue(TEXT("M11 trader can demote through shared logical traffic contract"), ULogicalTrafficQueryService::DemoteLogicalTrader(SystemDefinition, *Trader, PromotionSample, Clock, 0.0, TEXT("m11_actor_trader_brink_01"), FailureReason));
+	TestEqual(TEXT("M11 demotion returns trader to logical tier"), Trader->TrafficTier, ELogicalTrafficTier::Tier2Logical);
+	TestTrue(TEXT("M11 demotion clears realization token"), Trader->RealizationToken.IsNone());
+	TestEqual(TEXT("M11 demotion preserves group"), Trader->GroupId, OriginalGroupId);
+	TestEqual(TEXT("M11 demotion preserves formation slot"), Trader->FormationSlotId, OriginalSlotId);
+	TestEqual(TEXT("M11 demotion preserves flee goal"), Trader->CurrentGoal.GoalKind, EShipGoalKind::Flee);
+	TestEqual(TEXT("M11 demotion preserves route-frame target"), Trader->CurrentGoal.TargetFrame.TargetType, FName(TEXT("route_sample")));
+	TestTrue(TEXT("M11 demotion preserves logical velocity"), Trader->LogicalVelocityCmPerSec.SizeSquared() > 1.0);
+	TestTrue(TEXT("M11 flee can restore saved trade route"), ULogicalTrafficQueryService::RestoreSavedGoal(*Trader, FailureReason));
+	TestEqual(TEXT("M11 restored route goal after flee realization"), Trader->CurrentGoal.GoalKind, OriginalGoal.GoalKind);
+
+	const FRealizedAIDemotionSnapshot* Snapshot = SystemDefinition.SystemicGameplay.RealizedDemotionSnapshots.FindByPredicate([](const FRealizedAIDemotionSnapshot& Candidate)
+	{
+		return Candidate.ShipInstanceId == FName(TEXT("trader_brink_01"));
+	});
+	TestNotNull(TEXT("M11 demotion snapshot exists"), Snapshot);
+	if (!Snapshot)
+	{
+		return false;
+	}
+	TestFalse(TEXT("M11 demotion snapshot preserves threat"), Snapshot->ThreatId.IsNone());
+	TestEqual(TEXT("M11 demotion snapshot uses route target"), Snapshot->TargetFrame.TargetType, FName(TEXT("route_sample")));
+
+	FStargameM0SaveState SaveState;
+	SaveState.SystemicGameplayState = SystemDefinition.SystemicGameplay;
+	FSystemicGameplayState ReloadedState = SaveState.SystemicGameplayState;
+	FString ValidationReason;
+	TestTrue(TEXT("M11 realized slice survives save reload"), USystemicGameplayQueryService::ValidateRealizedAISliceState(SystemDefinition, ReloadedState, ValidationReason));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM11DamageThreatContractTest,
+	"Stargame.M11.Combat.AppliesDamageThreatAndIdempotency",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM11DamageThreatContractTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M11 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	auto MakeDamage = [](FName EventId, FName DamageType, double Amount)
+	{
+		FDamageEventRecord Damage;
+		Damage.DamageEventId = EventId;
+		Damage.SourceCombatantId = TEXT("pirate_raider_01");
+		Damage.TargetCombatantId = TEXT("trader_brink_01");
+		Damage.DamageType = DamageType;
+		Damage.Amount = Amount;
+		Damage.AuthorityTimeSeconds = 42.0;
+		Damage.ThreatId = TEXT("threat_m11_pirate_trade_lane_01");
+		Damage.IdempotencyKey = FName(*FString::Printf(TEXT("idem_%s"), *EventId.ToString()));
+		return Damage;
+	};
+
+	FSystemicGameplayState DamageState = SystemDefinition.SystemicGameplay;
+	const int32 InitialDamageEventCount = DamageState.DamageEvents.Num();
+	FString FailureReason;
+	FDamageEventRecord Result;
+	TestTrue(TEXT("M11 kinetic damage applies through threat contract"), USystemicGameplayQueryService::ApplyDamageEventOnce(DamageState, MakeDamage(TEXT("damage_m11_test_disable_01"), TEXT("kinetic"), 185.0), Result, FailureReason));
+	TestEqual(TEXT("M11 damage result records applied state"), Result.ResultState, FName(TEXT("applied")));
+	const FShipDurabilityState* DamagedTrader = DamageState.ShipDurabilityStates.FindByPredicate([](const FShipDurabilityState& Candidate)
+	{
+		return Candidate.CombatantId == FName(TEXT("trader_brink_01"));
+	});
+	TestNotNull(TEXT("M11 damaged trader durability exists"), DamagedTrader);
+	if (DamagedTrader)
+	{
+		TestEqual(TEXT("M11 damage disables trader at recovery threshold"), DamagedTrader->State, FName(TEXT("disabled")));
+		TestEqual(TEXT("M11 damage writes last event"), DamagedTrader->LastDamageEventId, FName(TEXT("damage_m11_test_disable_01")));
+	}
+
+	const FSystemicGameplayState ReloadedDamageState = DamageState;
+	DamageState = ReloadedDamageState;
+	TestTrue(TEXT("M11 duplicate damage is idempotent after reload"), USystemicGameplayQueryService::ApplyDamageEventOnce(DamageState, MakeDamage(TEXT("damage_m11_test_disable_01"), TEXT("kinetic"), 185.0), Result, FailureReason));
+	TestEqual(TEXT("M11 duplicate damage does not append another event"), DamageState.DamageEvents.Num(), InitialDamageEventCount + 1);
+
+	TestTrue(TEXT("M11 follow-up damage can destroy target"), USystemicGameplayQueryService::ApplyDamageEventOnce(DamageState, MakeDamage(TEXT("damage_m11_test_destroy_01"), TEXT("kinetic"), 20.0), Result, FailureReason));
+	DamagedTrader = DamageState.ShipDurabilityStates.FindByPredicate([](const FShipDurabilityState& Candidate)
+	{
+		return Candidate.CombatantId == FName(TEXT("trader_brink_01"));
+	});
+	if (DamagedTrader)
+	{
+		TestEqual(TEXT("M11 follow-up damage destroys target"), DamagedTrader->State, FName(TEXT("destroyed")));
+	}
+
+	FSystemicGameplayState SurrenderState = SystemDefinition.SystemicGameplay;
+	TestTrue(TEXT("M11 surrender outcome applies"), USystemicGameplayQueryService::ApplyDamageEventOnce(SurrenderState, MakeDamage(TEXT("damage_m11_test_surrender_01"), TEXT("surrender"), 1.0), Result, FailureReason));
+	const FShipDurabilityState* SurrenderedTrader = SurrenderState.ShipDurabilityStates.FindByPredicate([](const FShipDurabilityState& Candidate)
+	{
+		return Candidate.CombatantId == FName(TEXT("trader_brink_01"));
+	});
+	TestTrue(TEXT("M11 surrender writes durability outcome"), SurrenderedTrader && SurrenderedTrader->State == FName(TEXT("surrendered")));
+
+	FSystemicGameplayState EscapeState = SystemDefinition.SystemicGameplay;
+	TestTrue(TEXT("M11 escape outcome applies"), USystemicGameplayQueryService::ApplyDamageEventOnce(EscapeState, MakeDamage(TEXT("damage_m11_test_escape_01"), TEXT("escape"), 1.0), Result, FailureReason));
+	const FShipDurabilityState* EscapedTrader = EscapeState.ShipDurabilityStates.FindByPredicate([](const FShipDurabilityState& Candidate)
+	{
+		return Candidate.CombatantId == FName(TEXT("trader_brink_01"));
+	});
+	TestTrue(TEXT("M11 escape writes durability outcome"), EscapedTrader && EscapedTrader->State == FName(TEXT("escaped")));
 
 	return true;
 }

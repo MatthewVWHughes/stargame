@@ -619,6 +619,26 @@ FStargameValidationReport UStarCatalogSubsystem::ValidateM10Fixture(FName System
 	return Report;
 }
 
+FStargameValidationReport UStarCatalogSubsystem::ValidateM11Fixture(FName SystemId) const
+{
+	FStargameValidationReport Report = ValidateM10Fixture(SystemId);
+	Report.Profile = EStargameValidationProfile::M11;
+	if (Report.HasBlockingIssues())
+	{
+		return Report;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	if (!ResolveSystemDefinition(SystemId, SystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_system"), SystemId, TEXT("Required system definition could not be resolved."));
+		return Report;
+	}
+
+	ValidateM11SystemDefinition(SystemDefinition, Report);
+	return Report;
+}
+
 bool UStarCatalogSubsystem::GenerateSeededPhysicalSystem(int32 Seed, FStarSystemDefinition& OutSystemDefinition) const
 {
 	FRandomStream Stream(Seed);
@@ -2115,6 +2135,47 @@ bool UStarCatalogSubsystem::ValidateM10SystemDefinition(const FStarSystemDefinit
 			!Promotion.RealizationToken.IsNone() &&
 			!Promotion.bCanResolveEncounter;
 	}), TEXT("m10_missing_promotion_attachment"), SystemDefinition.SystemId, TEXT("M10 requires promotion metadata that attaches later actors to an existing logical encounter without allowing actors to resolve it."));
+
+	return bValid && !Report.HasBlockingIssues();
+}
+
+bool UStarCatalogSubsystem::ValidateM11SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const
+{
+	bool bValid = true;
+	const FSystemicGameplayState& State = SystemDefinition.SystemicGameplay;
+
+	auto Require = [this, &Report, &bValid](bool bCondition, FName RuleId, FName ObjectId, const TCHAR* Message)
+	{
+		if (!bCondition)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, RuleId, ObjectId, Message);
+			bValid = false;
+		}
+	};
+
+	FString RealizedValidationError;
+	if (!USystemicGameplayQueryService::ValidateRealizedAISliceState(SystemDefinition, State, RealizedValidationError))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m11_invalid_realized_ai_slice"), SystemDefinition.SystemId, RealizedValidationError);
+		bValid = false;
+	}
+
+	TArray<FRealizedActorMappingRecord> Promotions;
+	TArray<FName> BlockedShipIds;
+	FString BudgetReason;
+	FMovingFrameTarget ObserverTarget;
+	ObserverTarget.TargetId = TEXT("m11_validation_observer");
+	ObserverTarget.TargetType = TEXT("route_sample");
+	ObserverTarget.RouteSegmentId = TEXT("m7_brink_watch_wayfarer_trade");
+	ObserverTarget.RouteProgress01 = 0.55;
+	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	const bool bBudgetSelects = USystemicGameplayQueryService::SelectRealizedPromotionCandidates(SystemDefinition, State, TEXT("actor_budget_m11_low"), ObserverTarget, Clock0, 0.0, Promotions, BlockedShipIds, BudgetReason);
+	Require(bBudgetSelects && !Promotions.IsEmpty(), TEXT("m11_no_promotion_candidates"), SystemDefinition.SystemId, TEXT("M11 low actor budget must select at least one realized actor candidate."));
+	Require(!BlockedShipIds.IsEmpty(), TEXT("m11_actor_budget_not_low"), SystemDefinition.SystemId, TEXT("M11 actor budget must block lower-priority promotions to prove capped realization."));
+	Require(Promotions.ContainsByPredicate([](const FRealizedActorMappingRecord& Mapping)
+	{
+		return Mapping.ShipInstanceId == FName(TEXT("trader_brink_01"));
+	}), TEXT("m11_missing_trader_promotion"), SystemDefinition.SystemId, TEXT("M11 promotion priority must keep the active trader eligible for realization."));
 
 	return bValid && !Report.HasBlockingIssues();
 }

@@ -226,9 +226,9 @@ bool ULogicalTrafficQueryService::PromoteLogicalTrader(
 	FRouteSample& OutTargetSample,
 	FString& OutFailureReason)
 {
-	if (Ship.CurrentGoal.GoalKind != EShipGoalKind::TradeRoute)
+	if (Ship.CurrentGoal.GoalKind != EShipGoalKind::TradeRoute && Ship.CurrentGoal.GoalKind != EShipGoalKind::Flee)
 	{
-		OutFailureReason = TEXT("Only trade-route goals are supported by the M8 realization harness.");
+		OutFailureReason = TEXT("Only route-sample trade or flee goals are supported by the realization harness.");
 		return false;
 	}
 	if (RealizationToken.IsNone())
@@ -236,9 +236,10 @@ bool ULogicalTrafficQueryService::PromoteLogicalTrader(
 		OutFailureReason = TEXT("Promotion requires a non-actor realization token.");
 		return false;
 	}
-	if (!UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, Ship.CurrentGoal.RouteSegmentId, Ship.CurrentGoal.RouteProgress01, ClockSnapshot, RequestedSimulationTimeSeconds, OutTargetSample))
+	const FName RouteSegmentId = Ship.CurrentGoal.RouteSegmentId.IsNone() ? Ship.CurrentGoal.TargetFrame.RouteSegmentId : Ship.CurrentGoal.RouteSegmentId;
+	if (RouteSegmentId.IsNone() || !UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, RouteSegmentId, Ship.CurrentGoal.RouteProgress01, ClockSnapshot, RequestedSimulationTimeSeconds, OutTargetSample))
 	{
-		OutFailureReason = TEXT("Could not resolve the trader route sample for promotion.");
+		OutFailureReason = TEXT("Could not resolve the route sample for promotion.");
 		return false;
 	}
 
@@ -260,9 +261,9 @@ bool ULogicalTrafficQueryService::DemoteLogicalTrader(
 	FName ExpectedRealizationToken,
 	FString& OutFailureReason)
 {
-	if (Ship.CurrentGoal.GoalKind != EShipGoalKind::TradeRoute)
+	if (Ship.CurrentGoal.GoalKind != EShipGoalKind::TradeRoute && Ship.CurrentGoal.GoalKind != EShipGoalKind::Flee)
 	{
-		OutFailureReason = TEXT("Only trade-route goals are supported by the M8 demotion harness.");
+		OutFailureReason = TEXT("Only route-sample trade or flee goals are supported by the demotion harness.");
 		return false;
 	}
 	if (Ship.TrafficTier != ELogicalTrafficTier::Tier1Realized)
@@ -281,7 +282,8 @@ bool ULogicalTrafficQueryService::DemoteLogicalTrader(
 		OutFailureReason = TEXT("Ship logical motion state was demoted to off-route free flight.");
 		return true;
 	}
-	if (ActorRouteSample.RouteSegmentId != Ship.CurrentGoal.RouteSegmentId)
+	const FName RouteSegmentId = Ship.CurrentGoal.RouteSegmentId.IsNone() ? Ship.CurrentGoal.TargetFrame.RouteSegmentId : Ship.CurrentGoal.RouteSegmentId;
+	if (RouteSegmentId.IsNone() || ActorRouteSample.RouteSegmentId != RouteSegmentId)
 	{
 		WriteOffRouteLogicalLocation(Ship, ActorRouteSample, RequestedSimulationTimeSeconds, TEXT("demoted_off_route_route_mismatch"));
 		OutFailureReason = TEXT("Demotion sample route mismatch; ship was demoted to off-route free flight.");
@@ -295,7 +297,7 @@ bool ULogicalTrafficQueryService::DemoteLogicalTrader(
 	}
 
 	FRouteClosestProgressResult Closest;
-	if (!UOrbitRouteFrameQueryService::FindClosestRouteProgress(SystemDefinition, Ship.CurrentGoal.RouteSegmentId, ActorRouteSample.ResolvedTransform.PositionCm, ClockSnapshot, RequestedSimulationTimeSeconds, Closest) || !Closest.bValid)
+	if (!UOrbitRouteFrameQueryService::FindClosestRouteProgress(SystemDefinition, RouteSegmentId, ActorRouteSample.ResolvedTransform.PositionCm, ClockSnapshot, RequestedSimulationTimeSeconds, Closest) || !Closest.bValid)
 	{
 		WriteOffRouteLogicalLocation(Ship, ActorRouteSample, RequestedSimulationTimeSeconds, TEXT("demoted_off_route_unrecoverable_progress"));
 		OutFailureReason = TEXT("Could not reconstruct route progress; ship was demoted to off-route free flight.");
@@ -303,7 +305,7 @@ bool ULogicalTrafficQueryService::DemoteLogicalTrader(
 	}
 
 	FRouteSample RecoveredSample;
-	if (!UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, Ship.CurrentGoal.RouteSegmentId, Closest.RouteProgress01, ClockSnapshot, RequestedSimulationTimeSeconds, RecoveredSample))
+	if (!UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, RouteSegmentId, Closest.RouteProgress01, ClockSnapshot, RequestedSimulationTimeSeconds, RecoveredSample))
 	{
 		WriteOffRouteLogicalLocation(Ship, ActorRouteSample, RequestedSimulationTimeSeconds, TEXT("demoted_off_route_unrecoverable_sample"));
 		OutFailureReason = TEXT("Could not evaluate recovered route sample; ship was demoted to off-route free flight.");
@@ -325,6 +327,8 @@ bool ULogicalTrafficQueryService::DemoteLogicalTrader(
 	}
 
 	Ship.CurrentGoal.RouteProgress01 = Closest.RouteProgress01;
+	Ship.CurrentGoal.RouteSegmentId = RouteSegmentId;
+	Ship.CurrentGoal.TargetFrame.RouteSegmentId = RouteSegmentId;
 	Ship.CurrentGoal.TargetFrame.RouteProgress01 = Closest.RouteProgress01;
 	Ship.LastRouteSample = RecoveredSample;
 	Ship.LastRouteSample.RouteProgress01 = Closest.RouteProgress01;

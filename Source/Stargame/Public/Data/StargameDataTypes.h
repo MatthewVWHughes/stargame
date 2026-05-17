@@ -79,7 +79,8 @@ enum class EStargameValidationProfile : uint8
 	M7,
 	M8,
 	M9,
-	M10
+	M10,
+	M11
 };
 
 UENUM(BlueprintType)
@@ -2808,6 +2809,276 @@ struct STARGAME_API FLogicalActorPromotionRecord
 };
 
 USTRUCT(BlueprintType)
+struct STARGAME_API FRealizedActorBudgetProfile
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName BudgetProfileId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	int32 MaxRealizedActors = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	int32 MaxPromotionsPerTick = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName PriorityPolicyId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization", meta = (Units = "cm"))
+	double PromotionRadiusCm = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FRealizedActorMappingRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName MappingId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName ShipInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName GroupId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName EncounterId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName RealizationToken;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName ActorBudgetProfileId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	int32 PromotionPriority = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization", meta = (Units = "cm"))
+	double LastObserverDistanceCm = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName State = TEXT("eligible");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FRealizedAIDemotionSnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName SnapshotId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName ShipInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName GroupId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName EncounterId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName RealizationToken;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FShipGoalState GoalState;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FMovingFrameTarget TargetFrame;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName ThreatId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FStargameCoordinateFrame VelocityFrame;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization", meta = (Units = "cm/s"))
+	FVector LogicalVelocityCmPerSec = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName RecoveryPolicyId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FRealizedAISteeringIntent
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName IntentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName ShipInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName IntentType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName TargetShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName TargetGroupId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FMovingFrameTarget TargetFrame;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName FormationSlotId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName ThreatId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName State = TEXT("planned");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FRealizedAICommsHook
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName HookId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName HookType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName MessageId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName SourceShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName TargetShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName EncounterId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Realization")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FShipDurabilityState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName DurabilityId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName CombatantId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	double Shield = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	double Hull = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName State = TEXT("active");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName LastDamageEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	bool bCanSurrender = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	bool bCanEscape = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FThreatRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName ThreatId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName AttackerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName DefenderId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FMovingFrameTarget LastKnownTarget;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	double Severity = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	double Confidence = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	double ExpiresAtTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FDamageEventRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName DamageEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName SourceCombatantId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName TargetCombatantId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName DamageType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	double Amount = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	double AuthorityTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName ResultState = TEXT("pending");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName ThreatId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Combat")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
 struct STARGAME_API FLogicalEncounterResolutionResult
 {
 	GENERATED_BODY()
@@ -2940,6 +3211,30 @@ struct STARGAME_API FSystemicGameplayState
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
 	TArray<FLogicalActorPromotionRecord> ActorPromotionAttachments;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FRealizedActorBudgetProfile> RealizedActorBudgetProfiles;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FRealizedActorMappingRecord> RealizedActorMappings;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FRealizedAIDemotionSnapshot> RealizedDemotionSnapshots;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FRealizedAISteeringIntent> RealizedSteeringIntents;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FRealizedAICommsHook> RealizedCommsHooks;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FShipDurabilityState> ShipDurabilityStates;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FThreatRecord> ThreatRecords;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FDamageEventRecord> DamageEvents;
 };
 
 USTRUCT(BlueprintType)
