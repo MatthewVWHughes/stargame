@@ -380,7 +380,7 @@ namespace
 		PatrolGroup.FormationSlots = { PatrolLeadSlot, PatrolWingSlot };
 		SystemDefinition.ShipGroups.Add(PatrolGroup);
 
-		SystemDefinition.SystemicGameplay = USystemicGameplayQueryService::MakeM11FixtureState(SystemDefinition);
+		SystemDefinition.SystemicGameplay = USystemicGameplayQueryService::MakeM12FixtureState(SystemDefinition);
 
 		SystemDefinition.MapEntries.Reset();
 		const TArray<TPair<FName, FName>> MapSources = {
@@ -558,6 +558,8 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	const bool bValidateM7 = ProfileString.Equals(TEXT("M7"), ESearchCase::IgnoreCase);
 	const bool bValidateM10 = ProfileString.Equals(TEXT("M10"), ESearchCase::IgnoreCase);
 	const bool bValidateM11 = ProfileString.Equals(TEXT("M11"), ESearchCase::IgnoreCase);
+	const bool bValidateM12Gameplay = ProfileString.Equals(TEXT("M12Gameplay"), ESearchCase::IgnoreCase);
+	const bool bValidateM12 = ProfileString.Equals(TEXT("M12"), ESearchCase::IgnoreCase);
 	const bool bBuildAlias = ProfileString.Equals(TEXT("Build"), ESearchCase::IgnoreCase) ||
 		ProfileString.Equals(TEXT("Cook"), ESearchCase::IgnoreCase) ||
 		ProfileString.Equals(TEXT("MCP"), ESearchCase::IgnoreCase) ||
@@ -570,10 +572,60 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 		UE_LOG(LogTemp, Error, TEXT("Validation profile M5.5 is documented but not implemented in the current M0-M10 branch."));
 		return 1;
 	}
-	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4 && !bValidateM5 && !bValidateM6 && !bValidateM7 && !bValidateM8 && !bValidateM9 && !bValidateM10 && !bValidateM11)
+	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4 && !bValidateM5 && !bValidateM6 && !bValidateM7 && !bValidateM8 && !bValidateM9 && !bValidateM10 && !bValidateM11 && !bValidateM12Gameplay && !bValidateM12)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Unsupported validation profile '%s'."), *ProfileString);
 		return 1;
+	}
+
+	const TCHAR* ActiveProfileName = TEXT("M1");
+	if (bValidateM12)
+	{
+		ActiveProfileName = TEXT("M12");
+	}
+	else if (bValidateM12Gameplay)
+	{
+		ActiveProfileName = TEXT("M12Gameplay");
+	}
+	else if (bValidateM11)
+	{
+		ActiveProfileName = TEXT("M11");
+	}
+	else if (bValidateM10)
+	{
+		ActiveProfileName = TEXT("M10");
+	}
+	else if (bValidateM9)
+	{
+		ActiveProfileName = TEXT("M9");
+	}
+	else if (bValidateM8)
+	{
+		ActiveProfileName = TEXT("M8");
+	}
+	else if (bValidateM7)
+	{
+		ActiveProfileName = TEXT("M7");
+	}
+	else if (bValidateM6)
+	{
+		ActiveProfileName = TEXT("M6");
+	}
+	else if (bValidateM5)
+	{
+		ActiveProfileName = TEXT("M5");
+	}
+	else if (bValidateM4)
+	{
+		ActiveProfileName = TEXT("M4");
+	}
+	else if (bValidateM3)
+	{
+		ActiveProfileName = TEXT("M3");
+	}
+	else if (bValidateM2)
+	{
+		ActiveProfileName = TEXT("M2");
 	}
 
 	UGameInstance* ValidationGameInstance = NewObject<UGameInstance>();
@@ -599,7 +651,7 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 
 	if (!Catalog->BuildAssetCatalogCache(false))
 	{
-		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM11 ? TEXT("M11") : (bValidateM10 ? TEXT("M10") : (bValidateM9 ? TEXT("M9") : (bValidateM8 ? TEXT("M8") : (bValidateM7 ? TEXT("M7") : (bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1")))))))))));
+		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), ActiveProfileName);
 		return 1;
 	}
 
@@ -618,7 +670,11 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	}
 	else
 	{
-		Report = bValidateM11
+		Report = bValidateM12
+			? Catalog->ValidateM12Fixture(SystemId)
+			: (bValidateM12Gameplay
+			? Catalog->ValidateM12GameplayFixture(SystemId)
+			: (bValidateM11
 			? Catalog->ValidateM11Fixture(SystemId)
 			: (bValidateM10
 			? Catalog->ValidateM10Fixture(SystemId)
@@ -630,7 +686,7 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 			? Catalog->ValidateM7Fixture(SystemId)
 			: (bValidateM5
 			? Catalog->ValidateM5Fixture(SystemId)
-			: (bValidateM4 ? Catalog->ValidateM4Fixture(SystemId) : (bValidateM3 ? Catalog->ValidateM3Fixture(SystemId) : (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId)))))))));
+			: (bValidateM4 ? Catalog->ValidateM4Fixture(SystemId) : (bValidateM3 ? Catalog->ValidateM3Fixture(SystemId) : (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId)))))))))));
 	}
 	for (const FStargameValidationIssue& Issue : Report.Issues)
 	{
@@ -648,6 +704,6 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 		return 1;
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM11 ? TEXT("M11") : (bValidateM10 ? TEXT("M10") : (bValidateM9 ? TEXT("M9") : (bValidateM8 ? TEXT("M8") : (bValidateM7 ? TEXT("M7") : (bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1")))))))))), *Report.SystemId.ToString());
+	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), ActiveProfileName, *Report.SystemId.ToString());
 	return 0;
 }

@@ -2757,4 +2757,354 @@ bool FM11DamageThreatContractTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM12GameplayValidationTest,
+	"Stargame.M12.Catalog.ValidatesPlayableProgressionFixture",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM12GameplayValidationTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	const FStargameValidationReport GameplayReport = Catalog->ValidateM12GameplayFixture(TEXT("frontier_test_01"));
+	TestFalse(TEXT("M12Gameplay validation report has no blocking issues"), GameplayReport.HasBlockingIssues());
+	if (GameplayReport.HasBlockingIssues())
+	{
+		for (const FStargameValidationIssue& Issue : GameplayReport.Issues)
+		{
+			AddError(Issue.Message);
+		}
+		return false;
+	}
+
+	const FStargameValidationReport M12Report = Catalog->ValidateM12Fixture(TEXT("frontier_test_01"));
+	TestFalse(TEXT("M12 validation report has no blocking issues"), M12Report.HasBlockingIssues());
+
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M12 frontier system resolves"), Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FString FailureReason;
+	TestTrue(TEXT("M12 gameplay state validates directly"), USystemicGameplayQueryService::ValidateM12GameplayState(SystemDefinition, SystemDefinition.SystemicGameplay, FailureReason));
+	TestFalse(TEXT("M12 fixture has progression trace seed"), SystemDefinition.SystemicGameplay.ProgressionDebugLedger.IsEmpty());
+	TestTrue(TEXT("M12 fixture has mission board service"), SystemDefinition.SystemicGameplay.StationServiceEndpoints.ContainsByPredicate([](const FStationServiceEndpointDefinition& Endpoint)
+	{
+		return Endpoint.ServiceType == FName(TEXT("mission_board"));
+	}));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM12TradeRouteGateRoundTripTest,
+	"Stargame.M12.Progression.TradeRouteGateRoundTrip",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM12TradeRouteGateRoundTripTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M12 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+	FString FailureReason;
+	FMissionInstanceState Mission;
+	TestTrue(TEXT("M12 mission can be accepted from mission board"), USystemicGameplayQueryService::AcceptMissionOfferOnce(State, TEXT("offer_m12_wayfarer_security_01"), TEXT("player"), TEXT("idem_test_m12_accept"), Mission, FailureReason));
+	TestEqual(TEXT("M12 mission accept activates instance"), Mission.CurrentState, FName(TEXT("active")));
+
+	FProgressionDebugLedgerEntry CompletionEntry;
+	TestTrue(TEXT("M12 mission can complete route/security round trip"), USystemicGameplayQueryService::CompleteMissionOnce(State, Mission.MissionInstanceId, TEXT("event_test_m12_round_trip"), TEXT("idem_test_m12_complete"), CompletionEntry, FailureReason));
+	TestEqual(TEXT("M12 completion entry type recorded"), CompletionEntry.EntryType, FName(TEXT("mission_complete")));
+	TestTrue(TEXT("M12 completion credits player"), State.CreditLedger.ContainsByPredicate([](const FCreditLedgerEntry& Ledger)
+	{
+		return Ledger.Reason == FName(TEXT("mission_reward")) && Ledger.CreditAccountId == FName(TEXT("account_player")) && Ledger.Amount > 0;
+	}));
+	TestTrue(TEXT("M12 completion records reputation delta"), State.ReputationDeltas.ContainsByPredicate([](const FReputationDeltaRecord& Delta)
+	{
+		return Delta.FactionId == FName(TEXT("frontier_local_authority")) && Delta.Delta > 0.0;
+	}));
+	TestTrue(TEXT("M12 completion unlocks follow-up route"), State.FollowUpOpportunities.ContainsByPredicate([](const FFollowUpOpportunityRecord& Opportunity)
+	{
+		return Opportunity.OpportunityId == FName(TEXT("followup_m12_wayfarer_return_01")) && Opportunity.State == FName(TEXT("available"));
+	}));
+	TestTrue(TEXT("M12 completion journals mission state"), State.TransactionJournal.ContainsByPredicate([](const FGameplayTransactionJournalEntry& Entry)
+	{
+		return Entry.TransactionId == FName(TEXT("tx_complete_mission_m12_wayfarer_security_01")) && Entry.SideEffectType == FName(TEXT("mission_state"));
+	}));
+	TestTrue(TEXT("M12 completion journals follow-up and arbitration"), State.TransactionJournal.ContainsByPredicate([](const FGameplayTransactionJournalEntry& Entry)
+	{
+		return Entry.TransactionId == FName(TEXT("tx_complete_mission_m12_wayfarer_security_01")) && Entry.SideEffectType == FName(TEXT("generated_followup"));
+	}) && State.TransactionJournal.ContainsByPredicate([](const FGameplayTransactionJournalEntry& Entry)
+	{
+		return Entry.TransactionId == FName(TEXT("tx_complete_mission_m12_wayfarer_security_01")) && Entry.SideEffectType == FName(TEXT("message_arbitration"));
+	}));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM12ServiceTransactionTest,
+	"Stargame.M12.Progression.ServiceTransaction",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM12ServiceTransactionTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M12 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+
+	auto MakeServiceRequest = [](FName RequestId, FName EndpointId, FName Type, double Amount, int64 Cost)
+	{
+		FStationServiceRequest Request;
+		Request.RequestId = RequestId;
+		Request.ServiceEndpointId = EndpointId;
+		Request.ServiceType = Type;
+		Request.TargetShipId = TEXT("player_ship");
+		Request.DebitAccountId = TEXT("account_player");
+		Request.CreditAccountId = TEXT("account_brink_watch_services");
+		Request.Amount = Amount;
+		Request.TotalCost = Cost;
+		Request.SourceEventId = TEXT("event_test_m12_service");
+		Request.IdempotencyKey = FName(*FString::Printf(TEXT("idem_%s"), *RequestId.ToString()));
+		return Request;
+	};
+
+	FString FailureReason;
+	FStationServiceResultRecord Result;
+	TestTrue(TEXT("M12 repair service applies"), USystemicGameplayQueryService::ExecuteStationServiceRequestOnce(State, MakeServiceRequest(TEXT("tx_test_m12_repair"), TEXT("service_brink_watch_repair"), TEXT("repair"), 20.0, 200), Result, FailureReason));
+	TestTrue(TEXT("M12 refuel service applies"), USystemicGameplayQueryService::ExecuteStationServiceRequestOnce(State, MakeServiceRequest(TEXT("tx_test_m12_refuel"), TEXT("service_brink_watch_refuel"), TEXT("refuel"), 40.0, 80), Result, FailureReason));
+	TestTrue(TEXT("M12 rearm service applies"), USystemicGameplayQueryService::ExecuteStationServiceRequestOnce(State, MakeServiceRequest(TEXT("tx_test_m12_rearm"), TEXT("service_brink_watch_rearm"), TEXT("rearm"), 20.0, 100), Result, FailureReason));
+	TestEqual(TEXT("M12 records three service results"), State.StationServiceResults.Num(), 3);
+	TestTrue(TEXT("M12 service ledger records costs"), State.CreditLedger.Num() >= 3);
+	const FShipResourceState* Resource = State.ShipResourceStates.FindByPredicate([](const FShipResourceState& Candidate)
+	{
+		return Candidate.ShipId == FName(TEXT("player_ship"));
+	});
+	TestTrue(TEXT("M12 resource service mutates fuel/ammo"), Resource && Resource->Fuel > 35.0 && Resource->Ammo > 12.0);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM12IllegalCargoRejectedTest,
+	"Stargame.M12.Progression.IllegalCargoRejected",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM12IllegalCargoRejectedTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M12 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+
+	const int32 InitialLedgerCount = State.CreditLedger.Num();
+	const int32 InitialCargoResultCount = State.CargoTransferResults.Num();
+	const int64 InitialPlayerBalance = State.CreditAccounts.FindByPredicate([](const FCreditAccountRecord& Account)
+	{
+		return Account.AccountId == FName(TEXT("account_player"));
+	})->AvailableBalance;
+
+	FMarketTransactionRequest Request;
+	Request.TransactionId = TEXT("tx_test_m12_illegal_buy");
+	Request.MarketId = TEXT("brink_watch");
+	Request.BuyerId = TEXT("player");
+	Request.SellerId = TEXT("brink_watch");
+	Request.CommodityId = TEXT("commodity_restricted_artifacts");
+	Request.CommodityItemBridgeId = TEXT("bridge_restricted_artifacts");
+	Request.Quantity = 1;
+	Request.QuotedUnitPrice = 600;
+	Request.SourceContainerId = TEXT("brink_watch_market_inventory");
+	Request.DestinationContainerId = TEXT("player_ship_cargo");
+	Request.DebitAccountId = TEXT("account_player");
+	Request.CreditAccountId = TEXT("account_brink_watch_market");
+	Request.LegalContextId = TEXT("frontier_law_basic");
+	Request.SourceEventId = TEXT("event_test_m12_illegal");
+	Request.IdempotencyKey = TEXT("idem_test_m12_illegal_buy");
+
+	FMarketTransactionResult Result;
+	FString FailureReason;
+	TestFalse(TEXT("M12 rejects illegal cargo before mutation"), USystemicGameplayQueryService::ExecuteProgressionMarketTransactionOnce(State, Request, Result, FailureReason));
+	TestEqual(TEXT("M12 illegal rejection result"), Result.Result, ESystemicActionResult::Rejected);
+	TestEqual(TEXT("M12 illegal rejection does not write ledger"), State.CreditLedger.Num(), InitialLedgerCount);
+	TestEqual(TEXT("M12 illegal rejection does not move cargo"), State.CargoTransferResults.Num(), InitialCargoResultCount);
+	TestEqual(TEXT("M12 illegal rejection does not debit player"), State.CreditAccounts.FindByPredicate([](const FCreditAccountRecord& Account)
+	{
+		return Account.AccountId == FName(TEXT("account_player"));
+	})->AvailableBalance, InitialPlayerBalance);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM12MissionFailureTest,
+	"Stargame.M12.Progression.MissionFailure",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM12MissionFailureTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M12 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+
+	FString FailureReason;
+	FMissionInstanceState Mission;
+	TestTrue(TEXT("M12 mission accepts before failure"), USystemicGameplayQueryService::AcceptMissionOfferOnce(State, TEXT("offer_m12_wayfarer_security_01"), TEXT("player"), TEXT("idem_test_m12_fail_accept"), Mission, FailureReason));
+	FProgressionDebugLedgerEntry FailureEntry;
+	TestTrue(TEXT("M12 mission can fail"), USystemicGameplayQueryService::FailMissionOnce(State, Mission.MissionInstanceId, TEXT("event_test_m12_fail"), TEXT("idem_test_m12_fail"), FailureEntry, FailureReason));
+	TestEqual(TEXT("M12 failure entry type recorded"), FailureEntry.EntryType, FName(TEXT("mission_fail")));
+	TestTrue(TEXT("M12 failure records reputation penalty"), State.ReputationDeltas.ContainsByPredicate([](const FReputationDeltaRecord& Delta)
+	{
+		return Delta.Reason == FName(TEXT("mission_failure")) && Delta.Delta < 0.0;
+	}));
+	TestTrue(TEXT("M12 failure journals mission state"), State.TransactionJournal.ContainsByPredicate([](const FGameplayTransactionJournalEntry& Entry)
+	{
+		return Entry.TransactionId == FName(TEXT("tx_fail_mission_m12_wayfarer_security_01")) && Entry.SideEffectType == FName(TEXT("mission_state"));
+	}));
+	TestTrue(TEXT("M12 failed gameplay state validates"), USystemicGameplayQueryService::ValidateM12GameplayState(SystemDefinition, State, FailureReason));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM12PirateDistressPatrolOutcomeTest,
+	"Stargame.M12.Progression.PirateDistressPatrolOutcome",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM12PirateDistressPatrolOutcomeTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M12 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+
+	FString FailureReason;
+	FLogicalEncounterResolutionResult EncounterResult;
+	TestTrue(TEXT("M12 resolves pirate distress through M10 contract"), USystemicGameplayQueryService::ResolveLogicalEncounterOnce(State, TEXT("encounter_pirate_trade_lane_01"), 120.0, EncounterResult, FailureReason));
+	FProgressionDebugLedgerEntry ProgressionEntry;
+	TestTrue(TEXT("M12 applies encounter progression outcome"), USystemicGameplayQueryService::ApplyEncounterProgressionOutcomeOnce(State, TEXT("encounter_pirate_trade_lane_01"), TEXT("idem_test_m12_encounter_progression"), ProgressionEntry, FailureReason));
+	TestEqual(TEXT("M12 encounter progression entry type"), ProgressionEntry.EntryType, FName(TEXT("encounter_outcome")));
+	TestTrue(TEXT("M12 encounter outcome records reputation"), State.ReputationDeltas.ContainsByPredicate([](const FReputationDeltaRecord& Delta)
+	{
+		return Delta.Reason == FName(TEXT("distress_patrol_outcome"));
+	}));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM12SaveReloadProgressionTest,
+	"Stargame.M12.Progression.SaveReloadProgression",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM12SaveReloadProgressionTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M12 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+
+	FString FailureReason;
+	FStationServiceResultRecord ServiceResult;
+	FStationServiceRequest ServiceRequest;
+	ServiceRequest.RequestId = TEXT("tx_test_m12_save_refuel");
+	ServiceRequest.ServiceEndpointId = TEXT("service_brink_watch_refuel");
+	ServiceRequest.ServiceType = TEXT("refuel");
+	ServiceRequest.TargetShipId = TEXT("player_ship");
+	ServiceRequest.DebitAccountId = TEXT("account_player");
+	ServiceRequest.CreditAccountId = TEXT("account_brink_watch_services");
+	ServiceRequest.Amount = 10.0;
+	ServiceRequest.TotalCost = 20;
+	ServiceRequest.SourceEventId = TEXT("event_test_m12_save_reload");
+	ServiceRequest.IdempotencyKey = TEXT("idem_test_m12_save_refuel");
+	TestTrue(TEXT("M12 service applies before save"), USystemicGameplayQueryService::ExecuteStationServiceRequestOnce(State, ServiceRequest, ServiceResult, FailureReason));
+
+	FMissionInstanceState Mission;
+	TestTrue(TEXT("M12 mission accepts before save"), USystemicGameplayQueryService::AcceptMissionOfferOnce(State, TEXT("offer_m12_wayfarer_security_01"), TEXT("player"), TEXT("idem_test_m12_save_accept"), Mission, FailureReason));
+	FProgressionDebugLedgerEntry CompletionEntry;
+	TestTrue(TEXT("M12 mission completes before save"), USystemicGameplayQueryService::CompleteMissionOnce(State, Mission.MissionInstanceId, TEXT("event_test_m12_save_reload"), TEXT("idem_test_m12_save_complete"), CompletionEntry, FailureReason));
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UStargameSessionSubsystem* Session = NewObject<UStargameSessionSubsystem>(GameInstance);
+	TestNotNull(TEXT("M12 session subsystem object created"), Session);
+	if (!Session)
+	{
+		return false;
+	}
+	Session->SetSystemicGameplayState(State);
+	const FStargameM0SaveState SaveState = Session->MakeCurrentM0SaveState();
+	TestTrue(TEXT("M12 progression writes to development save slot"), Session->SaveDevelopmentSlot(SaveState));
+	FStargameM0SaveState LoadedSaveState;
+	TestTrue(TEXT("M12 progression loads from development save slot"), Session->LoadDevelopmentSlot(LoadedSaveState));
+	UGameplayStatics::DeleteGameInSlot(UStargameSessionSubsystem::DevelopmentSlotName, 0);
+	FSystemicGameplayState ReloadedState = LoadedSaveState.SystemicGameplayState;
+	TestEqual(TEXT("M12 service result persists across save/load"), ReloadedState.StationServiceResults.Num(), State.StationServiceResults.Num());
+	TestEqual(TEXT("M12 reputation persists across save/load"), ReloadedState.ReputationDeltas.Num(), State.ReputationDeltas.Num());
+	TestEqual(TEXT("M12 progression trace persists across save/load"), ReloadedState.ProgressionDebugLedger.Num(), State.ProgressionDebugLedger.Num());
+	TestEqual(TEXT("M12 arbitration persists across save/load"), ReloadedState.MessageArbitrationResults.Num(), State.MessageArbitrationResults.Num());
+	TestEqual(TEXT("M12 journal persists across save/load"), ReloadedState.TransactionJournal.Num(), State.TransactionJournal.Num());
+	TestTrue(TEXT("M12 reloaded gameplay state validates"), USystemicGameplayQueryService::ValidateM12GameplayState(SystemDefinition, ReloadedState, FailureReason));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM12IdempotentCompletionTest,
+	"Stargame.M12.Progression.IdempotentCompletion",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM12IdempotentCompletionTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M12 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+
+	FString FailureReason;
+	FMissionInstanceState Mission;
+	TestTrue(TEXT("M12 mission accepts"), USystemicGameplayQueryService::AcceptMissionOfferOnce(State, TEXT("offer_m12_wayfarer_security_01"), TEXT("player"), TEXT("idem_test_m12_idem_accept"), Mission, FailureReason));
+	FProgressionDebugLedgerEntry CompletionEntry;
+	TestTrue(TEXT("M12 mission completes first time"), USystemicGameplayQueryService::CompleteMissionOnce(State, Mission.MissionInstanceId, TEXT("event_test_m12_idem"), TEXT("idem_test_m12_idem_complete"), CompletionEntry, FailureReason));
+	const int32 LedgerCount = State.CreditLedger.Num();
+	const int32 ReputationCount = State.ReputationDeltas.Num();
+	const int32 ProgressionCount = State.ProgressionDebugLedger.Num();
+	TestTrue(TEXT("M12 mission duplicate completion returns existing result"), USystemicGameplayQueryService::CompleteMissionOnce(State, Mission.MissionInstanceId, TEXT("event_test_m12_idem"), TEXT("idem_test_m12_idem_complete"), CompletionEntry, FailureReason));
+	TestEqual(TEXT("M12 duplicate completion does not duplicate ledger"), State.CreditLedger.Num(), LedgerCount);
+	TestEqual(TEXT("M12 duplicate completion does not duplicate reputation"), State.ReputationDeltas.Num(), ReputationCount);
+	TestEqual(TEXT("M12 duplicate completion does not duplicate trace"), State.ProgressionDebugLedger.Num(), ProgressionCount);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM12DebugProgressionTraceTest,
+	"Stargame.M12.Progression.DebugProgressionTrace",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM12DebugProgressionTraceTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M12 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+
+	FString FailureReason;
+	FMissionInstanceState Mission;
+	TestTrue(TEXT("M12 mission accepts for trace"), USystemicGameplayQueryService::AcceptMissionOfferOnce(State, TEXT("offer_m12_wayfarer_security_01"), TEXT("player"), TEXT("idem_test_m12_trace_accept"), Mission, FailureReason));
+	FProgressionDebugLedgerEntry CompletionEntry;
+	TestTrue(TEXT("M12 mission completes for trace"), USystemicGameplayQueryService::CompleteMissionOnce(State, Mission.MissionInstanceId, TEXT("event_test_m12_trace"), TEXT("idem_test_m12_trace_complete"), CompletionEntry, FailureReason));
+
+	const FString Trace = USystemicGameplayQueryService::BuildProgressionDebugTrace(State);
+	TestTrue(TEXT("M12 debug trace names completed mission"), Trace.Contains(TEXT("mission_m12_wayfarer_security_01")));
+	TestTrue(TEXT("M12 debug trace names reward ledger"), Trace.Contains(TEXT("ledger_complete_mission_m12_wayfarer_security_01")));
+	TestTrue(TEXT("M12 debug trace names reputation delta"), Trace.Contains(TEXT("rep_complete_mission_m12_wayfarer_security_01")));
+	TestTrue(TEXT("M12 debug summary includes progression counts"), USystemicGameplayQueryService::BuildSystemicDebugSummary(State).Contains(TEXT("Progression=")));
+
+	return true;
+}
+
 #endif

@@ -73,6 +73,72 @@ namespace
 		Entry.IdempotencyKey = IdempotencyKey;
 		State.TransactionJournal.Add(Entry);
 	}
+
+	bool IsRestrictedCargo(const FSystemicGameplayState& State, FName CommodityId, FName CommodityItemBridgeId)
+	{
+		const FCommodityDefinition* Commodity = FindConst(State.Commodities, [CommodityId](const FCommodityDefinition& Candidate)
+		{
+			return Candidate.CommodityId == CommodityId;
+		});
+		const FCommodityItemBridge* Bridge = FindConst(State.CommodityItemBridges, [CommodityId, CommodityItemBridgeId](const FCommodityItemBridge& Candidate)
+		{
+			return Candidate.CommodityItemBridgeId == CommodityItemBridgeId && Candidate.CommodityId == CommodityId;
+		});
+		const FItemDefinition* Item = Bridge ? FindConst(State.Items, [Bridge](const FItemDefinition& Candidate)
+		{
+			return Candidate.ItemId == Bridge->ItemId;
+		}) : nullptr;
+
+		const auto IsRestrictedName = [](FName Value)
+		{
+			return Value == FName(TEXT("contraband")) || Value == FName(TEXT("restricted")) || Value == FName(TEXT("illegal"));
+		};
+		const bool bRestrictedCommodity = Commodity && (IsRestrictedName(Commodity->Category) || HasNamedGameplayTag(Commodity->LegalityTags, TEXT("contraband")) || HasNamedGameplayTag(Commodity->LegalityTags, TEXT("restricted")) || HasNamedGameplayTag(Commodity->LegalityTags, TEXT("illegal")));
+		const bool bRestrictedItem = Item && (IsRestrictedName(Item->ItemType) || HasNamedGameplayTag(Item->LegalityTags, TEXT("contraband")) || HasNamedGameplayTag(Item->LegalityTags, TEXT("restricted")) || HasNamedGameplayTag(Item->LegalityTags, TEXT("illegal")));
+		return bRestrictedCommodity || bRestrictedItem;
+	}
+
+	bool HasRestrictedCargoClearance(const FSystemicGameplayState& State, const FMarketTransactionRequest& Request)
+	{
+		if (Request.LegalContextId.IsNone())
+		{
+			return false;
+		}
+		const FStationMarketState* Market = FindConst(State.Markets, [&Request](const FStationMarketState& Candidate)
+		{
+			return Candidate.MarketId == Request.MarketId;
+		});
+		const bool bMarketLegalPolicyResolves = State.StationServiceEndpoints.ContainsByPredicate([&Request, Market](const FStationServiceEndpointDefinition& Endpoint)
+		{
+			return Endpoint.ServiceType == FName(TEXT("market")) &&
+				Endpoint.MarketId == Request.MarketId &&
+				!Endpoint.LegalPolicyId.IsNone() &&
+				Endpoint.LegalPolicyId == Request.LegalContextId &&
+				(!Market || Endpoint.StationId == Market->StationId);
+		});
+		const bool bJurisdictionResolves = State.Jurisdictions.ContainsByPredicate([&Request](const FJurisdictionDefinition& Jurisdiction)
+		{
+			return Jurisdiction.JurisdictionId == Request.LegalContextId || Jurisdiction.LawProfileId == Request.LegalContextId;
+		});
+
+		const FString Context = Request.LegalContextId.ToString();
+		const bool bExplicitException = Context.Contains(TEXT("permit"), ESearchCase::IgnoreCase) ||
+			Context.Contains(TEXT("exception"), ESearchCase::IgnoreCase) ||
+			Context.Contains(TEXT("clearance"), ESearchCase::IgnoreCase);
+		// M12 has only the open legal policy fixture. Restricted cargo needs an explicit exception/permit context.
+		return bExplicitException && !bMarketLegalPolicyResolves && !bJurisdictionResolves;
+	}
+
+	void AddTransactionIfMissing(FSystemicGameplayState& State, const FGameplayTransactionRecord& Transaction)
+	{
+		if (!State.Transactions.ContainsByPredicate([&Transaction](const FGameplayTransactionRecord& Candidate)
+		{
+			return Candidate.TransactionId == Transaction.TransactionId || Candidate.IdempotencyKey == Transaction.IdempotencyKey;
+		}))
+		{
+			State.Transactions.Add(Transaction);
+		}
+	}
 }
 
 FSystemicGameplayState USystemicGameplayQueryService::MakeM9FixtureState(const FStarSystemDefinition& SystemDefinition)
@@ -628,6 +694,215 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM11FixtureState(const 
 	Damage.ThreatId = ThreatId;
 	Damage.IdempotencyKey = TEXT("idem_m11_damage_warning_shot_01");
 	State.DamageEvents.Add(Damage);
+
+	return State;
+}
+
+FSystemicGameplayState USystemicGameplayQueryService::MakeM12FixtureState(const FStarSystemDefinition& SystemDefinition)
+{
+	if (!SystemDefinition.SystemicGameplay.ShipResourceStates.IsEmpty() ||
+		!SystemDefinition.SystemicGameplay.StationServiceResults.IsEmpty() ||
+		!SystemDefinition.SystemicGameplay.FollowUpOpportunities.IsEmpty())
+	{
+		return SystemDefinition.SystemicGameplay;
+	}
+
+	FSystemicGameplayState State = MakeM11FixtureState(SystemDefinition);
+
+	auto EnsureAccount = [&State](FName AccountId, FName OwnerType, FName OwnerId, int64 Balance)
+	{
+		if (!State.CreditAccounts.ContainsByPredicate([AccountId](const FCreditAccountRecord& Account)
+		{
+			return Account.AccountId == AccountId;
+		}))
+		{
+			FCreditAccountRecord Account;
+			Account.AccountId = AccountId;
+			Account.OwnerType = OwnerType;
+			Account.OwnerId = OwnerId;
+			Account.AvailableBalance = Balance;
+			State.CreditAccounts.Add(Account);
+		}
+	};
+	EnsureAccount(TEXT("account_brink_watch_services"), TEXT("service"), TEXT("brink_watch"), 250000);
+	EnsureAccount(TEXT("account_wayfarer_mission_escrow"), TEXT("mission_escrow"), TEXT("wayfarer_depot"), 50000);
+
+	auto EnsureEndpoint = [&State](FName EndpointId, FName ServiceType, FName AccountId)
+	{
+		if (!State.StationServiceEndpoints.ContainsByPredicate([EndpointId](const FStationServiceEndpointDefinition& Endpoint)
+		{
+			return Endpoint.ServiceEndpointId == EndpointId;
+		}))
+		{
+			FStationServiceEndpointDefinition Endpoint;
+			Endpoint.ServiceEndpointId = EndpointId;
+			Endpoint.StationId = TEXT("brink_watch");
+			Endpoint.ServiceType = ServiceType;
+			Endpoint.ProviderFactionId = TEXT("frontier_local_authority");
+			Endpoint.CommsEndpointId = TEXT("comms_brink_watch");
+			Endpoint.MarketId = TEXT("brink_watch");
+			Endpoint.InventoryContainerId = TEXT("brink_watch_market_inventory");
+			Endpoint.CreditAccountId = AccountId;
+			Endpoint.AccessPolicyId = TEXT("frontier_open_access");
+			Endpoint.LegalPolicyId = TEXT("frontier_law_basic");
+			Endpoint.PresentationModes = { TEXT("docked_menu"), TEXT("cockpit_comms") };
+			State.StationServiceEndpoints.Add(Endpoint);
+		}
+	};
+	EnsureEndpoint(TEXT("service_brink_watch_repair"), TEXT("repair"), TEXT("account_brink_watch_services"));
+	EnsureEndpoint(TEXT("service_brink_watch_refuel"), TEXT("refuel"), TEXT("account_brink_watch_services"));
+	EnsureEndpoint(TEXT("service_brink_watch_rearm"), TEXT("rearm"), TEXT("account_brink_watch_services"));
+	EnsureEndpoint(TEXT("service_brink_watch_mission_board"), TEXT("mission_board"), TEXT("account_wayfarer_mission_escrow"));
+
+	if (!State.Items.ContainsByPredicate([](const FItemDefinition& Item) { return Item.ItemId == FName(TEXT("item_restricted_artifacts")); }))
+	{
+		FItemDefinition RestrictedItem;
+		RestrictedItem.ItemId = TEXT("item_restricted_artifacts");
+		RestrictedItem.DisplayName = FText::FromString(TEXT("Restricted Artifacts"));
+		RestrictedItem.ItemType = TEXT("contraband");
+		RestrictedItem.StackLimit = 25;
+		RestrictedItem.MassPerUnitKg = 5.0;
+		RestrictedItem.VolumePerUnitM3 = 0.5;
+		RestrictedItem.BaseValue = 600;
+		State.Items.Add(RestrictedItem);
+
+		FCommodityDefinition RestrictedCommodity;
+		RestrictedCommodity.CommodityId = TEXT("commodity_restricted_artifacts");
+		RestrictedCommodity.DisplayName = RestrictedItem.DisplayName;
+		RestrictedCommodity.BasePrice = 600;
+		RestrictedCommodity.MassPerUnitKg = RestrictedItem.MassPerUnitKg;
+		RestrictedCommodity.VolumePerUnitM3 = RestrictedItem.VolumePerUnitM3;
+		RestrictedCommodity.Category = TEXT("contraband");
+		State.Commodities.Add(RestrictedCommodity);
+
+		FCommodityItemBridge RestrictedBridge;
+		RestrictedBridge.CommodityItemBridgeId = TEXT("bridge_restricted_artifacts");
+		RestrictedBridge.CommodityId = RestrictedCommodity.CommodityId;
+		RestrictedBridge.ItemId = RestrictedItem.ItemId;
+		State.CommodityItemBridges.Add(RestrictedBridge);
+
+		if (FStationMarketState* Market = FindMutable(State.Markets, [](const FStationMarketState& Candidate)
+		{
+			return Candidate.MarketId == FName(TEXT("brink_watch"));
+		}))
+		{
+			Market->StockByCommodity.Add(RestrictedCommodity.CommodityId, 1);
+		}
+		if (FContainerState* MarketCargo = FindMutable(State.Containers, [](const FContainerState& Candidate)
+		{
+			return Candidate.ContainerId == FName(TEXT("brink_watch_market_inventory"));
+		}))
+		{
+			FItemStackState RestrictedStack;
+			RestrictedStack.StackId = TEXT("stack_brink_restricted_artifacts_01");
+			RestrictedStack.ItemId = RestrictedItem.ItemId;
+			RestrictedStack.Quantity = 1;
+			RestrictedStack.OwnerFactionId = TEXT("frontier_local_authority");
+			MarketCargo->Stacks.Add(RestrictedStack);
+		}
+	}
+
+	if (!State.ShipDurabilityStates.ContainsByPredicate([](const FShipDurabilityState& Durability)
+	{
+		return Durability.CombatantId == FName(TEXT("player_ship"));
+	}))
+	{
+		FShipDurabilityState PlayerDurability;
+		PlayerDurability.DurabilityId = TEXT("durability_player_ship");
+		PlayerDurability.CombatantId = TEXT("player_ship");
+		PlayerDurability.Shield = 65.0;
+		PlayerDurability.Hull = 70.0;
+		PlayerDurability.State = TEXT("damaged");
+		PlayerDurability.IdempotencyKey = TEXT("idem_m12_durability_player_ship");
+		State.ShipDurabilityStates.Add(PlayerDurability);
+	}
+
+	FShipResourceState Resources;
+	Resources.ResourceStateId = TEXT("resources_player_ship");
+	Resources.ShipId = TEXT("player_ship");
+	Resources.Fuel = 35.0;
+	Resources.MaxFuel = 100.0;
+	Resources.Ammo = 12.0;
+	Resources.MaxAmmo = 40.0;
+	Resources.IdempotencyKey = TEXT("idem_m12_resources_player_ship");
+	State.ShipResourceStates.Add(Resources);
+
+	FMissionOfferRecord M12Offer;
+	M12Offer.OfferId = TEXT("offer_m12_wayfarer_security_01");
+	M12Offer.MissionDefinitionId = TEXT("mission_m12_route_security_cargo");
+	M12Offer.SourceStationId = TEXT("brink_watch");
+	M12Offer.SourceServiceEndpointId = TEXT("service_brink_watch_mission_board");
+	M12Offer.IssuerFactionId = TEXT("frontier_local_authority");
+	State.MissionOffers.Add(M12Offer);
+
+	FMissionInstanceState M12Mission;
+	M12Mission.MissionInstanceId = TEXT("mission_m12_wayfarer_security_01");
+	M12Mission.MissionDefinitionId = M12Offer.MissionDefinitionId;
+	M12Mission.OfferId = M12Offer.OfferId;
+	M12Mission.OwnerId = TEXT("player");
+	M12Mission.IssuerFactionId = M12Offer.IssuerFactionId;
+	M12Mission.CurrentState = TEXT("offered");
+	M12Mission.ObjectiveStateIds = { TEXT("objective_m12_route_wayfarer"), TEXT("objective_m12_security_patrol") };
+	M12Mission.RewardEscrowIds = { TEXT("escrow_m12_wayfarer_security_01") };
+	M12Mission.IdempotencyKey = TEXT("idem_m12_mission_wayfarer_security");
+	State.MissionInstances.Add(M12Mission);
+
+	FObjectiveState RouteObjective;
+	RouteObjective.ObjectiveStateId = TEXT("objective_m12_route_wayfarer");
+	RouteObjective.MissionInstanceId = M12Mission.MissionInstanceId;
+	RouteObjective.ObjectiveType = TEXT("deliver_cargo");
+	RouteObjective.TargetType = TEXT("station");
+	RouteObjective.TargetId = TEXT("wayfarer_depot");
+	RouteObjective.RouteSegmentIds = { TEXT("m7_brink_watch_wayfarer_trade") };
+	RouteObjective.RequiredCargoManifestId = TEXT("manifest_m12_wayfarer_security");
+	RouteObjective.JurisdictionId = TEXT("frontier_local_authority");
+	RouteObjective.State = TEXT("inactive");
+	State.ObjectiveStates.Add(RouteObjective);
+
+	FObjectiveState SecurityObjective;
+	SecurityObjective.ObjectiveStateId = TEXT("objective_m12_security_patrol");
+	SecurityObjective.MissionInstanceId = M12Mission.MissionInstanceId;
+	SecurityObjective.ObjectiveType = TEXT("security_response");
+	SecurityObjective.TargetType = TEXT("encounter");
+	SecurityObjective.TargetId = TEXT("encounter_pirate_trade_lane_01");
+	SecurityObjective.RouteSegmentIds = { TEXT("m7_brink_watch_wayfarer_trade") };
+	SecurityObjective.JurisdictionId = TEXT("frontier_local_authority");
+	SecurityObjective.State = TEXT("inactive");
+	State.ObjectiveStates.Add(SecurityObjective);
+
+	FEscrowHoldRecord Escrow;
+	Escrow.EscrowId = TEXT("escrow_m12_wayfarer_security_01");
+	Escrow.HoldingAccountId = TEXT("account_wayfarer_mission_escrow");
+	Escrow.BeneficiaryAccountId = TEXT("account_player");
+	Escrow.Amount = 750;
+	Escrow.Reason = TEXT("m12_security_cargo_reward");
+	Escrow.SourceEventId = TEXT("event_m12_mission_board_seed");
+	Escrow.IdempotencyKey = TEXT("idem_m12_escrow_wayfarer_security");
+	State.EscrowHolds.Add(Escrow);
+
+	FFollowUpOpportunityRecord SeedOpportunity;
+	SeedOpportunity.OpportunityId = TEXT("followup_m12_wayfarer_return_01");
+	SeedOpportunity.OpportunityType = TEXT("route_cargo_return");
+	SeedOpportunity.SourceEventId = TEXT("event_m12_mission_board_seed");
+	SeedOpportunity.RouteSegmentId = TEXT("m7_brink_watch_wayfarer_trade");
+	SeedOpportunity.ServiceEndpointId = TEXT("service_brink_watch_mission_board");
+	SeedOpportunity.MissionOfferId = M12Offer.OfferId;
+	SeedOpportunity.FactionId = M12Offer.IssuerFactionId;
+	SeedOpportunity.State = TEXT("locked");
+	SeedOpportunity.IdempotencyKey = TEXT("idem_m12_followup_wayfarer_return_seed");
+	State.FollowUpOpportunities.Add(SeedOpportunity);
+
+	FProgressionDebugLedgerEntry SeedTrace;
+	SeedTrace.ProgressionEntryId = TEXT("progression_m12_seed_fixture");
+	SeedTrace.EntryType = TEXT("fixture_seed");
+	SeedTrace.SubjectId = TEXT("player");
+	SeedTrace.FactionId = TEXT("frontier_local_authority");
+	SeedTrace.SourceEventId = TEXT("event_m12_mission_board_seed");
+	SeedTrace.MissionInstanceId = M12Mission.MissionInstanceId;
+	SeedTrace.FollowUpOpportunityId = SeedOpportunity.OpportunityId;
+	SeedTrace.DebugReason = TEXT("M12 fixture links mission board, route, cargo, service, faction, ledger, and follow-up opportunity contracts.");
+	SeedTrace.IdempotencyKey = TEXT("idem_m12_seed_trace");
+	State.ProgressionDebugLedger.Add(SeedTrace);
 
 	return State;
 }
@@ -1554,9 +1829,10 @@ bool USystemicGameplayQueryService::ValidateRealizedAISliceState(const FStarSyst
 	TSet<FName> DurabilityCombatants;
 	for (const FShipDurabilityState& Durability : State.ShipDurabilityStates)
 	{
+		const bool bKnownCombatant = ShipIds.Contains(Durability.CombatantId) || Durability.CombatantId == FName(TEXT("player_ship"));
 		if (Durability.DurabilityId.IsNone() || DurabilityIds.Contains(Durability.DurabilityId) ||
 			Durability.IdempotencyKey.IsNone() || DurabilityIdempotencyKeys.Contains(Durability.IdempotencyKey) ||
-			!ShipIds.Contains(Durability.CombatantId) || Durability.Shield < 0.0 || Durability.Hull < 0.0)
+			!bKnownCombatant || Durability.Shield < 0.0 || Durability.Hull < 0.0)
 		{
 			return Fail(FString::Printf(TEXT("M11 durability '%s' must resolve to a logical or realized combatant."), *Durability.DurabilityId.ToString()));
 		}
@@ -1588,6 +1864,262 @@ bool USystemicGameplayQueryService::ValidateRealizedAISliceState(const FStarSyst
 	if (!Hazard || Hazard->State != FName(TEXT("pending")) || Hazard->SaveLoadEventId != FName(TEXT("event_m10_pirate_trade_lane_01")))
 	{
 		return Fail(TEXT("M11 pending interdiction must keep the same hazard and event IDs across save/load."));
+	}
+
+	OutFailureReason.Reset();
+	return true;
+}
+
+bool USystemicGameplayQueryService::ValidateM12GameplayState(const FStarSystemDefinition& SystemDefinition, const FSystemicGameplayState& State, FString& OutFailureReason)
+{
+	if (!ValidateRealizedAISliceState(SystemDefinition, State, OutFailureReason))
+	{
+		return false;
+	}
+
+	auto Fail = [&OutFailureReason](const FString& Reason)
+	{
+		OutFailureReason = Reason;
+		return false;
+	};
+
+	TSet<FName> RouteIds;
+	for (const FTrafficRouteSegmentDefinition& Route : SystemDefinition.TrafficRoutes)
+	{
+		RouteIds.Add(Route.RouteSegmentId);
+	}
+	TSet<FName> StationIds;
+	for (const FStationDefinition& Station : SystemDefinition.Stations)
+	{
+		StationIds.Add(Station.StationId);
+	}
+	TSet<FName> FactionIds;
+	for (const FFactionDefinition& Faction : State.Factions)
+	{
+		FactionIds.Add(Faction.FactionId);
+	}
+	TSet<FName> AccountIds;
+	for (const FCreditAccountRecord& Account : State.CreditAccounts)
+	{
+		AccountIds.Add(Account.AccountId);
+	}
+	TSet<FName> LedgerIds;
+	for (const FCreditLedgerEntry& Ledger : State.CreditLedger)
+	{
+		LedgerIds.Add(Ledger.LedgerEntryId);
+	}
+	TSet<FName> TransactionIds;
+	for (const FGameplayTransactionRecord& Transaction : State.Transactions)
+	{
+		TransactionIds.Add(Transaction.TransactionId);
+	}
+	TMap<FName, TSet<int32>> JournalSequencesByTransaction;
+	TMap<FName, TSet<FName>> JournalSideEffectsByTransaction;
+	for (const FGameplayTransactionJournalEntry& Entry : State.TransactionJournal)
+	{
+		if (!TransactionIds.Contains(Entry.TransactionId) || Entry.SideEffectType.IsNone())
+		{
+			return Fail(FString::Printf(TEXT("M12 journal entry '%s' has unresolved transaction or side effect type."), *Entry.JournalEntryId.ToString()));
+		}
+		TSet<int32>& Sequences = JournalSequencesByTransaction.FindOrAdd(Entry.TransactionId);
+		if (Sequences.Contains(Entry.Sequence))
+		{
+			return Fail(FString::Printf(TEXT("M12 transaction '%s' has duplicate journal sequence %d."), *Entry.TransactionId.ToString(), Entry.Sequence));
+		}
+		Sequences.Add(Entry.Sequence);
+		JournalSideEffectsByTransaction.FindOrAdd(Entry.TransactionId).Add(Entry.SideEffectType);
+	}
+	TSet<FName> ServiceEndpointIds;
+	TSet<FName> ServiceTypes;
+	for (const FStationServiceEndpointDefinition& Endpoint : State.StationServiceEndpoints)
+	{
+		ServiceEndpointIds.Add(Endpoint.ServiceEndpointId);
+		ServiceTypes.Add(Endpoint.ServiceType);
+		if (!Endpoint.StationId.IsNone() && !StationIds.Contains(Endpoint.StationId))
+		{
+			return Fail(FString::Printf(TEXT("M12 service endpoint '%s' references a missing station."), *Endpoint.ServiceEndpointId.ToString()));
+		}
+		if (!Endpoint.CreditAccountId.IsNone() && !AccountIds.Contains(Endpoint.CreditAccountId))
+		{
+			return Fail(FString::Printf(TEXT("M12 service endpoint '%s' references a missing account."), *Endpoint.ServiceEndpointId.ToString()));
+		}
+	}
+	for (const FName RequiredService : { FName(TEXT("market")), FName(TEXT("repair")), FName(TEXT("refuel")), FName(TEXT("rearm")), FName(TEXT("mission_board")) })
+	{
+		if (!ServiceTypes.Contains(RequiredService))
+		{
+			return Fail(FString::Printf(TEXT("M12 requires a '%s' station service endpoint."), *RequiredService.ToString()));
+		}
+	}
+
+	TSet<FName> OfferIds;
+	for (const FMissionOfferRecord& Offer : State.MissionOffers)
+	{
+		if (!ServiceEndpointIds.Contains(Offer.SourceServiceEndpointId) || !FactionIds.Contains(Offer.IssuerFactionId))
+		{
+			return Fail(FString::Printf(TEXT("M12 mission offer '%s' does not resolve service and faction references."), *Offer.OfferId.ToString()));
+		}
+		OfferIds.Add(Offer.OfferId);
+	}
+	TSet<FName> MissionIds;
+	for (const FMissionInstanceState& Mission : State.MissionInstances)
+	{
+		if (!OfferIds.Contains(Mission.OfferId) || !FactionIds.Contains(Mission.IssuerFactionId) || Mission.IdempotencyKey.IsNone())
+		{
+			return Fail(FString::Printf(TEXT("M12 mission '%s' has unresolved offer, faction, or idempotency references."), *Mission.MissionInstanceId.ToString()));
+		}
+		MissionIds.Add(Mission.MissionInstanceId);
+	}
+	for (const FObjectiveState& Objective : State.ObjectiveStates)
+	{
+		if (!MissionIds.Contains(Objective.MissionInstanceId) || Objective.TargetId.IsNone() || Objective.State.IsNone())
+		{
+			return Fail(FString::Printf(TEXT("M12 objective '%s' has unresolved mission, target, or lifecycle state."), *Objective.ObjectiveStateId.ToString()));
+		}
+		for (const FName RouteId : Objective.RouteSegmentIds)
+		{
+			if (!RouteIds.Contains(RouteId))
+			{
+				return Fail(FString::Printf(TEXT("M12 objective '%s' references a missing route."), *Objective.ObjectiveStateId.ToString()));
+			}
+		}
+	}
+
+	TSet<FName> ResourceIds;
+	TSet<FName> ResourceIdempotencyKeys;
+	for (const FShipResourceState& Resource : State.ShipResourceStates)
+	{
+		if (Resource.ResourceStateId.IsNone() || ResourceIds.Contains(Resource.ResourceStateId) ||
+			Resource.ShipId.IsNone() || Resource.MaxFuel <= 0.0 || Resource.MaxAmmo < 0.0 ||
+			Resource.Fuel < 0.0 || Resource.Fuel > Resource.MaxFuel ||
+			Resource.Ammo < 0.0 || Resource.Ammo > Resource.MaxAmmo ||
+			Resource.IdempotencyKey.IsNone() || ResourceIdempotencyKeys.Contains(Resource.IdempotencyKey))
+		{
+			return Fail(FString::Printf(TEXT("M12 ship resources '%s' must be bounded, stable, and idempotent."), *Resource.ResourceStateId.ToString()));
+		}
+		ResourceIds.Add(Resource.ResourceStateId);
+		ResourceIdempotencyKeys.Add(Resource.IdempotencyKey);
+	}
+
+	TSet<FName> ServiceResultIds;
+	TSet<FName> ServiceResultIdempotencyKeys;
+	for (const FStationServiceResultRecord& Result : State.StationServiceResults)
+	{
+		if (Result.ResultId.IsNone() || ServiceResultIds.Contains(Result.ResultId) ||
+			Result.RequestId.IsNone() || !ServiceEndpointIds.Contains(Result.ServiceEndpointId) ||
+			Result.ServiceType.IsNone() || Result.IdempotencyKey.IsNone() ||
+			ServiceResultIdempotencyKeys.Contains(Result.IdempotencyKey) ||
+			(!Result.LedgerEntryId.IsNone() && !LedgerIds.Contains(Result.LedgerEntryId)))
+		{
+			return Fail(FString::Printf(TEXT("M12 service result '%s' has unresolved endpoint, ledger, or idempotency references."), *Result.ResultId.ToString()));
+		}
+		ServiceResultIds.Add(Result.ResultId);
+		ServiceResultIdempotencyKeys.Add(Result.IdempotencyKey);
+	}
+
+	TSet<FName> ReputationDeltaIds;
+	TSet<FName> ReputationIdempotencyKeys;
+	for (const FReputationDeltaRecord& Delta : State.ReputationDeltas)
+	{
+		if (Delta.ReputationDeltaId.IsNone() || ReputationDeltaIds.Contains(Delta.ReputationDeltaId) ||
+			Delta.SubjectId.IsNone() || !FactionIds.Contains(Delta.FactionId) ||
+			Delta.IdempotencyKey.IsNone() || ReputationIdempotencyKeys.Contains(Delta.IdempotencyKey))
+		{
+			return Fail(FString::Printf(TEXT("M12 reputation delta '%s' has unresolved subject, faction, or idempotency references."), *Delta.ReputationDeltaId.ToString()));
+		}
+		ReputationDeltaIds.Add(Delta.ReputationDeltaId);
+		ReputationIdempotencyKeys.Add(Delta.IdempotencyKey);
+	}
+
+	TSet<FName> OpportunityIds;
+	TSet<FName> OpportunityIdempotencyKeys;
+	for (const FFollowUpOpportunityRecord& Opportunity : State.FollowUpOpportunities)
+	{
+		if (Opportunity.OpportunityId.IsNone() || OpportunityIds.Contains(Opportunity.OpportunityId) ||
+			Opportunity.OpportunityType.IsNone() || !RouteIds.Contains(Opportunity.RouteSegmentId) ||
+			!ServiceEndpointIds.Contains(Opportunity.ServiceEndpointId) ||
+			!OfferIds.Contains(Opportunity.MissionOfferId) || !FactionIds.Contains(Opportunity.FactionId) ||
+			Opportunity.IdempotencyKey.IsNone() || OpportunityIdempotencyKeys.Contains(Opportunity.IdempotencyKey))
+		{
+			return Fail(FString::Printf(TEXT("M12 follow-up opportunity '%s' has unresolved route/service/offer/faction references."), *Opportunity.OpportunityId.ToString()));
+		}
+		OpportunityIds.Add(Opportunity.OpportunityId);
+		OpportunityIdempotencyKeys.Add(Opportunity.IdempotencyKey);
+	}
+
+	TSet<FName> MessageInstanceIds;
+	for (const FMessageLogEntry& Message : State.MessageLog)
+	{
+		MessageInstanceIds.Add(Message.MessageInstanceId);
+	}
+	TSet<FName> ArbitrationIds;
+	TSet<FName> ArbitrationIdempotencyKeys;
+	for (const FMessageArbitrationResultRecord& Arbitration : State.MessageArbitrationResults)
+	{
+		if (Arbitration.ArbitrationId.IsNone() || ArbitrationIds.Contains(Arbitration.ArbitrationId) ||
+			Arbitration.IdempotencyKey.IsNone() || ArbitrationIdempotencyKeys.Contains(Arbitration.IdempotencyKey) ||
+			!MessageInstanceIds.Contains(Arbitration.SelectedMessageInstanceId))
+		{
+			return Fail(FString::Printf(TEXT("M12 message arbitration '%s' has unresolved selected message or idempotency references."), *Arbitration.ArbitrationId.ToString()));
+		}
+		ArbitrationIds.Add(Arbitration.ArbitrationId);
+		ArbitrationIdempotencyKeys.Add(Arbitration.IdempotencyKey);
+	}
+
+	TSet<FName> DebugIds;
+	TSet<FName> DebugIdempotencyKeys;
+	for (const FProgressionDebugLedgerEntry& Entry : State.ProgressionDebugLedger)
+	{
+		if (Entry.ProgressionEntryId.IsNone() || DebugIds.Contains(Entry.ProgressionEntryId) ||
+			Entry.EntryType.IsNone() || Entry.SubjectId.IsNone() || Entry.IdempotencyKey.IsNone() ||
+			DebugIdempotencyKeys.Contains(Entry.IdempotencyKey) ||
+			(!Entry.SourceTransactionId.IsNone() && !TransactionIds.Contains(Entry.SourceTransactionId)) ||
+			(!Entry.FactionId.IsNone() && !FactionIds.Contains(Entry.FactionId)) ||
+			(!Entry.CreditLedgerEntryId.IsNone() && !LedgerIds.Contains(Entry.CreditLedgerEntryId)) ||
+			(!Entry.ReputationDeltaId.IsNone() && !ReputationDeltaIds.Contains(Entry.ReputationDeltaId)) ||
+			(!Entry.MissionInstanceId.IsNone() && !MissionIds.Contains(Entry.MissionInstanceId)) ||
+			(!Entry.ServiceResultId.IsNone() && !ServiceResultIds.Contains(Entry.ServiceResultId)) ||
+			(!Entry.FollowUpOpportunityId.IsNone() && !OpportunityIds.Contains(Entry.FollowUpOpportunityId)) ||
+			(!Entry.MessageArbitrationId.IsNone() && !ArbitrationIds.Contains(Entry.MessageArbitrationId)))
+		{
+			return Fail(FString::Printf(TEXT("M12 progression trace entry '%s' has unresolved side-effect references."), *Entry.ProgressionEntryId.ToString()));
+		}
+		DebugIds.Add(Entry.ProgressionEntryId);
+		DebugIdempotencyKeys.Add(Entry.IdempotencyKey);
+
+		if (Entry.EntryType == FName(TEXT("mission_complete")))
+		{
+			const TSet<FName>* SideEffects = JournalSideEffectsByTransaction.Find(Entry.SourceTransactionId);
+			if (!SideEffects || !SideEffects->Contains(FName(TEXT("ledger"))) || !SideEffects->Contains(FName(TEXT("escrow"))) ||
+				!SideEffects->Contains(FName(TEXT("mission_state"))) || !SideEffects->Contains(FName(TEXT("reputation_delta"))) ||
+				!SideEffects->Contains(FName(TEXT("generated_followup"))) || !SideEffects->Contains(FName(TEXT("message_arbitration"))) ||
+				!SideEffects->Contains(FName(TEXT("debug"))))
+			{
+				return Fail(FString::Printf(TEXT("M12 mission completion '%s' must journal ledger, escrow, mission, reputation, follow-up, arbitration, and debug side effects."), *Entry.ProgressionEntryId.ToString()));
+			}
+		}
+		else if (Entry.EntryType == FName(TEXT("mission_fail")))
+		{
+			const TSet<FName>* SideEffects = JournalSideEffectsByTransaction.Find(Entry.SourceTransactionId);
+			if (!SideEffects || !SideEffects->Contains(FName(TEXT("mission_state"))) ||
+				!SideEffects->Contains(FName(TEXT("reputation_delta"))) || !SideEffects->Contains(FName(TEXT("debug"))))
+			{
+				return Fail(FString::Printf(TEXT("M12 mission failure '%s' must journal mission, reputation, and debug side effects."), *Entry.ProgressionEntryId.ToString()));
+			}
+		}
+		else if (Entry.EntryType == FName(TEXT("station_service")))
+		{
+			const TSet<FName>* SideEffects = JournalSideEffectsByTransaction.Find(Entry.SourceTransactionId);
+			if (!SideEffects || !SideEffects->Contains(FName(TEXT("ledger"))) || !SideEffects->Contains(FName(TEXT("service_resource"))))
+			{
+				return Fail(FString::Printf(TEXT("M12 station service '%s' must journal ledger and service resource side effects."), *Entry.ProgressionEntryId.ToString()));
+			}
+		}
+	}
+
+	if (State.FollowUpOpportunities.IsEmpty() || State.ProgressionDebugLedger.IsEmpty())
+	{
+		return Fail(TEXT("M12 requires authored/generated follow-up opportunity records and debug progression ledger records."));
 	}
 
 	OutFailureReason.Reset();
@@ -2117,6 +2649,612 @@ bool USystemicGameplayQueryService::ExecuteMarketTransaction(FSystemicGameplaySt
 	return true;
 }
 
+bool USystemicGameplayQueryService::ExecuteProgressionMarketTransactionOnce(
+	FSystemicGameplayState& InOutState,
+	const FMarketTransactionRequest& Request,
+	FMarketTransactionResult& OutResult,
+	FString& OutFailureReason)
+{
+	OutResult = FMarketTransactionResult();
+	OutResult.TransactionId = Request.TransactionId;
+	OutResult.SourceEventId = Request.SourceEventId;
+	OutResult.IdempotencyKey = Request.IdempotencyKey;
+	if (const FMarketTransactionResult* Existing = FindConst(InOutState.MarketTransactionResults, [&Request](const FMarketTransactionResult& Candidate)
+	{
+		return Candidate.TransactionId == Request.TransactionId || Candidate.IdempotencyKey == Request.IdempotencyKey;
+	}))
+	{
+		OutResult = *Existing;
+		OutFailureReason = Existing->RejectionReason;
+		return Existing->Result == ESystemicActionResult::Accepted;
+	}
+
+	if (IsRestrictedCargo(InOutState, Request.CommodityId, Request.CommodityItemBridgeId) &&
+		!HasRestrictedCargoClearance(InOutState, Request))
+	{
+		OutResult.Result = ESystemicActionResult::Rejected;
+		OutResult.RejectionReason = TEXT("Restricted cargo requires station legal/access clearance before market mutation.");
+		OutFailureReason = OutResult.RejectionReason;
+		InOutState.MarketTransactionResults.Add(OutResult);
+		return false;
+	}
+
+	const bool bApplied = ExecuteMarketTransaction(InOutState, Request, OutResult);
+	if (!bApplied)
+	{
+		OutFailureReason = OutResult.RejectionReason;
+		return false;
+	}
+
+	FProgressionDebugLedgerEntry Entry;
+	Entry.ProgressionEntryId = MakeId(TEXT("progression_market"), Request.TransactionId);
+	Entry.EntryType = TEXT("market_transaction");
+	Entry.SubjectId = Request.BuyerId;
+	Entry.SourceEventId = Request.SourceEventId;
+	Entry.SourceTransactionId = Request.TransactionId;
+	if (!OutResult.LedgerEntryIds.IsEmpty())
+	{
+		Entry.CreditLedgerEntryId = OutResult.LedgerEntryIds[0];
+	}
+	Entry.DebugReason = TEXT("M12 market transaction linked cargo, legal clearance, stock, account, ledger, and debug progression records.");
+	Entry.IdempotencyKey = MakeId(TEXT("idem_m12_progression_market"), Request.TransactionId);
+	if (!InOutState.ProgressionDebugLedger.ContainsByPredicate([&Entry](const FProgressionDebugLedgerEntry& Candidate)
+	{
+		return Candidate.ProgressionEntryId == Entry.ProgressionEntryId || Candidate.IdempotencyKey == Entry.IdempotencyKey;
+	}))
+	{
+		InOutState.ProgressionDebugLedger.Add(Entry);
+	}
+	OutFailureReason.Reset();
+	return true;
+}
+
+bool USystemicGameplayQueryService::ExecuteStationServiceRequestOnce(
+	FSystemicGameplayState& InOutState,
+	const FStationServiceRequest& Request,
+	FStationServiceResultRecord& OutResult,
+	FString& OutFailureReason)
+{
+	OutResult = FStationServiceResultRecord();
+	OutResult.ResultId = MakeId(TEXT("service_result"), Request.RequestId);
+	OutResult.RequestId = Request.RequestId;
+	OutResult.ServiceEndpointId = Request.ServiceEndpointId;
+	OutResult.ServiceType = Request.ServiceType;
+	OutResult.TargetShipId = Request.TargetShipId;
+	OutResult.SourceEventId = Request.SourceEventId;
+	OutResult.IdempotencyKey = Request.IdempotencyKey;
+
+	if (Request.RequestId.IsNone() || Request.IdempotencyKey.IsNone() || Request.ServiceEndpointId.IsNone() ||
+		Request.ServiceType.IsNone() || Request.TargetShipId.IsNone() || Request.Amount <= 0.0 || Request.TotalCost <= 0)
+	{
+		OutResult.RejectionReason = TEXT("Station service request requires stable IDs, service type, target ship, positive amount, positive cost, and idempotency.");
+		OutFailureReason = OutResult.RejectionReason;
+		return false;
+	}
+	if (const FStationServiceResultRecord* Existing = FindConst(InOutState.StationServiceResults, [&Request, &OutResult](const FStationServiceResultRecord& Candidate)
+	{
+		return Candidate.RequestId == Request.RequestId || Candidate.IdempotencyKey == Request.IdempotencyKey || Candidate.ResultId == OutResult.ResultId;
+	}))
+	{
+		OutResult = *Existing;
+		OutFailureReason.Reset();
+		return Existing->Result == ESystemicActionResult::Accepted;
+	}
+
+	const FStationServiceEndpointDefinition* Endpoint = FindConst(InOutState.StationServiceEndpoints, [&Request](const FStationServiceEndpointDefinition& Candidate)
+	{
+		return Candidate.ServiceEndpointId == Request.ServiceEndpointId && Candidate.ServiceType == Request.ServiceType;
+	});
+	FCreditAccountRecord* Debit = FindMutable(InOutState.CreditAccounts, [&Request](const FCreditAccountRecord& Candidate)
+	{
+		return Candidate.AccountId == Request.DebitAccountId;
+	});
+	FCreditAccountRecord* Credit = FindMutable(InOutState.CreditAccounts, [&Request](const FCreditAccountRecord& Candidate)
+	{
+		return Candidate.AccountId == Request.CreditAccountId;
+	});
+	if (!Endpoint || !Debit || !Credit || Debit->AvailableBalance < Request.TotalCost)
+	{
+		OutResult.RejectionReason = TEXT("Station service endpoint or accounts do not resolve, or the debit account has insufficient credits.");
+		OutFailureReason = OutResult.RejectionReason;
+		return false;
+	}
+
+	FShipDurabilityState* RepairDurability = nullptr;
+	FShipResourceState* ResourceState = nullptr;
+	if (Request.ServiceType == FName(TEXT("repair")))
+	{
+		RepairDurability = FindMutable(InOutState.ShipDurabilityStates, [&Request](const FShipDurabilityState& Candidate)
+		{
+			return Candidate.CombatantId == Request.TargetShipId;
+		});
+		if (!RepairDurability)
+		{
+			OutResult.RejectionReason = TEXT("Repair target durability state does not resolve.");
+			OutFailureReason = OutResult.RejectionReason;
+			return false;
+		}
+	}
+	else if (Request.ServiceType == FName(TEXT("refuel")) || Request.ServiceType == FName(TEXT("rearm")))
+	{
+		ResourceState = FindMutable(InOutState.ShipResourceStates, [&Request](const FShipResourceState& Candidate)
+		{
+			return Candidate.ShipId == Request.TargetShipId;
+		});
+		if (!ResourceState)
+		{
+			OutResult.RejectionReason = TEXT("Service target resource state does not resolve.");
+			OutFailureReason = OutResult.RejectionReason;
+			return false;
+		}
+	}
+	else
+	{
+		OutResult.RejectionReason = TEXT("Unsupported M12 station service type.");
+		OutFailureReason = OutResult.RejectionReason;
+		return false;
+	}
+
+	FName LedgerId = MakeId(TEXT("ledger"), Request.RequestId);
+	Debit->AvailableBalance -= Request.TotalCost;
+	Credit->AvailableBalance += Request.TotalCost;
+	FCreditLedgerEntry Ledger;
+	Ledger.LedgerEntryId = LedgerId;
+	Ledger.DebitAccountId = Debit->AccountId;
+	Ledger.CreditAccountId = Credit->AccountId;
+	Ledger.Amount = Request.TotalCost;
+	Ledger.Reason = Request.ServiceType;
+	Ledger.SourceEventId = Request.SourceEventId;
+	Ledger.SourceTransactionId = Request.RequestId;
+	Ledger.IdempotencyKey = MakeId(TEXT("ledger"), Request.IdempotencyKey);
+	Ledger.State = TEXT("applied");
+	InOutState.CreditLedger.Add(Ledger);
+	Debit->LastLedgerEntryId = Ledger.LedgerEntryId;
+	Credit->LastLedgerEntryId = Ledger.LedgerEntryId;
+
+	if (Request.ServiceType == FName(TEXT("repair")))
+	{
+		RepairDurability->Hull = FMath::Min(100.0, RepairDurability->Hull + Request.Amount);
+		RepairDurability->Shield = FMath::Min(100.0, RepairDurability->Shield + Request.Amount);
+		RepairDurability->State = TEXT("active");
+	}
+	else if (Request.ServiceType == FName(TEXT("refuel")) || Request.ServiceType == FName(TEXT("rearm")))
+	{
+		if (Request.ServiceType == FName(TEXT("refuel")))
+		{
+			ResourceState->Fuel = FMath::Min(ResourceState->MaxFuel, ResourceState->Fuel + Request.Amount);
+		}
+		else
+		{
+			ResourceState->Ammo = FMath::Min(ResourceState->MaxAmmo, ResourceState->Ammo + Request.Amount);
+		}
+		ResourceState->LastServiceResultId = OutResult.ResultId;
+	}
+
+	FGameplayTransactionRecord Transaction;
+	Transaction.TransactionId = Request.RequestId;
+	Transaction.TransactionType = TEXT("station_service");
+	Transaction.SourceEventId = Request.SourceEventId;
+	Transaction.InitiatorType = TEXT("player");
+	Transaction.InitiatorId = Debit->OwnerId;
+	Transaction.TargetType = TEXT("service");
+	Transaction.TargetId = Request.ServiceEndpointId;
+	Transaction.State = TEXT("committed");
+	Transaction.IdempotencyKey = Request.IdempotencyKey;
+	Transaction.DebugReason = TEXT("M12 station service committed ledger and ship resource side effects.");
+	InOutState.Transactions.Add(Transaction);
+	AddJournalEntry(InOutState, Request.RequestId, 1, TEXT("ledger"), Ledger.LedgerEntryId, Request.IdempotencyKey);
+	AddJournalEntry(InOutState, Request.RequestId, 2, TEXT("service_resource"), OutResult.ResultId, Request.IdempotencyKey);
+
+	OutResult.Result = ESystemicActionResult::Accepted;
+	OutResult.AppliedAmount = Request.Amount;
+	OutResult.AppliedCost = Request.TotalCost;
+	OutResult.LedgerEntryId = Ledger.LedgerEntryId;
+	InOutState.StationServiceResults.Add(OutResult);
+
+	FProgressionDebugLedgerEntry Entry;
+	Entry.ProgressionEntryId = MakeId(TEXT("progression_service"), Request.RequestId);
+	Entry.EntryType = TEXT("station_service");
+	Entry.SubjectId = Debit->OwnerId;
+	Entry.FactionId = Endpoint->ProviderFactionId;
+	Entry.SourceEventId = Request.SourceEventId;
+	Entry.SourceTransactionId = Request.RequestId;
+	Entry.CreditLedgerEntryId = Ledger.LedgerEntryId;
+	Entry.ServiceResultId = OutResult.ResultId;
+	Entry.DebugReason = TEXT("Service transaction linked repair/refuel/rearm availability, account ledger, and ship resource state.");
+	Entry.IdempotencyKey = MakeId(TEXT("idem_m12_progression_service"), Request.RequestId);
+	InOutState.ProgressionDebugLedger.Add(Entry);
+
+	OutFailureReason.Reset();
+	return true;
+}
+
+bool USystemicGameplayQueryService::AcceptMissionOfferOnce(
+	FSystemicGameplayState& InOutState,
+	FName OfferId,
+	FName PlayerId,
+	FName IdempotencyKey,
+	FMissionInstanceState& OutMission,
+	FString& OutFailureReason)
+{
+	OutMission = FMissionInstanceState();
+	if (OfferId.IsNone() || PlayerId.IsNone() || IdempotencyKey.IsNone())
+	{
+		OutFailureReason = TEXT("Mission accept requires offer, player, and idempotency IDs.");
+		return false;
+	}
+	FMissionOfferRecord* Offer = FindMutable(InOutState.MissionOffers, [OfferId](const FMissionOfferRecord& Candidate)
+	{
+		return Candidate.OfferId == OfferId;
+	});
+	FMissionInstanceState* Mission = FindMutable(InOutState.MissionInstances, [OfferId](const FMissionInstanceState& Candidate)
+	{
+		return Candidate.OfferId == OfferId;
+	});
+	if (!Offer || !Mission)
+	{
+		OutFailureReason = TEXT("Mission offer or mission instance does not resolve.");
+		return false;
+	}
+	if (Mission->CurrentState == FName(TEXT("active")) || Offer->State == FName(TEXT("accepted")))
+	{
+		OutMission = *Mission;
+		OutFailureReason.Reset();
+		return true;
+	}
+	Offer->State = TEXT("accepted");
+	Mission->CurrentState = TEXT("active");
+	Mission->OwnerId = PlayerId;
+	Mission->IdempotencyKey = IdempotencyKey;
+	for (FObjectiveState& Objective : InOutState.ObjectiveStates)
+	{
+		if (Objective.MissionInstanceId == Mission->MissionInstanceId)
+		{
+			Objective.State = TEXT("active");
+		}
+	}
+
+	const FName TransactionId = MakeId(TEXT("tx_accept"), Mission->MissionInstanceId);
+	FGameplayTransactionRecord Transaction;
+	Transaction.TransactionId = TransactionId;
+	Transaction.TransactionType = TEXT("mission_accept");
+	Transaction.InitiatorType = TEXT("player");
+	Transaction.InitiatorId = PlayerId;
+	Transaction.TargetType = TEXT("mission");
+	Transaction.TargetId = Mission->MissionInstanceId;
+	Transaction.State = TEXT("committed");
+	Transaction.IdempotencyKey = IdempotencyKey;
+	Transaction.DebugReason = TEXT("Mission accept committed offer, mission, objective, and progression trace state.");
+	AddTransactionIfMissing(InOutState, Transaction);
+	AddJournalEntry(InOutState, TransactionId, 1, TEXT("mission_state"), Mission->MissionInstanceId, IdempotencyKey);
+
+	FProgressionDebugLedgerEntry Entry;
+	Entry.ProgressionEntryId = MakeId(TEXT("progression_accept"), Mission->MissionInstanceId);
+	Entry.EntryType = TEXT("mission_accept");
+	Entry.SubjectId = PlayerId;
+	Entry.FactionId = Mission->IssuerFactionId;
+	Entry.MissionInstanceId = Mission->MissionInstanceId;
+	Entry.SourceTransactionId = TransactionId;
+	Entry.DebugReason = TEXT("Mission board offer accepted and objective states activated.");
+	Entry.IdempotencyKey = IdempotencyKey;
+	if (!InOutState.ProgressionDebugLedger.ContainsByPredicate([&Entry](const FProgressionDebugLedgerEntry& Candidate)
+	{
+		return Candidate.ProgressionEntryId == Entry.ProgressionEntryId || Candidate.IdempotencyKey == Entry.IdempotencyKey;
+	}))
+	{
+		InOutState.ProgressionDebugLedger.Add(Entry);
+	}
+	AddJournalEntry(InOutState, TransactionId, 2, TEXT("debug"), Entry.ProgressionEntryId, IdempotencyKey);
+
+	OutMission = *Mission;
+	OutFailureReason.Reset();
+	return true;
+}
+
+bool USystemicGameplayQueryService::CompleteMissionOnce(
+	FSystemicGameplayState& InOutState,
+	FName MissionInstanceId,
+	FName SourceEventId,
+	FName IdempotencyKey,
+	FProgressionDebugLedgerEntry& OutCompletionEntry,
+	FString& OutFailureReason)
+{
+	OutCompletionEntry = FProgressionDebugLedgerEntry();
+	if (MissionInstanceId.IsNone() || SourceEventId.IsNone() || IdempotencyKey.IsNone())
+	{
+		OutFailureReason = TEXT("Mission completion requires mission, source event, and idempotency IDs.");
+		return false;
+	}
+	if (const FProgressionDebugLedgerEntry* Existing = FindConst(InOutState.ProgressionDebugLedger, [MissionInstanceId, IdempotencyKey](const FProgressionDebugLedgerEntry& Candidate)
+	{
+		return Candidate.MissionInstanceId == MissionInstanceId &&
+			Candidate.EntryType == FName(TEXT("mission_complete")) &&
+			Candidate.IdempotencyKey == IdempotencyKey;
+	}))
+	{
+		OutCompletionEntry = *Existing;
+		OutFailureReason.Reset();
+		return true;
+	}
+	FMissionInstanceState* Mission = FindMutable(InOutState.MissionInstances, [MissionInstanceId](const FMissionInstanceState& Candidate)
+	{
+		return Candidate.MissionInstanceId == MissionInstanceId;
+	});
+	if (!Mission || Mission->CurrentState != FName(TEXT("active")))
+	{
+		OutFailureReason = TEXT("Mission instance does not resolve or is not completable.");
+		return false;
+	}
+
+	FCreditAccountRecord* PlayerAccount = FindMutable(InOutState.CreditAccounts, [](const FCreditAccountRecord& Candidate)
+	{
+		return Candidate.AccountId == FName(TEXT("account_player"));
+	});
+	FCreditAccountRecord* EscrowAccount = FindMutable(InOutState.CreditAccounts, [](const FCreditAccountRecord& Candidate)
+	{
+		return Candidate.AccountId == FName(TEXT("account_wayfarer_mission_escrow"));
+	});
+	FEscrowHoldRecord* Escrow = Mission->RewardEscrowIds.IsEmpty() ? nullptr : FindMutable(InOutState.EscrowHolds, [Mission](const FEscrowHoldRecord& Candidate)
+	{
+		return Candidate.EscrowId == Mission->RewardEscrowIds[0];
+	});
+	if (!PlayerAccount || !EscrowAccount || !Escrow || Escrow->Amount <= 0 || EscrowAccount->AvailableBalance < Escrow->Amount)
+	{
+		OutFailureReason = TEXT("Mission reward escrow or accounts do not resolve.");
+		return false;
+	}
+
+	const FName TransactionId = MakeId(TEXT("tx_complete"), MissionInstanceId);
+	const FName LedgerId = MakeId(TEXT("ledger_complete"), MissionInstanceId);
+	EscrowAccount->AvailableBalance -= Escrow->Amount;
+	PlayerAccount->AvailableBalance += Escrow->Amount;
+	FCreditLedgerEntry Ledger;
+	Ledger.LedgerEntryId = LedgerId;
+	Ledger.DebitAccountId = EscrowAccount->AccountId;
+	Ledger.CreditAccountId = PlayerAccount->AccountId;
+	Ledger.Amount = Escrow->Amount;
+	Ledger.Reason = TEXT("mission_reward");
+	Ledger.SourceEventId = SourceEventId;
+	Ledger.SourceTransactionId = TransactionId;
+	Ledger.IdempotencyKey = MakeId(TEXT("ledger"), IdempotencyKey);
+	Ledger.State = TEXT("applied");
+	InOutState.CreditLedger.Add(Ledger);
+	Escrow->State = TEXT("released");
+	PlayerAccount->LastLedgerEntryId = Ledger.LedgerEntryId;
+	EscrowAccount->LastLedgerEntryId = Ledger.LedgerEntryId;
+
+	FGameplayTransactionRecord Transaction;
+	Transaction.TransactionId = TransactionId;
+	Transaction.TransactionType = TEXT("mission_turn_in");
+	Transaction.SourceEventId = SourceEventId;
+	Transaction.InitiatorType = TEXT("player");
+	Transaction.InitiatorId = Mission->OwnerId;
+	Transaction.TargetType = TEXT("mission");
+	Transaction.TargetId = MissionInstanceId;
+	Transaction.State = TEXT("committed");
+	Transaction.IdempotencyKey = IdempotencyKey;
+	Transaction.DebugReason = TEXT("Mission completion committed objectives, reward ledger, reputation, follow-up, and message arbitration.");
+	InOutState.Transactions.Add(Transaction);
+	AddJournalEntry(InOutState, TransactionId, 1, TEXT("ledger"), Ledger.LedgerEntryId, IdempotencyKey);
+
+	Mission->CurrentState = TEXT("completed");
+	for (FObjectiveState& Objective : InOutState.ObjectiveStates)
+	{
+		if (Objective.MissionInstanceId == MissionInstanceId)
+		{
+			Objective.State = TEXT("completed");
+		}
+	}
+
+	FReputationDeltaRecord Delta;
+	Delta.ReputationDeltaId = MakeId(TEXT("rep_complete"), MissionInstanceId);
+	Delta.SubjectId = Mission->OwnerId;
+	Delta.FactionId = Mission->IssuerFactionId;
+	Delta.Delta = 0.05;
+	Delta.ResultStanding = 0.05;
+	Delta.Reason = TEXT("mission_completion");
+	Delta.SourceEventId = SourceEventId;
+	Delta.SourceTransactionId = TransactionId;
+	Delta.IdempotencyKey = MakeId(TEXT("idem_m12_rep"), MissionInstanceId);
+	InOutState.ReputationDeltas.Add(Delta);
+
+	FFollowUpOpportunityRecord* SeedOpportunity = FindMutable(InOutState.FollowUpOpportunities, [](const FFollowUpOpportunityRecord& Candidate)
+	{
+		return Candidate.OpportunityId == FName(TEXT("followup_m12_wayfarer_return_01"));
+	});
+	if (SeedOpportunity)
+	{
+		SeedOpportunity->State = TEXT("available");
+		SeedOpportunity->SourceResultId = Ledger.LedgerEntryId;
+	}
+
+	FMessageArbitrationResultRecord Arbitration;
+	Arbitration.ArbitrationId = MakeId(TEXT("arb_complete"), MissionInstanceId);
+	Arbitration.SourceEventId = SourceEventId;
+	Arbitration.SelectedMessageInstanceId = TEXT("message_distress_trade_lane_01");
+	Arbitration.State = TEXT("selected");
+	Arbitration.IdempotencyKey = MakeId(TEXT("idem_m12_arbitration"), MissionInstanceId);
+	InOutState.MessageArbitrationResults.Add(Arbitration);
+
+	OutCompletionEntry.ProgressionEntryId = MakeId(TEXT("progression_complete"), MissionInstanceId);
+	OutCompletionEntry.EntryType = TEXT("mission_complete");
+	OutCompletionEntry.SubjectId = Mission->OwnerId;
+	OutCompletionEntry.FactionId = Mission->IssuerFactionId;
+	OutCompletionEntry.SourceEventId = SourceEventId;
+	OutCompletionEntry.SourceTransactionId = TransactionId;
+	OutCompletionEntry.CreditLedgerEntryId = Ledger.LedgerEntryId;
+	OutCompletionEntry.ReputationDeltaId = Delta.ReputationDeltaId;
+	OutCompletionEntry.MissionInstanceId = MissionInstanceId;
+	OutCompletionEntry.FollowUpOpportunityId = SeedOpportunity ? SeedOpportunity->OpportunityId : FName();
+	OutCompletionEntry.MessageArbitrationId = Arbitration.ArbitrationId;
+	OutCompletionEntry.DebugReason = TEXT("M12 mission completion links reward, legal/faction standing, follow-up route, message arbitration, and idempotent ledger output.");
+	OutCompletionEntry.IdempotencyKey = IdempotencyKey;
+	InOutState.ProgressionDebugLedger.Add(OutCompletionEntry);
+	AddJournalEntry(InOutState, TransactionId, 2, TEXT("escrow"), Escrow->EscrowId, IdempotencyKey);
+	AddJournalEntry(InOutState, TransactionId, 3, TEXT("mission_state"), MissionInstanceId, IdempotencyKey);
+	AddJournalEntry(InOutState, TransactionId, 4, TEXT("reputation_delta"), Delta.ReputationDeltaId, IdempotencyKey);
+	if (SeedOpportunity)
+	{
+		AddJournalEntry(InOutState, TransactionId, 5, TEXT("generated_followup"), SeedOpportunity->OpportunityId, IdempotencyKey);
+	}
+	AddJournalEntry(InOutState, TransactionId, 6, TEXT("message_arbitration"), Arbitration.ArbitrationId, IdempotencyKey);
+	AddJournalEntry(InOutState, TransactionId, 7, TEXT("debug"), OutCompletionEntry.ProgressionEntryId, IdempotencyKey);
+
+	OutFailureReason.Reset();
+	return true;
+}
+
+bool USystemicGameplayQueryService::FailMissionOnce(
+	FSystemicGameplayState& InOutState,
+	FName MissionInstanceId,
+	FName SourceEventId,
+	FName IdempotencyKey,
+	FProgressionDebugLedgerEntry& OutFailureEntry,
+	FString& OutFailureReason)
+{
+	OutFailureEntry = FProgressionDebugLedgerEntry();
+	if (MissionInstanceId.IsNone() || SourceEventId.IsNone() || IdempotencyKey.IsNone())
+	{
+		OutFailureReason = TEXT("Mission failure requires mission, source event, and idempotency IDs.");
+		return false;
+	}
+	if (const FProgressionDebugLedgerEntry* Existing = FindConst(InOutState.ProgressionDebugLedger, [MissionInstanceId, IdempotencyKey](const FProgressionDebugLedgerEntry& Candidate)
+	{
+		return Candidate.MissionInstanceId == MissionInstanceId &&
+			Candidate.EntryType == FName(TEXT("mission_fail")) &&
+			Candidate.IdempotencyKey == IdempotencyKey;
+	}))
+	{
+		OutFailureEntry = *Existing;
+		OutFailureReason.Reset();
+		return true;
+	}
+
+	FMissionInstanceState* Mission = FindMutable(InOutState.MissionInstances, [MissionInstanceId](const FMissionInstanceState& Candidate)
+	{
+		return Candidate.MissionInstanceId == MissionInstanceId;
+	});
+	if (!Mission || Mission->CurrentState != FName(TEXT("active")))
+	{
+		OutFailureReason = TEXT("Mission instance does not resolve or is not active.");
+		return false;
+	}
+
+	const FName TransactionId = MakeId(TEXT("tx_fail"), MissionInstanceId);
+	Mission->CurrentState = TEXT("failed");
+	for (FObjectiveState& Objective : InOutState.ObjectiveStates)
+	{
+		if (Objective.MissionInstanceId == MissionInstanceId && Objective.State != FName(TEXT("completed")))
+		{
+			Objective.State = TEXT("failed");
+		}
+	}
+
+	FGameplayTransactionRecord Transaction;
+	Transaction.TransactionId = TransactionId;
+	Transaction.TransactionType = TEXT("mission_turn_in");
+	Transaction.SourceEventId = SourceEventId;
+	Transaction.InitiatorType = TEXT("player");
+	Transaction.InitiatorId = Mission->OwnerId;
+	Transaction.TargetType = TEXT("mission");
+	Transaction.TargetId = MissionInstanceId;
+	Transaction.State = TEXT("committed");
+	Transaction.IdempotencyKey = IdempotencyKey;
+	Transaction.DebugReason = TEXT("Mission failure committed mission state and reputation penalty without releasing escrow.");
+	AddTransactionIfMissing(InOutState, Transaction);
+
+	FReputationDeltaRecord Delta;
+	Delta.ReputationDeltaId = MakeId(TEXT("rep_fail"), MissionInstanceId);
+	Delta.SubjectId = Mission->OwnerId;
+	Delta.FactionId = Mission->IssuerFactionId;
+	Delta.Delta = -0.02;
+	Delta.ResultStanding = -0.02;
+	Delta.Reason = TEXT("mission_failure");
+	Delta.SourceEventId = SourceEventId;
+	Delta.SourceTransactionId = TransactionId;
+	Delta.IdempotencyKey = MakeId(TEXT("idem_m12_rep_fail"), MissionInstanceId);
+	InOutState.ReputationDeltas.Add(Delta);
+
+	OutFailureEntry.ProgressionEntryId = MakeId(TEXT("progression_fail"), MissionInstanceId);
+	OutFailureEntry.EntryType = TEXT("mission_fail");
+	OutFailureEntry.SubjectId = Mission->OwnerId;
+	OutFailureEntry.FactionId = Mission->IssuerFactionId;
+	OutFailureEntry.SourceEventId = SourceEventId;
+	OutFailureEntry.SourceTransactionId = TransactionId;
+	OutFailureEntry.ReputationDeltaId = Delta.ReputationDeltaId;
+	OutFailureEntry.MissionInstanceId = MissionInstanceId;
+	OutFailureEntry.DebugReason = TEXT("M12 mission failure links failed objective state and reputation penalty by stable IDs.");
+	OutFailureEntry.IdempotencyKey = IdempotencyKey;
+	InOutState.ProgressionDebugLedger.Add(OutFailureEntry);
+
+	AddJournalEntry(InOutState, TransactionId, 1, TEXT("mission_state"), MissionInstanceId, IdempotencyKey);
+	AddJournalEntry(InOutState, TransactionId, 2, TEXT("reputation_delta"), Delta.ReputationDeltaId, IdempotencyKey);
+	AddJournalEntry(InOutState, TransactionId, 3, TEXT("debug"), OutFailureEntry.ProgressionEntryId, IdempotencyKey);
+
+	OutFailureReason.Reset();
+	return true;
+}
+
+bool USystemicGameplayQueryService::ApplyEncounterProgressionOutcomeOnce(
+	FSystemicGameplayState& InOutState,
+	FName EncounterId,
+	FName IdempotencyKey,
+	FProgressionDebugLedgerEntry& OutProgressionEntry,
+	FString& OutFailureReason)
+{
+	OutProgressionEntry = FProgressionDebugLedgerEntry();
+	if (EncounterId.IsNone() || IdempotencyKey.IsNone())
+	{
+		OutFailureReason = TEXT("Encounter progression requires encounter and idempotency IDs.");
+		return false;
+	}
+	if (const FProgressionDebugLedgerEntry* Existing = FindConst(InOutState.ProgressionDebugLedger, [EncounterId, IdempotencyKey](const FProgressionDebugLedgerEntry& Candidate)
+	{
+		return Candidate.EntryType == FName(TEXT("encounter_outcome")) &&
+			Candidate.SourceTransactionId == EncounterId &&
+			Candidate.IdempotencyKey == IdempotencyKey;
+	}))
+	{
+		OutProgressionEntry = *Existing;
+		OutFailureReason.Reset();
+		return true;
+	}
+	const FLogicalEncounterRecord* Encounter = FindConst(InOutState.LogicalEncounters, [EncounterId](const FLogicalEncounterRecord& Candidate)
+	{
+		return Candidate.EncounterId == EncounterId;
+	});
+	if (!Encounter || Encounter->State != FName(TEXT("resolved")))
+	{
+		OutFailureReason = TEXT("Encounter must be resolved before M12 progression outcome can be applied.");
+		return false;
+	}
+
+	FReputationDeltaRecord Delta;
+	Delta.ReputationDeltaId = MakeId(TEXT("rep_encounter"), EncounterId);
+	Delta.SubjectId = TEXT("player");
+	Delta.FactionId = TEXT("frontier_local_authority");
+	Delta.Delta = 0.02;
+	Delta.ResultStanding = 0.02;
+	Delta.Reason = TEXT("distress_patrol_outcome");
+	Delta.SourceEventId = Encounter->SourceEventId;
+	Delta.SourceTransactionId = EncounterId;
+	Delta.IdempotencyKey = MakeId(TEXT("idem_m12_rep_encounter"), EncounterId);
+	InOutState.ReputationDeltas.Add(Delta);
+
+	OutProgressionEntry.ProgressionEntryId = MakeId(TEXT("progression_encounter"), EncounterId);
+	OutProgressionEntry.EntryType = TEXT("encounter_outcome");
+	OutProgressionEntry.SubjectId = TEXT("player");
+	OutProgressionEntry.FactionId = Delta.FactionId;
+	OutProgressionEntry.SourceEventId = Encounter->SourceEventId;
+	OutProgressionEntry.SourceTransactionId = EncounterId;
+	OutProgressionEntry.ReputationDeltaId = Delta.ReputationDeltaId;
+	OutProgressionEntry.DebugReason = TEXT("M12 pirate distress and patrol outcome updates faction reputation and debug progression trace after actor-free encounter resolution.");
+	OutProgressionEntry.IdempotencyKey = IdempotencyKey;
+	InOutState.ProgressionDebugLedger.Add(OutProgressionEntry);
+	OutFailureReason.Reset();
+	return true;
+}
+
 bool USystemicGameplayQueryService::ResolveStationServiceEndpoint(const FSystemicGameplayState& State, FName ServiceEndpointId, FStationServiceEndpointDefinition& OutEndpoint, FString& OutDebugReason)
 {
 	const FStationServiceEndpointDefinition* Endpoint = FindConst(State.StationServiceEndpoints, [ServiceEndpointId](const FStationServiceEndpointDefinition& Candidate)
@@ -2629,7 +3767,7 @@ bool USystemicGameplayQueryService::ResolveLogicalEncounterOnce(
 FString USystemicGameplayQueryService::BuildSystemicDebugSummary(const FSystemicGameplayState& State)
 {
 	return FString::Printf(
-		TEXT("Events=%d Results=%d Transactions=%d Journal=%d Factions=%d Jurisdictions=%d Offenses=%d Evidence=%d CriminalRecords=%d Containers=%d Markets=%d Ledger=%d Services=%d Messages=%d Missions=%d"),
+		TEXT("Events=%d Results=%d Transactions=%d Journal=%d Factions=%d Jurisdictions=%d Offenses=%d Evidence=%d CriminalRecords=%d Containers=%d Markets=%d Ledger=%d Services=%d Messages=%d Missions=%d ServiceResults=%d Reputation=%d FollowUps=%d Progression=%d"),
 		State.Events.Num(),
 		State.EventResults.Num(),
 		State.Transactions.Num(),
@@ -2644,5 +3782,30 @@ FString USystemicGameplayQueryService::BuildSystemicDebugSummary(const FSystemic
 		State.CreditLedger.Num(),
 		State.StationServiceEndpoints.Num(),
 		State.MessageLog.Num(),
-		State.MissionInstances.Num());
+		State.MissionInstances.Num(),
+		State.StationServiceResults.Num(),
+		State.ReputationDeltas.Num(),
+		State.FollowUpOpportunities.Num(),
+		State.ProgressionDebugLedger.Num());
+}
+
+FString USystemicGameplayQueryService::BuildProgressionDebugTrace(const FSystemicGameplayState& State)
+{
+	TArray<FString> Lines;
+	for (const FProgressionDebugLedgerEntry& Entry : State.ProgressionDebugLedger)
+	{
+		Lines.Add(FString::Printf(TEXT("%s:%s Subject=%s Faction=%s Mission=%s Ledger=%s Reputation=%s Service=%s FollowUp=%s Arbitration=%s Reason=%s"),
+			*Entry.ProgressionEntryId.ToString(),
+			*Entry.EntryType.ToString(),
+			*Entry.SubjectId.ToString(),
+			*Entry.FactionId.ToString(),
+			*Entry.MissionInstanceId.ToString(),
+			*Entry.CreditLedgerEntryId.ToString(),
+			*Entry.ReputationDeltaId.ToString(),
+			*Entry.ServiceResultId.ToString(),
+			*Entry.FollowUpOpportunityId.ToString(),
+			*Entry.MessageArbitrationId.ToString(),
+			*Entry.DebugReason));
+	}
+	return FString::Join(Lines, TEXT("\n"));
 }

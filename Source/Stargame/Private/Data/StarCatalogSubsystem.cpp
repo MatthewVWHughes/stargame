@@ -639,6 +639,46 @@ FStargameValidationReport UStarCatalogSubsystem::ValidateM11Fixture(FName System
 	return Report;
 }
 
+FStargameValidationReport UStarCatalogSubsystem::ValidateM12GameplayFixture(FName SystemId) const
+{
+	FStargameValidationReport Report = ValidateM11Fixture(SystemId);
+	Report.Profile = EStargameValidationProfile::M12Gameplay;
+	if (Report.HasBlockingIssues())
+	{
+		return Report;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	if (!ResolveSystemDefinition(SystemId, SystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_system"), SystemId, TEXT("Required system definition could not be resolved."));
+		return Report;
+	}
+
+	ValidateM12GameplaySystemDefinition(SystemDefinition, Report);
+	return Report;
+}
+
+FStargameValidationReport UStarCatalogSubsystem::ValidateM12Fixture(FName SystemId) const
+{
+	FStargameValidationReport Report = ValidateM12GameplayFixture(SystemId);
+	Report.Profile = EStargameValidationProfile::M12;
+	if (Report.HasBlockingIssues())
+	{
+		return Report;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	if (!ResolveSystemDefinition(SystemId, SystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_system"), SystemId, TEXT("Required system definition could not be resolved."));
+		return Report;
+	}
+
+	ValidateM12ScenarioSystemDefinition(SystemDefinition, Report);
+	return Report;
+}
+
 bool UStarCatalogSubsystem::GenerateSeededPhysicalSystem(int32 Seed, FStarSystemDefinition& OutSystemDefinition) const
 {
 	FRandomStream Stream(Seed);
@@ -2176,6 +2216,184 @@ bool UStarCatalogSubsystem::ValidateM11SystemDefinition(const FStarSystemDefinit
 	{
 		return Mapping.ShipInstanceId == FName(TEXT("trader_brink_01"));
 	}), TEXT("m11_missing_trader_promotion"), SystemDefinition.SystemId, TEXT("M11 promotion priority must keep the active trader eligible for realization."));
+
+	return bValid && !Report.HasBlockingIssues();
+}
+
+bool UStarCatalogSubsystem::ValidateM12GameplaySystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const
+{
+	bool bValid = true;
+	const FSystemicGameplayState& State = SystemDefinition.SystemicGameplay;
+
+	auto Require = [this, &Report, &bValid](bool bCondition, FName RuleId, FName ObjectId, const TCHAR* Message)
+	{
+		if (!bCondition)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, RuleId, ObjectId, Message);
+			bValid = false;
+		}
+	};
+
+	FString M12ValidationError;
+	if (!USystemicGameplayQueryService::ValidateM12GameplayState(SystemDefinition, State, M12ValidationError))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m12_invalid_gameplay_state"), SystemDefinition.SystemId, M12ValidationError);
+		bValid = false;
+	}
+
+	Require(State.StationServiceEndpoints.ContainsByPredicate([](const FStationServiceEndpointDefinition& Endpoint)
+	{
+		return Endpoint.ServiceType == FName(TEXT("repair")) && Endpoint.CreditAccountId == FName(TEXT("account_brink_watch_services"));
+	}), TEXT("m12_missing_repair_service"), SystemDefinition.SystemId, TEXT("M12 requires repair service availability with a durable service account."));
+	Require(State.StationServiceEndpoints.ContainsByPredicate([](const FStationServiceEndpointDefinition& Endpoint)
+	{
+		return Endpoint.ServiceType == FName(TEXT("refuel")) && Endpoint.CreditAccountId == FName(TEXT("account_brink_watch_services"));
+	}), TEXT("m12_missing_refuel_service"), SystemDefinition.SystemId, TEXT("M12 requires refuel service availability with a durable service account."));
+	Require(State.StationServiceEndpoints.ContainsByPredicate([](const FStationServiceEndpointDefinition& Endpoint)
+	{
+		return Endpoint.ServiceType == FName(TEXT("rearm")) && Endpoint.CreditAccountId == FName(TEXT("account_brink_watch_services"));
+	}), TEXT("m12_missing_rearm_service"), SystemDefinition.SystemId, TEXT("M12 requires rearm service availability with a durable service account."));
+	Require(State.StationServiceEndpoints.ContainsByPredicate([](const FStationServiceEndpointDefinition& Endpoint)
+	{
+		return Endpoint.ServiceType == FName(TEXT("mission_board")) && Endpoint.CommsEndpointId == FName(TEXT("comms_brink_watch"));
+	}), TEXT("m12_missing_mission_board"), SystemDefinition.SystemId, TEXT("M12 requires mission board service records connected to comms."));
+	Require(State.MissionOffers.ContainsByPredicate([](const FMissionOfferRecord& Offer)
+	{
+		return Offer.OfferId == FName(TEXT("offer_m12_wayfarer_security_01")) &&
+			Offer.SourceServiceEndpointId == FName(TEXT("service_brink_watch_mission_board"));
+	}), TEXT("m12_missing_route_security_offer"), SystemDefinition.SystemId, TEXT("M12 requires authored/generated mission-board route/security offer records."));
+	Require(State.FollowUpOpportunities.ContainsByPredicate([](const FFollowUpOpportunityRecord& Opportunity)
+	{
+		return Opportunity.OpportunityId == FName(TEXT("followup_m12_wayfarer_return_01")) &&
+			Opportunity.RouteSegmentId == FName(TEXT("m7_brink_watch_wayfarer_trade"));
+	}), TEXT("m12_missing_followup_route"), SystemDefinition.SystemId, TEXT("M12 requires follow-up route opportunities linked to previous outcomes."));
+	Require(State.ShipResourceStates.ContainsByPredicate([](const FShipResourceState& Resource)
+	{
+		return Resource.ShipId == FName(TEXT("player_ship")) && Resource.MaxFuel > 0.0 && Resource.MaxAmmo > 0.0;
+	}), TEXT("m12_missing_player_resources"), SystemDefinition.SystemId, TEXT("M12 requires persistent player ship fuel/ammo resource state."));
+	Require(State.ProgressionDebugLedger.ContainsByPredicate([](const FProgressionDebugLedgerEntry& Entry)
+	{
+		return Entry.EntryType == FName(TEXT("fixture_seed")) && !Entry.FollowUpOpportunityId.IsNone();
+	}), TEXT("m12_missing_debug_progression_seed"), SystemDefinition.SystemId, TEXT("M12 requires debug progression ledger records connecting mission board and follow-up outputs."));
+
+	return bValid && !Report.HasBlockingIssues();
+}
+
+bool UStarCatalogSubsystem::ValidateM12ScenarioSystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const
+{
+	bool bValid = true;
+	auto RequireScenario = [this, &Report, &bValid, &SystemDefinition](bool bCondition, FName RuleId, const FString& Message)
+	{
+		if (!bCondition)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, RuleId, SystemDefinition.SystemId, Message);
+			bValid = false;
+		}
+	};
+
+	FString FailureReason;
+	{
+		FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+		FMissionInstanceState Mission;
+		FProgressionDebugLedgerEntry CompletionEntry;
+		RequireScenario(
+			USystemicGameplayQueryService::AcceptMissionOfferOnce(State, TEXT("offer_m12_wayfarer_security_01"), TEXT("player"), TEXT("idem_validate_m12_accept"), Mission, FailureReason) &&
+			USystemicGameplayQueryService::CompleteMissionOnce(State, Mission.MissionInstanceId, TEXT("event_validate_m12_complete"), TEXT("idem_validate_m12_complete"), CompletionEntry, FailureReason) &&
+			CompletionEntry.EntryType == FName(TEXT("mission_complete")) &&
+			State.CreditLedger.ContainsByPredicate([](const FCreditLedgerEntry& Ledger)
+			{
+				return Ledger.Reason == FName(TEXT("mission_reward")) && Ledger.CreditAccountId == FName(TEXT("account_player"));
+			}) &&
+			State.ReputationDeltas.ContainsByPredicate([](const FReputationDeltaRecord& Delta)
+			{
+				return Delta.Reason == FName(TEXT("mission_completion"));
+			}),
+			TEXT("m12_scenario_trade_route_round_trip"),
+			FString::Printf(TEXT("M12 trade route round trip scenario failed: %s"), *FailureReason));
+	}
+
+	{
+		FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+		auto MakeServiceRequest = [](FName RequestId, FName EndpointId, FName Type, double Amount, int64 Cost)
+		{
+			FStationServiceRequest Request;
+			Request.RequestId = RequestId;
+			Request.ServiceEndpointId = EndpointId;
+			Request.ServiceType = Type;
+			Request.TargetShipId = TEXT("player_ship");
+			Request.DebitAccountId = TEXT("account_player");
+			Request.CreditAccountId = TEXT("account_brink_watch_services");
+			Request.Amount = Amount;
+			Request.TotalCost = Cost;
+			Request.SourceEventId = TEXT("event_validate_m12_service");
+			Request.IdempotencyKey = FName(*FString::Printf(TEXT("idem_%s"), *RequestId.ToString()));
+			return Request;
+		};
+		FStationServiceResultRecord ServiceResult;
+		RequireScenario(
+			USystemicGameplayQueryService::ExecuteStationServiceRequestOnce(State, MakeServiceRequest(TEXT("tx_validate_m12_repair"), TEXT("service_brink_watch_repair"), TEXT("repair"), 10.0, 100), ServiceResult, FailureReason) &&
+			USystemicGameplayQueryService::ExecuteStationServiceRequestOnce(State, MakeServiceRequest(TEXT("tx_validate_m12_refuel"), TEXT("service_brink_watch_refuel"), TEXT("refuel"), 10.0, 20), ServiceResult, FailureReason) &&
+			USystemicGameplayQueryService::ExecuteStationServiceRequestOnce(State, MakeServiceRequest(TEXT("tx_validate_m12_rearm"), TEXT("service_brink_watch_rearm"), TEXT("rearm"), 10.0, 50), ServiceResult, FailureReason) &&
+			USystemicGameplayQueryService::ValidateM12GameplayState(SystemDefinition, State, FailureReason),
+			TEXT("m12_scenario_service_transaction"),
+			FString::Printf(TEXT("M12 service transaction scenario failed: %s"), *FailureReason));
+	}
+
+	{
+		FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+		const int32 InitialLedgerCount = State.CreditLedger.Num();
+		const int32 InitialCargoResultCount = State.CargoTransferResults.Num();
+		FMarketTransactionRequest Request;
+		Request.TransactionId = TEXT("tx_validate_m12_illegal_buy");
+		Request.MarketId = TEXT("brink_watch");
+		Request.BuyerId = TEXT("player");
+		Request.SellerId = TEXT("brink_watch");
+		Request.CommodityId = TEXT("commodity_restricted_artifacts");
+		Request.CommodityItemBridgeId = TEXT("bridge_restricted_artifacts");
+		Request.Quantity = 1;
+		Request.QuotedUnitPrice = 600;
+		Request.SourceContainerId = TEXT("brink_watch_market_inventory");
+		Request.DestinationContainerId = TEXT("player_ship_cargo");
+		Request.DebitAccountId = TEXT("account_player");
+		Request.CreditAccountId = TEXT("account_brink_watch_market");
+		Request.LegalContextId = TEXT("frontier_law_basic");
+		Request.SourceEventId = TEXT("event_validate_m12_illegal");
+		Request.IdempotencyKey = TEXT("idem_validate_m12_illegal_buy");
+		FMarketTransactionResult MarketResult;
+		const bool bRejected = !USystemicGameplayQueryService::ExecuteProgressionMarketTransactionOnce(State, Request, MarketResult, FailureReason);
+		RequireScenario(
+			bRejected &&
+			MarketResult.Result == ESystemicActionResult::Rejected &&
+			State.CreditLedger.Num() == InitialLedgerCount &&
+			State.CargoTransferResults.Num() == InitialCargoResultCount,
+			TEXT("m12_scenario_illegal_cargo_rejected"),
+			FString::Printf(TEXT("M12 illegal cargo rejection scenario failed: %s"), *FailureReason));
+	}
+
+	{
+		FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+		FLogicalEncounterResolutionResult EncounterResult;
+		FProgressionDebugLedgerEntry ProgressionEntry;
+		RequireScenario(
+			USystemicGameplayQueryService::ResolveLogicalEncounterOnce(State, TEXT("encounter_pirate_trade_lane_01"), 120.0, EncounterResult, FailureReason) &&
+			USystemicGameplayQueryService::ApplyEncounterProgressionOutcomeOnce(State, TEXT("encounter_pirate_trade_lane_01"), TEXT("idem_validate_m12_encounter_progression"), ProgressionEntry, FailureReason) &&
+			ProgressionEntry.EntryType == FName(TEXT("encounter_outcome")),
+			TEXT("m12_scenario_pirate_distress_patrol"),
+			FString::Printf(TEXT("M12 pirate/distress/patrol scenario failed: %s"), *FailureReason));
+	}
+
+	{
+		FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+		FMissionInstanceState Mission;
+		FProgressionDebugLedgerEntry FailureEntry;
+		RequireScenario(
+			USystemicGameplayQueryService::AcceptMissionOfferOnce(State, TEXT("offer_m12_wayfarer_security_01"), TEXT("player"), TEXT("idem_validate_m12_fail_accept"), Mission, FailureReason) &&
+			USystemicGameplayQueryService::FailMissionOnce(State, Mission.MissionInstanceId, TEXT("event_validate_m12_fail"), TEXT("idem_validate_m12_fail"), FailureEntry, FailureReason) &&
+			FailureEntry.EntryType == FName(TEXT("mission_fail")) &&
+			USystemicGameplayQueryService::ValidateM12GameplayState(SystemDefinition, State, FailureReason),
+			TEXT("m12_scenario_mission_failure"),
+			FString::Printf(TEXT("M12 mission failure scenario failed: %s"), *FailureReason));
+	}
 
 	return bValid && !Report.HasBlockingIssues();
 }

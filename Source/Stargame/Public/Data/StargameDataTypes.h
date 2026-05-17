@@ -80,7 +80,9 @@ enum class EStargameValidationProfile : uint8
 	M8,
 	M9,
 	M10,
-	M11
+	M11,
+	M12Gameplay,
+	M12
 };
 
 UENUM(BlueprintType)
@@ -3100,6 +3102,255 @@ struct STARGAME_API FLogicalEncounterResolutionResult
 };
 
 USTRUCT(BlueprintType)
+struct STARGAME_API FShipResourceState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ResourceStateId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	double Fuel = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	double MaxFuel = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	double Ammo = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	double MaxAmmo = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName LastServiceResultId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FStationServiceRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName RequestId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ServiceEndpointId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ServiceType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName TargetShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName DebitAccountId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName CreditAccountId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	double Amount = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	int64 TotalCost = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FStationServiceResultRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ResultId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName RequestId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	ESystemicActionResult Result = ESystemicActionResult::Rejected;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ServiceEndpointId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ServiceType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName TargetShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	double AppliedAmount = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	int64 AppliedCost = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName LedgerEntryId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FString RejectionReason;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FReputationDeltaRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ReputationDeltaId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName SubjectId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName FactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	double Delta = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	double ResultStanding = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName Reason;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName SourceTransactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FFollowUpOpportunityRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName OpportunityId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName OpportunityType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName SourceResultId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ServiceEndpointId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName MissionOfferId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName FactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName State = TEXT("available");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FMessageArbitrationResultRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ArbitrationId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName SelectedMessageInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	TArray<FName> SuppressedMessageInstanceIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName State = TEXT("selected");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FProgressionDebugLedgerEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ProgressionEntryId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName EntryType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName SubjectId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName FactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName SourceTransactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName CreditLedgerEntryId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ReputationDeltaId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName MissionInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName ServiceResultId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName FollowUpOpportunityId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName MessageArbitrationId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FString DebugReason;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Progression")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
 struct STARGAME_API FSystemicGameplayState
 {
 	GENERATED_BODY()
@@ -3235,6 +3486,24 @@ struct STARGAME_API FSystemicGameplayState
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
 	TArray<FDamageEventRecord> DamageEvents;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FShipResourceState> ShipResourceStates;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FStationServiceResultRecord> StationServiceResults;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FReputationDeltaRecord> ReputationDeltas;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FFollowUpOpportunityRecord> FollowUpOpportunities;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FMessageArbitrationResultRecord> MessageArbitrationResults;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FProgressionDebugLedgerEntry> ProgressionDebugLedger;
 };
 
 USTRUCT(BlueprintType)

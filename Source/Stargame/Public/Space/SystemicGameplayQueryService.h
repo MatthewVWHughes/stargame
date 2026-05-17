@@ -21,6 +21,9 @@ public:
 	static FSystemicGameplayState MakeM11FixtureState(const FStarSystemDefinition& SystemDefinition);
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
+	static FSystemicGameplayState MakeM12FixtureState(const FStarSystemDefinition& SystemDefinition);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
 	static bool ValidateSystemicGameplayState(
 		const FStarSystemDefinition& SystemDefinition,
 		const FSystemicGameplayState& State,
@@ -34,6 +37,12 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
 	static bool ValidateRealizedAISliceState(
+		const FStarSystemDefinition& SystemDefinition,
+		const FSystemicGameplayState& State,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
+	static bool ValidateM12GameplayState(
 		const FStarSystemDefinition& SystemDefinition,
 		const FSystemicGameplayState& State,
 		FString& OutFailureReason);
@@ -83,6 +92,55 @@ public:
 		FSystemicGameplayState& InOutState,
 		const FMarketTransactionRequest& Request,
 		FMarketTransactionResult& OutResult);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
+	static bool ExecuteProgressionMarketTransactionOnce(
+		FSystemicGameplayState& InOutState,
+		const FMarketTransactionRequest& Request,
+		FMarketTransactionResult& OutResult,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
+	static bool ExecuteStationServiceRequestOnce(
+		FSystemicGameplayState& InOutState,
+		const FStationServiceRequest& Request,
+		FStationServiceResultRecord& OutResult,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
+	static bool AcceptMissionOfferOnce(
+		FSystemicGameplayState& InOutState,
+		FName OfferId,
+		FName PlayerId,
+		FName IdempotencyKey,
+		FMissionInstanceState& OutMission,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
+	static bool CompleteMissionOnce(
+		FSystemicGameplayState& InOutState,
+		FName MissionInstanceId,
+		FName SourceEventId,
+		FName IdempotencyKey,
+		FProgressionDebugLedgerEntry& OutCompletionEntry,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
+	static bool FailMissionOnce(
+		FSystemicGameplayState& InOutState,
+		FName MissionInstanceId,
+		FName SourceEventId,
+		FName IdempotencyKey,
+		FProgressionDebugLedgerEntry& OutFailureEntry,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
+	static bool ApplyEncounterProgressionOutcomeOnce(
+		FSystemicGameplayState& InOutState,
+		FName EncounterId,
+		FName IdempotencyKey,
+		FProgressionDebugLedgerEntry& OutProgressionEntry,
+		FString& OutFailureReason);
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
 	static bool ResolveStationServiceEndpoint(
@@ -144,4 +202,7 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
 	static FString BuildSystemicDebugSummary(const FSystemicGameplayState& State);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
+	static FString BuildProgressionDebugTrace(const FSystemicGameplayState& State);
 };
