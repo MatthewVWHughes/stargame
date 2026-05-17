@@ -4,7 +4,7 @@ This document defines the Unreal-native runtime architecture for Stargame.
 
 The aim is not to recreate Godot in Unreal. The aim is to preserve the useful game/data shape while letting Unreal own runtime lifetime, assets, actors, components, editor workflows, and validation.
 
-The architecture must eventually support the systems listed in `future-systems-support.md`: space flight, FPS station mode, inventory, NPC traffic/trading, economy, mining, trading, combat, ship ownership/equipment, factions, quests, sectors, and communications. Early milestones should expose stable IDs and reference paths for those systems without implementing them prematurely.
+The architecture must support the systems listed in `future-systems-support.md`: space flight, FPS station mode, inventory, NPC traffic/trading, economy, mining, trading, combat, ship ownership/equipment, factions, quests, sectors, and communications. Foundation work exposes stable IDs and reference paths for those systems without implementing every content-heavy behavior at once.
 
 NPC traffic and economy must follow `simulation-tiering-and-economy.md`: logical simulation first, actors only for the near-player interactive slice. Space AI must follow `space-ai-and-dynamic-orbits.md`: decisions resolve against moving anchors, route samples, and predicted reference frames rather than static Unreal locations.
 
@@ -25,7 +25,7 @@ Do not preserve from Godot:
 - node paths as gameplay identity
 - scene paths as the primary runtime contract
 - hard-coded Sol-specific setup
-- fallback-to-Sol behavior
+- substitution to Sol for unknown system IDs
 - direct node-tree assumptions mapped onto Unreal Actor hierarchies
 
 ## Runtime Layers
@@ -99,6 +99,8 @@ Core ownership:
 - `UStarSystemSubsystem` owns only the active system lifecycle, active registries, active-world query caches, and active-world view models. Headless frame/orbit/route conversion belongs to `UOrbitRouteFrameQueryService` or the equivalent C++ service. The active subsystem reads catalog/route/discovery data for build and debug purposes, but it does not become a second source of truth.
 - UI, HUD, map, save serializers, and AI planners consume view models or subsystem queries and never write canonical catalog, route, discovery, start selection, orbit, docking, transition, or save state.
 
+Runtime services consume resolved definitions and saved state. They must not manufacture fixture gameplay state when authored or saved systemic state is missing. Native fixture providers are allowed only as explicit test/authoring inputs; they are not runtime substitution paths.
+
 Required core actors/components:
 
 - `AStarSystemRootActor`
@@ -148,7 +150,7 @@ Every registry entry stores:
 
 Registry handles are not persistent save data. Saves store IDs and frames only.
 
-World scans and Actor names are not allowed in milestone acceptance paths. They may be used only for explicit debug diagnostics.
+World scans and Actor names are not allowed in accepted runtime paths. They may be used only for explicit debug diagnostics.
 
 ## Reference Frames
 
@@ -168,9 +170,9 @@ Sol is legacy authored content to preserve later. It is not the first architectu
 
 The first Unreal validation system is `frontier_test_01`.
 
-No startup path may silently fallback to `sol`. Unknown systems should fail loudly in development.
+No startup path may silently substitute `sol`. Unknown systems should fail loudly in development. The runtime must not substitute another system, start profile, spawn zone, or content fixture when a requested definition is missing or invalid.
 
-Failure means the session/start-profile API returns a failure or error enum, logs through a Stargame startup category at Error level, does not build a system, and shows a visible PIE/debug error.
+Failure means the session/start-profile/API service returns a typed failure, records a validation report or failure result, logs through a Stargame startup category at Error level, does not build a system, and shows a visible PIE/debug error.
 
 ## Prototype Debt
 

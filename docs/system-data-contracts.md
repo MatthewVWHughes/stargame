@@ -2,30 +2,35 @@
 
 These contracts define the initial Unreal-native data shape for the active system architecture.
 
-These names are intended to map directly to C++ `USTRUCT`s and `UPrimaryDataAsset` classes. Future-only fields may still change when their milestone begins.
+These names are intended to map directly to C++ `USTRUCT`s and `UPrimaryDataAsset` classes. The active foundation should describe the game data that exists now; historical profile names remain only where commandlets, tests, or compatibility notes need them.
 
-## Milestone Scope
+## Current Foundation Scope
 
-M0 requires only:
+The current foundation requires:
 
 - `FStartProfileDefinition`
-- minimal `FStarSystemDefinition`
-- minimal `FBodyDefinition`
-- minimal `FStationDefinition`
-- minimal `FGateDefinition`
+- authored and generated `FStarSystemDefinition`
+- `FBodyDefinition`
+- `FStationDefinition`
+- `FGateDefinition`
 - `FSpawnZoneDefinition`
 - `FNavigationTargetDefinition`
-- minimal save/session fields
+- `FStarCatalogEntry` and `FRouteGraphEdge`
+- `FSimulationClockSnapshot`, `FFrameResolvedTransform`, and route/frame query contracts
+- docking-port, gravity-well, resource-zone, map-entry, traffic-route, logical-traffic, encounter, combat/threat, systemic-gameplay, and progression records used by the active fixture
+- save/session fields for free flight, docking, gate arrival, systemic state, and progression state
 
-All `UPrimaryDataAsset` classes, orbit simulation, docking ports, route graph, gravity wells, resource zones, map entries, visual profiles, atmosphere profiles, services, factions, and procedural generation fields are post-M0 unless explicitly called out below.
+The narrow startup validation profile can still validate the smallest playable slice, but it is not the full definition of the foundation.
 
-M0 may use a temporary in-code fixture provider, but it must expose one coherent `FStarSystemDefinition`-shaped fixture. Actors must not hard-code IDs or transforms locally.
+The in-code fixture provider and authored assets must expose coherent `FStarSystemDefinition` data. Actors must not hard-code IDs or transforms locally, and services must fail with typed results or validation reports when required data is missing or invalid.
+
+Native fixture data is an explicit test/authoring source. The runtime catalog does not silently substitute native fixtures when Asset Manager content is absent, and session services do not generate systemic gameplay state to cover missing authored or saved data.
 
 ## Naming Glossary
 
 - `Definition`: immutable gameplay data used to build runtime state, usually a C++ `USTRUCT`.
 - `Profile`: reusable tuning or presentation data referenced by one or more definitions.
-- `Asset`: Unreal package-backed authored content, usually `UPrimaryDataAsset` after M0.
+- `Asset`: Unreal package-backed authored content, usually `UPrimaryDataAsset`.
 - `Instance`: save/runtime state for a specific owned or spawned thing.
 - `Runtime actor`: the world representation built from definitions and instances.
 
@@ -33,7 +38,7 @@ Example: a station definition says `brink_watch` exists, a station profile descr
 
 ## Asset Types
 
-Required M1 assets:
+Required authored assets:
 
 - `UStarCatalogAsset : UPrimaryDataAsset`
 - `UStartProfileAsset : UPrimaryDataAsset`
@@ -48,13 +53,13 @@ Required M1 assets:
 - `UShipLoadoutProfileAsset : UPrimaryDataAsset`
 - `UShipResourceProfileAsset : UPrimaryDataAsset`
 
-Milestone-specific later assets:
+Future authored assets:
 
 - `UTrafficAIPolicyAsset`
 - `UPatrolZoneAsset`
 - `UPirateAmbushProfileAsset`
 
-Traffic, patrol, and pirate assets become required only when their owning M7-M10 profiles are active.
+Traffic, patrol, and pirate assets become required when the active game content moves those policies out of native fixture data and into authored assets.
 
 Use `FPrimaryAssetId`, `TSoftObjectPtr`, and `TSoftClassPtr` for referenced content.
 
@@ -64,7 +69,7 @@ Each primary asset class must define a stable primary asset type and be included
 
 Runtime system builds resolve authored content through `FPrimaryAssetId` or soft object/class references. Hard object references are allowed only for always-loaded engine/default assets or test-only placeholders explicitly marked as such.
 
-System build may synchronously load M0 fixture data. M1 must define the async-load path and failure behavior. Missing assets, duplicate IDs, and unresolved references fail validation before actors are spawned.
+System build may synchronously load fixture data while the foundation is still small. Missing assets, duplicate IDs, and unresolved references fail validation before actors are spawned.
 
 ## ID Rules
 
@@ -86,7 +91,7 @@ Initial C++ contracts should use:
 - transforms: `FTransform3d` where available, otherwise clearly documented `FTransform`
 - positions/distances in local Unreal space: centimeters, suffix `Cm`
 - sector positions: light years, suffix `Ly`
-- simulation distances: documented fixture simulation units until M2 locks scale bands
+- simulation distances: documented fixture simulation units from `frontier-test-fixture.md`
 
 `FrameType` values:
 
@@ -94,7 +99,6 @@ Initial C++ contracts should use:
 - `body_relative`
 - `station_relative`
 - `gate_relative`
-- `local_free_flight`
 
 `Transform` is local to `AnchorId` when `AnchorId` is set. Otherwise it is system-barycentric for the active system.
 
@@ -112,7 +116,7 @@ Do not confuse coordinate frames with save-location states. Coordinate frames de
 - `ProcessedEventWatermark`
 - `ProcessedEventWatermarks`, optional per-stream/per-system map once scheduled simulation events are active
 
-This is a core M2 value type. It is shared by save/load, orbit evaluation, map/debug rendering, route sampling, local bubble projection, and later AI/economy catch-up. It must not be introduced as an AI-only struct.
+This is a core runtime value type. It is shared by save/load, orbit evaluation, map/debug rendering, route sampling, local bubble projection, and AI/economy catch-up. It must not be introduced as an AI-only struct.
 
 Query-time evaluation must be explicit. A frame, route, orbit, docking, gate-arrival, or gravity query receives both the authoritative clock snapshot and the requested evaluation time. The requested time may be equal to now or a future prediction time. Querying a future time is pure calculation and must not advance the clock owner, mutate saved state, or consume persistent RNG counters.
 
@@ -128,7 +132,7 @@ Query-time evaluation must be explicit. A frame, route, orbit, docking, gate-arr
 - `bActorSpaceValid`
 - `ActorSpaceTransform`, optional, non-saveable
 
-This is a core M2 value type, not only an AI helper. It is the handoff between logical frame-space simulation and rebased Unreal actor space. It may be cached for active-system runtime work, but saves must persist the logical frame/location fields instead of `ActorSpaceTransform`.
+This is a core runtime value type, not only an AI helper. It is the handoff between logical frame-space simulation and rebased Unreal actor space. It may be cached for active-system runtime work, but saves must persist the logical frame/location fields instead of `ActorSpaceTransform`.
 
 ## Headless Frame Query Service
 
@@ -155,14 +159,14 @@ The active `UStarSystemSubsystem` may wrap or cache this service after system bu
 - `SpawnZoneId`
 - `DockedStationId`, optional
 - `DockingPortId`, optional
-- `ShipArchetypeId`, optional for M0; required once ship selection/loadout is data-driven
+- `ShipArchetypeId`
 - `InitialInventoryProfileId`, optional
 
-M0 uses `frontier_test_start`.
+The active foundation uses `frontier_test_start`.
 
 ## Ship Archetype
 
-`FShipArchetypeDefinition`, minimal M1:
+`FShipArchetypeDefinition`:
 
 - `ShipArchetypeId`
 - `DisplayName`
@@ -178,9 +182,9 @@ M0 uses `frontier_test_start`.
 - `DockingSizeClass`
 - `AllowedDockingPortTags`
 
-M1 uses this only to identify the player's starting craft and prove the ship can be spawned from data. Detailed equipment, ship purchase, outfitting, insurance, and progression live in later ship-instance and service contracts.
+The active foundation uses this to identify the player's starting craft and prove the ship can be spawned from data. Detailed equipment, ship purchase, outfitting, insurance, and progression live in ship-instance and service contracts.
 
-`FShipMovementProfileDefinition`, minimal M1:
+`FShipMovementProfileDefinition`:
 
 - `MovementProfileId`
 - `SupportedFlightModeTags`
@@ -189,7 +193,7 @@ M1 uses this only to identify the player's starting craft and prove the ship can
 - `MaxLocalSpeedCmPerSec`, positive
 - `MaxAngularSpeedDegPerSec`, positive
 
-`FShipDurabilityProfileDefinition`, minimal M1:
+`FShipDurabilityProfileDefinition`:
 
 - `DurabilityProfileId`
 - `MaxHull`, positive
@@ -197,20 +201,20 @@ M1 uses this only to identify the player's starting craft and prove the ship can
 - `DisabledHullFraction`
 - `DestroyedHullFraction`
 
-`FShipLoadoutProfileDefinition`, minimal M1:
+`FShipLoadoutProfileDefinition`:
 
 - `LoadoutProfileId`
 - `DefaultInstalledSlotIds`
 - `HardpointTags`
 - `RequiredResourceProfileId`
 
-`FShipResourceProfileDefinition`, minimal M1:
+`FShipResourceProfileDefinition`:
 
 - `ResourceProfileId`
 - `ResourceCapacities`
 - `DefaultFillPolicy`
 
-These profiles are deliberately thin in M1. They exist so ship archetype references are real Unreal-native data, not unresolved strings. Later equipment, balance, weapon, fuel, ammunition, and service systems may extend them without changing M1's spawn contract.
+These profiles are deliberately thin foundation records. They exist so ship archetype references are real Unreal-native data, not unresolved strings. Equipment, balance, weapon, fuel, ammunition, and service systems may extend them without changing the spawn contract.
 
 ## Star Catalog
 
@@ -247,7 +251,7 @@ The sector model should preserve the useful Godot behavior: nearby real-star lis
 
 In-system traffic routes are separate from interstellar route graph edges. Traffic route segments must store endpoint anchors and route policies, not baked world-space splines.
 
-`FTrafficRouteSegmentDefinition`, post-M0:
+`FTrafficRouteSegmentDefinition`:
 
 - `RouteSegmentId`
 - `SourceAnchorId`
@@ -293,16 +297,16 @@ Endpoint offsets are measured in each endpoint anchor's declared frame basis. `R
 - `Stations`
 - `Gates`
 - `SpawnZones`
-- `GravityWells`, post-M0
-- `ResourceZones`, post-M0
-- `TrafficRoutes`, introduced during M7/M8
-- `PatrolZones`, introduced during M8/M10
-- `AmbushZones`, introduced during M10
-- `MapEntries`, post-M0
+- `GravityWells`
+- `ResourceZones`
+- `TrafficRoutes`
+- `PatrolZones`
+- `AmbushZones`
+- `MapEntries`
 
 Generation must output this definition first. Runtime actors are built from the definition.
 
-M0 system definition requires only:
+The narrow startup profile requires at least:
 
 - `SystemId`
 - `DisplayName`
@@ -322,15 +326,15 @@ M0 system definition requires only:
 - `FrameType`
 - `AnchorId`, optional
 - `Transform`
-- `Orbit`, post-M0
-- `PhysicalReferenceRadiusCm`, post-M0
+- `Orbit`
+- `PhysicalReferenceRadiusCm`
 - `VisualRadiusCm`
-- `CollisionRadiusCm`, post-M0
-- `VisualProfile`, post-M0
-- `AtmosphereProfile`, optional, post-M0
+- `CollisionRadiusCm`
+- `VisualProfile`
+- `AtmosphereProfile`, optional
 - `NavigationTarget`, optional
-- `MapColor`, post-M0
-- `MapIconScale`, post-M0
+- `MapColor`
+- `MapIconScale`
 
 Gravity and supercruise fields belong in `FGravityWellDefinition`, not directly on the body.
 
@@ -374,7 +378,7 @@ Orbit-attitude math invariants:
 - explicit axes fail validation if the derived basis is degenerate or left-handed beyond tolerance
 - eccentricity must be in the supported rail range; the initial rail implementation supports `0 <= Eccentricity < 1`
 - position and velocity are evaluated from the same anomaly/time sample, not from separate rounded samples
-- `AttitudeMode = face_velocity` requires non-zero evaluated velocity or falls back to the validated orbit-frame forward axis with a warning/result flag
+- `AttitudeMode = face_velocity` requires non-zero evaluated velocity; zero-velocity definitions must explicitly use the validated orbit-frame forward axis and emit a warning/result flag
 - `AttitudeMode = face_parent` points the declared forward axis toward the parent at the same simulation time
 - spin applies around `SpinAxisLocal` after the base attitude mode, using `EpochSeconds` and `SpinPhaseOffsetRadians`
 - quaternion output is normalized and finite
@@ -398,21 +402,21 @@ Required orbit-attitude tests:
 - `FrameType`
 - `AnchorId`, optional
 - `Transform`
-- `ParentId`, post-M0
-- `AnchorRule`: orbit, fixed_offset, body_relative, deep_space, post-M0
+- `ParentId`
+- `AnchorRule`: orbit, fixed_offset, body_relative, deep_space
 - `Orbit`, optional
 - `RelativeTransform`, optional
-- `StationProfile`, post-M0
-- `DockingPorts`, post-M0
+- `StationProfile`
+- `DockingPorts`
 - `NavigationTarget`
-- `MapEntry`, post-M0
-- `StationRole`, post-M0
-- `RegionId`, post-M0
-- `OwnerFactionId`, post-M0
-- `MarketProfileId`, post-M0
-- `MarketId`, optional post-M9; defaults to `StationId` unless a station deliberately hosts multiple markets
-- `MissionTags`, post-M0
-- `InteriorProfileId`, post-M0
+- `MapEntry`
+- `StationRole`
+- `RegionId`
+- `OwnerFactionId`
+- `MarketProfileId`
+- `MarketId`, optional; defaults to `StationId` unless a station deliberately hosts multiple markets
+- `MissionTags`
+- `InteriorProfileId`
 - `ServiceProfileId`, optional
 - `FactionId`, optional
 
@@ -477,18 +481,18 @@ Per-ship docking operation state is separate from `FDockingPortRuntimeState`. Th
 - `FrameType`
 - `AnchorId`, optional
 - `Transform`
-- `ParentId`, post-M0
-- `AnchorRule`: l2_anti_star, body_relative, fixed_offset, deep_space, post-M0
-- `AnchorDistanceCm`, post-M0
-- `RelativeTransform`, optional, post-M0
-- `DestinationSystemId`, optional for M0
-- `DestinationGateId`, optional for M0
-- `DestinationArrivalId`, optional for M0
+- `ParentId`
+- `AnchorRule`: l2_anti_star, body_relative, fixed_offset, deep_space
+- `AnchorDistanceCm`
+- `RelativeTransform`, optional
+- `DestinationSystemId`
+- `DestinationGateId`
+- `DestinationArrivalId`
 - `ActivationRangeCm`
-- `ArrivalOffset`, optional for M0
-- `GateProfile`, post-M0
+- `ArrivalOffset`
+- `GateProfile`
 - `NavigationTarget`
-- `MapEntry`, post-M0
+- `MapEntry`
 
 Computed gate anchors such as Lagrange-style placements need explicit prediction data:
 
@@ -540,11 +544,11 @@ The contract must produce the same arrival transform and velocity whether evalua
 - `bShowInSystemMap`
 - `bCanTarget`
 
-Body targets may be derived from `BodyId`, `DisplayName`, and transform for M0 when `NavigationTarget` is omitted.
+Body targets may be derived from `BodyId`, `DisplayName`, and transform for narrow startup fixtures when `NavigationTarget` is omitted.
 
 ## Map Entry Definition
 
-`FMapEntryDefinition`, post-M0:
+`FMapEntryDefinition`:
 
 - `EntryId`
 - `DisplayName`
@@ -555,7 +559,7 @@ Body targets may be derived from `BodyId`, `DisplayName`, and transform for M0 w
 
 ## Resource Zone Definition
 
-`FResourceZoneDefinition`, post-M0:
+`FResourceZoneDefinition`:
 
 - `ZoneId`
 - `DisplayName`
@@ -568,7 +572,7 @@ Body targets may be derived from `BodyId`, `DisplayName`, and transform for M0 w
 
 ## Moving Target And Route AI Contracts
 
-These are post-M7 contracts for space AI. They are listed here because they depend directly on system frames, route anchors, and stable IDs.
+These space AI contracts are listed here because they depend directly on system frames, route anchors, and stable IDs.
 
 `FMovingFrameTarget`:
 
@@ -617,11 +621,11 @@ Route sampling must support `EvaluateRoute`, `EstimateTravelTime`, and `FindClos
 - inputs are source/destination resolved transforms, source/destination local offsets, route progress, simulation time, `ControlData`, and route segment ID
 - source point `P0` and destination point `P1` are evaluated at the requested simulation time from their live anchor frames
 - chord direction is normalized `P1 - P0`; zero-length chords fail route validation
-- arc normal is selected from `ControlData.ArcNormalHint` projected away from the chord, or from the source basis up axis, or from deterministic fallback axes chosen by route segment ID
+- arc normal is selected from `ControlData.ArcNormalHint` projected away from the chord, or from the source basis up axis, or from deterministic tie-break axes chosen by route segment ID
 - arc height defaults to `0.15 * ChordLength` unless `ControlData.ArcHeightCm` is supplied; height is clamped to route policy min/max
 - curve position uses a quadratic Bezier with control point `Pc = Midpoint(P0, P1) + ArcNormal * ArcHeightCm`
 - progress is clamped to `[0, 1]`; route policies may reject out-of-range progress before sampling
-- tangent is the normalized derivative of the Bezier; endpoint degeneracy falls back to chord direction
+- tangent is the normalized derivative of the Bezier; endpoint degeneracy must explicitly use chord direction and emit a warning/result flag
 - basis forward is tangent; basis up is arc normal re-orthogonalized against tangent; basis right completes a right-handed frame
 - estimated velocity equals endpoint-motion interpolation plus derivative-with-respect-to-progress times `dProgress/dTime` from the travel model
 - `FindClosestProgress` projects onto the same Bezier by bounded deterministic subdivision plus fixed-iteration Newton refinement; it returns progress, distance error, basis error, and velocity error
@@ -980,7 +984,7 @@ All encounter, legal, economy, cargo, distress, comms, and mission events use th
 - `LastProcessedEventId`
 - `LastProcessedTimeSeconds`
 
-`FSectorSimulationSummary`, post-M9:
+`FSectorSimulationSummary`:
 
 - `SectorId`
 - `SystemIds`
@@ -992,7 +996,7 @@ All encounter, legal, economy, cargo, distress, comms, and mission events use th
 - `RecentEventIds`
 - `LastUpdateTimeSeconds`
 
-`FCrossSectorScheduledJob`, post-M9:
+`FCrossSectorScheduledJob`:
 
 - `JobId`
 - `SourceStationId`
@@ -1007,7 +1011,7 @@ All encounter, legal, economy, cargo, distress, comms, and mission events use th
 - `CurrentEventId`
 - `ProcessedEventWatermark`
 
-`FZoneInfluenceState`, post-M9:
+`FZoneInfluenceState`:
 
 - `ZoneId`
 - `FactionInfluenceByFactionId`
@@ -1066,7 +1070,7 @@ The resolver returns all contributing well IDs for debug, plus the selected bloc
 `FShipSaveLocation`:
 
 - `SystemId`
-- `CoordinateFrame`: system_barycentric, body_relative, station_relative, gate_relative, local_free_flight
+- `CoordinateFrame`: system_barycentric, body_relative, station_relative, gate_relative
 - `LocationMode`: free_flight, station_docked, gate_arrival, respawn
 - `AnchorId`
 - `ShipInstanceId`
@@ -1080,25 +1084,25 @@ The resolver returns all contributing well IDs for debug, plus the selected bloc
 - `bInheritsFrameVelocity`
 - `FrameVelocityCmPerSec`
 - `FlightMode`
-- `LocalBubbleOrigin`, optional when `CoordinateFrame = local_free_flight`
-- `LocalBubbleEpochSeconds`, optional when `CoordinateFrame = local_free_flight`
+- `LocalBubbleOrigin`, optional projection hint for free-flight actor placement
+- `LocalBubbleEpochSeconds`, optional projection hint timestamp
 - `SimulationTimeSeconds`
 
 Saves must use logical IDs and frame data, not Actor paths.
 
-M0 save payload requires only:
+The narrow startup save payload requires only:
 
 - `SystemId`
 - `SpawnZoneId`
 - `SelectedTargetId`, optional
 
-M0 still uses the save envelope header defined in `save-load-and-versioning.md`: `SaveFormatVersion`, `GameContentVersion`, and `BuildCompatibilityId`.
+The startup save still uses the save envelope header defined in `save-load-and-versioning.md`: `SaveFormatVersion`, `GameContentVersion`, and `BuildCompatibilityId`.
 
-Full `FShipSaveLocation` is M2.
+The active save path uses `FShipSaveLocation` for free flight, docked state, gate arrival, and respawn.
 
 ## Save Game Envelope
 
-`FSaveGameData`, post-M0:
+`FSaveGameData`:
 
 - `SaveFormatVersion`
 - `GameContentVersion`

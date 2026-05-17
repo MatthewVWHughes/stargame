@@ -4,7 +4,7 @@ This document defines how NPC ships, distant sectors, and economy simulation sho
 
 Space NPC decision-making, formations, patrols, piracy, and fleeing are covered in more detail by `space-ai-and-dynamic-orbits.md`.
 
-Market, inventory, faction, legal, comms, mission, and canonical event contracts are defined in `systemic-gameplay-foundations.md`. `system-data-contracts.md` owns core system/frame/AI structs; domain-specific M9 structs are canonical in `systemic-gameplay-foundations.md` unless mirrored later. This document owns the tiering model and behavioral requirements.
+Market, inventory, faction, legal, comms, mission, and canonical event contracts are defined in `systemic-gameplay-foundations.md`. `system-data-contracts.md` owns core system/frame/AI structs; domain-specific systemic structs are canonical in `systemic-gameplay-foundations.md` unless mirrored later. This document owns the tiering model and behavioral requirements.
 
 The Godot tier idea is worth keeping. The Godot implementation details are not.
 
@@ -496,9 +496,9 @@ The active sector/system may run more detail:
 
 It should still use the same market and job data as distant sectors. The active sector is more detailed, not a separate economy.
 
-## M12 Gameplay Pass
+## Gameplay Pass
 
-M6 may generate physical system definitions, but M12 needs a gameplay pass that fills systemic content around those physical systems before the playable loop is considered valid. This pass may be generated, authored, or generated-then-overridden, but the resulting data must be the same validated contracts used by hand-authored content.
+Physical system generation creates stars, bodies, stations, routes, gates, and zones. A gameplay pass fills systemic content around those physical systems before the playable loop is considered valid. This pass may be generated, authored, or generated-then-overridden, but the resulting data must be the same validated contracts used by hand-authored content.
 
 Required outputs:
 
@@ -526,7 +526,7 @@ Generation rules:
 - generated follow-up opportunities must validate route, cargo, security, faction, legal, service endpoint, and reward/escrow references before becoming offers
 - generated route/cargo/security mission objectives must use typed objective targets for systems, stations, gates, routes, route segments, cargo manifests, jurisdictions, and security contexts
 
-Minimum M12 playable loop:
+Minimum playable loop:
 
 1. a generated or authored route creates value and risk between stations
 2. a market exposes buy/sell stock through a station service endpoint
@@ -539,7 +539,7 @@ Minimum M12 playable loop:
 9. mission offers can send the player through the same service, route, cargo, legal, and reward contracts
 10. repair, refuel, and rearm services mutate saved ship durability/loadout resources through service result records
 
-If any generated or authored gameplay pass output is absent, the loop may still run as a narrow test fixture, but it should not be described as the systemic M12 playable loop.
+If any generated or authored gameplay pass output is absent, the loop may still run as a narrow test fixture, but it should not be described as the systemic playable loop.
 
 ## Ship Rendering Rule
 
@@ -591,7 +591,7 @@ MassEntity is appropriate later if we need high-volume data-oriented updates for
 
 Instanced Actors and instanced static meshes are candidates for high-volume ambient representation. They are not the first choice for fully interactive combat ships that need unique collision, damage, comms, targetability, and gameplay state.
 
-Do not make MassEntity a prerequisite for M0 or the first economy slice.
+Do not make MassEntity a prerequisite for the foundation or the first economy slice.
 
 World Partition is not the answer for NPC ships or economy. It is useful for authored spatial content and large maps, not for simulating distant markets or millions of logical ships.
 

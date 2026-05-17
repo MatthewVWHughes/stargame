@@ -4,11 +4,9 @@ This document defines the minimum systemic gameplay contracts needed before pira
 
 The goal is to avoid fake systems. Space AI, legal response, economy, inventory, comms, and missions all reference each other. They need small data-first foundations before content-heavy versions are built.
 
-## Build Position
+## Runtime Position
 
-These foundations are required before full logical encounters and the realized pirate/police AI slice.
-
-The build roadmap treats them as M9, before M10 logical encounters and M11 realized space AI:
+These foundations are required before full logical encounters and the realized pirate/police AI slice can produce durable consequences:
 
 - legal/faction skeleton
 - canonical simulation event envelope
@@ -16,7 +14,7 @@ The build roadmap treats them as M9, before M10 logical encounters and M11 reali
 - commodity and market transaction contracts
 - comms/message contracts
 
-Without these, M10/M11 will either fake outcomes or bake temporary assumptions into AI code.
+Without these, encounters and realized AI either fake outcomes or bake temporary assumptions into AI code.
 
 ## Canonical Simulation Events
 
@@ -839,7 +837,7 @@ Delivery rules:
 
 ## Mission Lifecycle
 
-Mission content is not needed for M0-M11, but M9 must still define lifecycle records for generated and authored missions, including cargo, legal exceptions, comms, rewards, failure, and turn-in arbitration.
+Mission content may stay thin while the foundation is being proven, but lifecycle records must exist for generated and authored missions, including cargo, legal exceptions, comms, rewards, failure, and turn-in arbitration.
 
 `FMissionDefinition`:
 

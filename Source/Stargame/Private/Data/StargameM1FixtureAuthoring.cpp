@@ -7,6 +7,7 @@
 #include "Engine/AssetManager.h"
 #include "Engine/GameInstance.h"
 #include "Flight/SpaceFlightPawn.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
 #include "Curves/CurveFloat.h"
 #include "Space/LogicalTrafficQueryService.h"
@@ -49,6 +50,159 @@ namespace
 		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
 		SaveArgs.SaveFlags = SAVE_NoError;
 		return UPackage::SavePackage(Package, Asset, *FileName, SaveArgs);
+	}
+
+	FString EscapeJson(const FString& Value)
+	{
+		FString Escaped;
+		Escaped.Reserve(Value.Len());
+		for (const TCHAR Character : Value)
+		{
+			switch (Character)
+			{
+			case TEXT('\\'):
+				Escaped += TEXT("\\\\");
+				break;
+			case TEXT('"'):
+				Escaped += TEXT("\\\"");
+				break;
+			case TEXT('\n'):
+				Escaped += TEXT("\\n");
+				break;
+			case TEXT('\r'):
+				Escaped += TEXT("\\r");
+				break;
+			case TEXT('\t'):
+				Escaped += TEXT("\\t");
+				break;
+			default:
+				Escaped.AppendChar(Character);
+				break;
+			}
+		}
+		return Escaped;
+	}
+
+	FString ValidationProfileToExternalString(EStargameValidationProfile Profile)
+	{
+		switch (Profile)
+		{
+		case EStargameValidationProfile::Editor:
+			return TEXT("Editor");
+		case EStargameValidationProfile::Build:
+			return TEXT("Build");
+		case EStargameValidationProfile::Cook:
+			return TEXT("Cook");
+		case EStargameValidationProfile::M0:
+			return TEXT("M0");
+		case EStargameValidationProfile::M1:
+			return TEXT("M1");
+		case EStargameValidationProfile::M2:
+			return TEXT("M2");
+		case EStargameValidationProfile::M3:
+			return TEXT("M3");
+		case EStargameValidationProfile::M4:
+			return TEXT("M4");
+		case EStargameValidationProfile::M5:
+			return TEXT("M5");
+		case EStargameValidationProfile::M5_5:
+			return TEXT("M5.5");
+		case EStargameValidationProfile::M6:
+			return TEXT("M6");
+		case EStargameValidationProfile::M7:
+			return TEXT("M7");
+		case EStargameValidationProfile::M8:
+			return TEXT("M8");
+		case EStargameValidationProfile::M9:
+			return TEXT("M9");
+		case EStargameValidationProfile::M10:
+			return TEXT("M10");
+		case EStargameValidationProfile::M10_5:
+			return TEXT("M10.5");
+		case EStargameValidationProfile::M11:
+			return TEXT("M11");
+		case EStargameValidationProfile::M12Gameplay:
+			return TEXT("M12Gameplay");
+		case EStargameValidationProfile::M12:
+			return TEXT("M12");
+		default:
+			return TEXT("Unknown");
+		}
+	}
+
+	FString ValidationResultTypeToExternalString(EStargameValidationResultType ResultType)
+	{
+		switch (ResultType)
+		{
+		case EStargameValidationResultType::Valid:
+			return TEXT("Valid");
+		case EStargameValidationResultType::ValidWithWarnings:
+			return TEXT("ValidWithWarnings");
+		case EStargameValidationResultType::Invalid:
+			return TEXT("Invalid");
+		case EStargameValidationResultType::ValidationFailed:
+			return TEXT("ValidationFailed");
+		default:
+			return TEXT("ValidationFailed");
+		}
+	}
+
+	bool HasValidationWarnings(const FStargameValidationReport& Report)
+	{
+		return Report.Issues.ContainsByPredicate([](const FStargameValidationIssue& Issue)
+		{
+			return Issue.Severity == EStargameValidationSeverity::Warning;
+		});
+	}
+
+	FString BuildValidationReportJson(const FStargameValidationReport& Report, const FString& ActiveProfileName)
+	{
+		FStargameValidationReport ReportSummary = Report;
+		ReportSummary.RefreshSummary();
+
+		FString Json;
+		Json += TEXT("{\n");
+		Json += FString::Printf(TEXT("  \"profile\": \"%s\",\n"), *EscapeJson(ActiveProfileName));
+		Json += FString::Printf(TEXT("  \"resolvedProfile\": \"%s\",\n"), *EscapeJson(ValidationProfileToExternalString(ReportSummary.Profile)));
+		Json += FString::Printf(TEXT("  \"systemId\": \"%s\",\n"), *EscapeJson(ReportSummary.SystemId.ToString()));
+		Json += FString::Printf(TEXT("  \"resultType\": \"%s\",\n"), *EscapeJson(ValidationResultTypeToExternalString(ReportSummary.ResultType)));
+		Json += FString::Printf(TEXT("  \"checkedAssetCount\": %d,\n"), ReportSummary.CheckedAssetCount);
+		Json += FString::Printf(TEXT("  \"checkedSystemCount\": %d,\n"), ReportSummary.CheckedSystemCount);
+		Json += FString::Printf(TEXT("  \"checkedFixtureCount\": %d,\n"), ReportSummary.CheckedFixtureCount);
+		Json += FString::Printf(TEXT("  \"blockingIssueCount\": %d,\n"), ReportSummary.BlockingIssueCount);
+		Json += FString::Printf(TEXT("  \"generatedAtUtc\": \"%s\",\n"), *EscapeJson(ReportSummary.GeneratedAtUtc));
+		Json += TEXT("  \"issues\": [\n");
+		for (int32 IssueIndex = 0; IssueIndex < ReportSummary.Issues.Num(); ++IssueIndex)
+		{
+			const FStargameValidationIssue& Issue = ReportSummary.Issues[IssueIndex];
+			const FName IssueCode = Issue.Code.IsNone() ? Issue.RuleId : Issue.Code;
+			const FName IssueSourceId = Issue.SourceId.IsNone() ? Issue.ObjectId : Issue.SourceId;
+			Json += TEXT("    {\n");
+			Json += FString::Printf(TEXT("      \"severity\": \"%s\",\n"), *EscapeJson(UEnum::GetValueAsString(Issue.Severity)));
+			Json += FString::Printf(TEXT("      \"code\": \"%s\",\n"), *EscapeJson(IssueCode.ToString()));
+			Json += FString::Printf(TEXT("      \"ruleId\": \"%s\",\n"), *EscapeJson(Issue.RuleId.ToString()));
+			Json += FString::Printf(TEXT("      \"objectId\": \"%s\",\n"), *EscapeJson(Issue.ObjectId.ToString()));
+			Json += FString::Printf(TEXT("      \"objectPath\": \"%s\",\n"), *EscapeJson(Issue.ObjectPath));
+			Json += FString::Printf(TEXT("      \"systemId\": \"%s\",\n"), *EscapeJson(Issue.SystemId.ToString()));
+			Json += FString::Printf(TEXT("      \"sourceId\": \"%s\",\n"), *EscapeJson(IssueSourceId.ToString()));
+			Json += FString::Printf(TEXT("      \"referenceId\": \"%s\",\n"), *EscapeJson(Issue.ReferenceId.ToString()));
+			Json += FString::Printf(TEXT("      \"fieldPath\": \"%s\",\n"), *EscapeJson(Issue.FieldPath));
+			Json += FString::Printf(TEXT("      \"message\": \"%s\",\n"), *EscapeJson(Issue.Message));
+			Json += FString::Printf(TEXT("      \"suggestedAction\": \"%s\"\n"), *EscapeJson(Issue.SuggestedAction));
+			Json += FString::Printf(TEXT("    }%s\n"), IssueIndex + 1 < ReportSummary.Issues.Num() ? TEXT(",") : TEXT(""));
+		}
+		Json += TEXT("  ]\n");
+		Json += TEXT("}\n");
+		return Json;
+	}
+
+	bool WriteValidationReportJson(const FString& JsonReportPath, const FStargameValidationReport& Report, const FString& ActiveProfileName)
+	{
+		if (JsonReportPath.IsEmpty())
+		{
+			return true;
+		}
+		return FFileHelper::SaveStringToFile(BuildValidationReportJson(Report, ActiveProfileName), *JsonReportPath);
 	}
 
 	void SetCurveKeys(UCurveFloat* Curve, const TArray<TPair<float, float>>& Keys)
@@ -165,11 +319,17 @@ namespace
 		WayfarerDepot.Orbit.PhaseOffsetRadians = 3.0;
 		SystemDefinition.Stations.Add(WayfarerDepot);
 
-		if (SystemDefinition.Gates.Num() > 0)
-		{
-			SystemDefinition.Gates[0].GateProfileId = FPrimaryAssetId(UGateProfileAsset::AssetType, TEXT("frontier_gate_basic"));
-			SystemDefinition.Gates[0].NavigationTarget = MakeNavigationTarget(TEXT("frontier_gate_a"), TEXT("Frontier Gate A"), TEXT("gate"));
-		}
+			if (SystemDefinition.Gates.Num() > 0)
+			{
+				SystemDefinition.Gates[0].GateProfileId = FPrimaryAssetId(UGateProfileAsset::AssetType, TEXT("frontier_gate_basic"));
+				SystemDefinition.Gates[0].DestinationSystemId = TEXT("frontier_arrival_test_01");
+				SystemDefinition.Gates[0].DestinationGateId = TEXT("arrival_gate_a");
+				SystemDefinition.Gates[0].DestinationArrivalId = TEXT("arrival_from_frontier_gate_a");
+				SystemDefinition.Gates[0].DestinationArrivalFrame = TEXT("gate_relative");
+				SystemDefinition.Gates[0].DestinationArrivalLocalOffsetCm = FVector(0.0, 18000.0, 0.0);
+				SystemDefinition.Gates[0].DestinationArrivalRotation = FRotator(0.0, 180.0, 0.0);
+				SystemDefinition.Gates[0].NavigationTarget = MakeNavigationTarget(TEXT("frontier_gate_a"), TEXT("Frontier Gate A"), TEXT("gate"));
+			}
 
 		FGravityWellDefinition EmberWell;
 		EmberWell.WellId = TEXT("ember_well");
@@ -402,9 +562,23 @@ namespace
 			SystemDefinition.MapEntries.Add(Entry);
 		}
 
-		return SystemDefinition;
+			return SystemDefinition;
+		}
+
+		FStarSystemDefinition MakeM55ArrivalSystemDefinition()
+		{
+			FStarSystemDefinition SystemDefinition;
+			FFrontierTestFixtureProvider::ResolveSystemDefinition(FFrontierTestFixtureProvider::ArrivalSystemId, SystemDefinition);
+			SystemDefinition.SourceType = ESystemSourceType::Authored;
+			SystemDefinition.Seed = 102;
+			SystemDefinition.Scale = FStargameScaleContract();
+			if (SystemDefinition.Gates.Num() > 0)
+			{
+				SystemDefinition.Gates[0].GateProfileId = FPrimaryAssetId(UGateProfileAsset::AssetType, TEXT("frontier_gate_basic"));
+			}
+			return SystemDefinition;
+		}
 	}
-}
 
 int32 UStargameCreateM1FixtureAssetsCommandlet::Main(const FString& Params)
 {
@@ -510,6 +684,10 @@ int32 UStargameCreateM1FixtureAssetsCommandlet::Main(const FString& Params)
 	System->Definition = MakeM1SystemDefinition();
 	AssetsToSave.Add(System);
 
+	UStarSystemDefinitionAsset* ArrivalSystem = CreateOrLoadAsset<UStarSystemDefinitionAsset>(TEXT("/Game/Data/Systems/frontier_arrival_test_01"), TEXT("frontier_arrival_test_01"));
+	ArrivalSystem->Definition = MakeM55ArrivalSystemDefinition();
+	AssetsToSave.Add(ArrivalSystem);
+
 	UStartProfileAsset* StartProfile = CreateOrLoadAsset<UStartProfileAsset>(TEXT("/Game/Data/StartProfiles/frontier_test_start"), TEXT("frontier_test_start"));
 	FFrontierTestFixtureProvider::ResolveStartProfile(FFrontierTestFixtureProvider::DefaultStartProfileId, StartProfile->Definition);
 	StartProfile->Definition.ShipArchetypeId = Ship->Definition.ShipArchetypeId;
@@ -525,6 +703,27 @@ int32 UStargameCreateM1FixtureAssetsCommandlet::Main(const FString& Params)
 	CatalogEntry.CatalogSource = TEXT("authored_m1_fixture");
 	CatalogEntry.SystemDefinitionAsset = FPrimaryAssetId(UStarSystemDefinitionAsset::AssetType, System->Definition.SystemId);
 	Catalog->Systems.Add(CatalogEntry);
+
+	FStarCatalogEntry ArrivalCatalogEntry;
+	ArrivalCatalogEntry.SystemId = ArrivalSystem->Definition.SystemId;
+	ArrivalCatalogEntry.DisplayName = ArrivalSystem->Definition.DisplayName;
+	ArrivalCatalogEntry.StellarClass = TEXT("test_fixture_arrival");
+	ArrivalCatalogEntry.CatalogSource = TEXT("authored_m5_5_arrival_fixture");
+	ArrivalCatalogEntry.SystemDefinitionAsset = FPrimaryAssetId(UStarSystemDefinitionAsset::AssetType, ArrivalSystem->Definition.SystemId);
+	Catalog->Systems.Add(ArrivalCatalogEntry);
+
+	Catalog->RouteEdges.Reset();
+	FRouteGraphEdge GateRouteEdge;
+	GateRouteEdge.RouteEdgeId = TEXT("edge_frontier_gate_a_to_arrival_gate_a");
+	GateRouteEdge.SourceSystemId = System->Definition.SystemId;
+	GateRouteEdge.SourceGateId = TEXT("frontier_gate_a");
+	GateRouteEdge.DestinationSystemId = ArrivalSystem->Definition.SystemId;
+	GateRouteEdge.DestinationGateId = TEXT("arrival_gate_a");
+	GateRouteEdge.DestinationArrivalId = TEXT("arrival_from_frontier_gate_a");
+	GateRouteEdge.RouteType = TEXT("jump_gate");
+	GateRouteEdge.bArtificialGate = true;
+	GateRouteEdge.bInitiallyKnown = true;
+	Catalog->RouteEdges.Add(GateRouteEdge);
 	AssetsToSave.Add(Catalog);
 
 	bool bSavedAll = true;
@@ -548,38 +747,40 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	{
 		SystemId = FName(*SystemIdString);
 	}
+	FString JsonReportPath;
+	FParse::Value(*Params, TEXT("JsonReport="), JsonReportPath);
+	const bool bFailOnWarnings = FParse::Param(*Params, TEXT("FailOnWarnings"));
 
 	const bool bValidateM1 = ProfileString.Equals(TEXT("M1"), ESearchCase::IgnoreCase);
 	const bool bValidateM2 = ProfileString.Equals(TEXT("M2"), ESearchCase::IgnoreCase);
 	const bool bValidateM3 = ProfileString.Equals(TEXT("M3"), ESearchCase::IgnoreCase);
 	const bool bValidateM4 = ProfileString.Equals(TEXT("M4"), ESearchCase::IgnoreCase);
 	const bool bValidateM5 = ProfileString.Equals(TEXT("M5"), ESearchCase::IgnoreCase);
+	const bool bValidateM5_5 = ProfileString.Equals(TEXT("M5.5"), ESearchCase::IgnoreCase) ||
+		ProfileString.Equals(TEXT("M5_5"), ESearchCase::IgnoreCase);
 	const bool bValidateM6 = ProfileString.Equals(TEXT("M6"), ESearchCase::IgnoreCase);
 	const bool bValidateM7 = ProfileString.Equals(TEXT("M7"), ESearchCase::IgnoreCase);
+	const bool bValidateM8 = ProfileString.Equals(TEXT("M8"), ESearchCase::IgnoreCase);
+	const bool bValidateM9 = ProfileString.Equals(TEXT("M9"), ESearchCase::IgnoreCase);
 	const bool bValidateM10 = ProfileString.Equals(TEXT("M10"), ESearchCase::IgnoreCase);
+	const bool bValidateM10_5 = ProfileString.Equals(TEXT("M10.5"), ESearchCase::IgnoreCase) ||
+		ProfileString.Equals(TEXT("M10_5"), ESearchCase::IgnoreCase);
 	const bool bValidateM11 = ProfileString.Equals(TEXT("M11"), ESearchCase::IgnoreCase);
 	const bool bValidateM12Gameplay = ProfileString.Equals(TEXT("M12Gameplay"), ESearchCase::IgnoreCase);
 	const bool bValidateM12 = ProfileString.Equals(TEXT("M12"), ESearchCase::IgnoreCase);
-	const bool bBuildAlias = ProfileString.Equals(TEXT("Build"), ESearchCase::IgnoreCase) ||
+	const bool bValidateCurrentBuildTarget = ProfileString.Equals(TEXT("Build"), ESearchCase::IgnoreCase) ||
 		ProfileString.Equals(TEXT("Cook"), ESearchCase::IgnoreCase) ||
 		ProfileString.Equals(TEXT("MCP"), ESearchCase::IgnoreCase) ||
 		ProfileString.Equals(TEXT("Editor"), ESearchCase::IgnoreCase);
-	const bool bValidateM9 = ProfileString.Equals(TEXT("M9"), ESearchCase::IgnoreCase) || bBuildAlias;
-	const bool bValidateM8 = ProfileString.Equals(TEXT("M8"), ESearchCase::IgnoreCase);
 	const bool bValidateM0 = ProfileString.Equals(TEXT("M0"), ESearchCase::IgnoreCase);
-	if (ProfileString.Equals(TEXT("M5.5"), ESearchCase::IgnoreCase))
-	{
-		UE_LOG(LogTemp, Error, TEXT("Validation profile M5.5 is documented but not implemented in the current M0-M10 branch."));
-		return 1;
-	}
-	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4 && !bValidateM5 && !bValidateM6 && !bValidateM7 && !bValidateM8 && !bValidateM9 && !bValidateM10 && !bValidateM11 && !bValidateM12Gameplay && !bValidateM12)
+	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4 && !bValidateM5 && !bValidateM5_5 && !bValidateM6 && !bValidateM7 && !bValidateM8 && !bValidateM9 && !bValidateM10 && !bValidateM10_5 && !bValidateM11 && !bValidateM12Gameplay && !bValidateM12 && !bValidateCurrentBuildTarget)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Unsupported validation profile '%s'."), *ProfileString);
 		return 1;
 	}
 
 	const TCHAR* ActiveProfileName = TEXT("M1");
-	if (bValidateM12)
+	if (bValidateM12 || bValidateCurrentBuildTarget)
 	{
 		ActiveProfileName = TEXT("M12");
 	}
@@ -590,6 +791,10 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	else if (bValidateM11)
 	{
 		ActiveProfileName = TEXT("M11");
+	}
+	else if (bValidateM10_5)
+	{
+		ActiveProfileName = TEXT("M10.5");
 	}
 	else if (bValidateM10)
 	{
@@ -611,6 +816,10 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	{
 		ActiveProfileName = TEXT("M6");
 	}
+	else if (bValidateM5_5)
+	{
+		ActiveProfileName = TEXT("M5.5");
+	}
 	else if (bValidateM5)
 	{
 		ActiveProfileName = TEXT("M5");
@@ -627,11 +836,20 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	{
 		ActiveProfileName = TEXT("M2");
 	}
+	else if (bValidateM0)
+	{
+		ActiveProfileName = TEXT("M0");
+	}
 
 	UGameInstance* ValidationGameInstance = NewObject<UGameInstance>();
 	UStarCatalogSubsystem* Catalog = NewObject<UStarCatalogSubsystem>(ValidationGameInstance);
 	if (bValidateM0)
 	{
+		FStargameValidationReport Report;
+		Report.Profile = EStargameValidationProfile::M0;
+		Report.SystemId = SystemId;
+		Report.CheckedSystemCount = 1;
+		Report.CheckedFixtureCount = 1;
 		FStartProfileDefinition StartProfile;
 		FStarSystemDefinition SystemDefinition;
 		FString ValidationError;
@@ -641,16 +859,53 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 			!FFrontierTestFixtureProvider::ResolveSystemDefinition(SystemId, SystemDefinition) ||
 			!FFrontierTestFixtureProvider::ValidateM0Fixture(SystemDefinition, ValidationError))
 		{
+			FStargameValidationIssue Issue;
+			Issue.Severity = EStargameValidationSeverity::Error;
+			Issue.Code = TEXT("m0_fixture_validation_failed");
+			Issue.RuleId = TEXT("m0_fixture_validation_failed");
+			Issue.ObjectId = SystemId;
+			Issue.SystemId = SystemId;
+			Issue.SourceId = SystemId;
+			Issue.Message = ValidationError.IsEmpty() ? TEXT("M0 validation failed.") : ValidationError;
+			Report.Issues.Add(Issue);
+			Report.RefreshSummary();
+			if (!WriteValidationReportJson(JsonReportPath, Report, ActiveProfileName))
+			{
+				UE_LOG(LogTemp, Error, TEXT("Could not write validation JSON report '%s'."), *JsonReportPath);
+			}
 			UE_LOG(LogTemp, Error, TEXT("M0 validation failed for system '%s': %s"), *SystemId.ToString(), *ValidationError);
 			return 1;
 		}
 
+		if (!WriteValidationReportJson(JsonReportPath, Report, ActiveProfileName))
+		{
+			UE_LOG(LogTemp, Error, TEXT("Could not write validation JSON report '%s'."), *JsonReportPath);
+			return 1;
+		}
 		UE_LOG(LogTemp, Display, TEXT("M0 validation passed for system '%s'."), *SystemId.ToString());
 		return 0;
 	}
 
-	if (!Catalog->BuildAssetCatalogCache(false))
+	if (!Catalog->BuildAssetCatalogCache())
 	{
+		FStargameValidationReport Report;
+		Report.Profile = bValidateCurrentBuildTarget ? EStargameValidationProfile::Build : EStargameValidationProfile::M1;
+		Report.SystemId = SystemId;
+		Report.CheckedFixtureCount = 1;
+		FStargameValidationIssue Issue;
+		Issue.Severity = EStargameValidationSeverity::Fatal;
+		Issue.Code = TEXT("asset_catalog_cache_failed");
+		Issue.RuleId = TEXT("asset_catalog_cache_failed");
+		Issue.ObjectId = SystemId;
+		Issue.SystemId = SystemId;
+		Issue.SourceId = SystemId;
+		Issue.Message = TEXT("Validation could not build an Asset Manager-backed catalog.");
+		Report.Issues.Add(Issue);
+		Report.RefreshSummary();
+		if (!WriteValidationReportJson(JsonReportPath, Report, ActiveProfileName))
+		{
+			UE_LOG(LogTemp, Error, TEXT("Could not write validation JSON report '%s'."), *JsonReportPath);
+		}
 		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), ActiveProfileName);
 		return 1;
 	}
@@ -670,23 +925,62 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	}
 	else
 	{
-		Report = bValidateM12
-			? Catalog->ValidateM12Fixture(SystemId)
-			: (bValidateM12Gameplay
-			? Catalog->ValidateM12GameplayFixture(SystemId)
-			: (bValidateM11
-			? Catalog->ValidateM11Fixture(SystemId)
-			: (bValidateM10
-			? Catalog->ValidateM10Fixture(SystemId)
-			: (bValidateM9
-			? Catalog->ValidateM9Fixture(SystemId)
-			: (bValidateM8
-			? Catalog->ValidateM8Fixture(SystemId)
-			: (bValidateM7
-			? Catalog->ValidateM7Fixture(SystemId)
-			: (bValidateM5
-			? Catalog->ValidateM5Fixture(SystemId)
-			: (bValidateM4 ? Catalog->ValidateM4Fixture(SystemId) : (bValidateM3 ? Catalog->ValidateM3Fixture(SystemId) : (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId)))))))))));
+		if (bValidateM12 || bValidateCurrentBuildTarget)
+		{
+			Report = Catalog->ValidateM12Fixture(SystemId);
+		}
+		else if (bValidateM12Gameplay)
+		{
+			Report = Catalog->ValidateM12GameplayFixture(SystemId);
+		}
+		else if (bValidateM11)
+		{
+			Report = Catalog->ValidateM11Fixture(SystemId);
+		}
+		else if (bValidateM10_5)
+		{
+			Report = Catalog->ValidateM10_5Fixture(SystemId);
+		}
+		else if (bValidateM10)
+		{
+			Report = Catalog->ValidateM10Fixture(SystemId);
+		}
+		else if (bValidateM9)
+		{
+			Report = Catalog->ValidateM9Fixture(SystemId);
+		}
+		else if (bValidateM8)
+		{
+			Report = Catalog->ValidateM8Fixture(SystemId);
+		}
+		else if (bValidateM7)
+		{
+			Report = Catalog->ValidateM7Fixture(SystemId);
+		}
+		else if (bValidateM5_5)
+		{
+			Report = Catalog->ValidateM5_5Fixture(SystemId);
+		}
+		else if (bValidateM5)
+		{
+			Report = Catalog->ValidateM5Fixture(SystemId);
+		}
+		else if (bValidateM4)
+		{
+			Report = Catalog->ValidateM4Fixture(SystemId);
+		}
+		else if (bValidateM3)
+		{
+			Report = Catalog->ValidateM3Fixture(SystemId);
+		}
+		else if (bValidateM2)
+		{
+			Report = Catalog->ValidateM2Fixture(SystemId);
+		}
+		else
+		{
+			Report = Catalog->ValidateM1Fixture(SystemId);
+		}
 	}
 	for (const FStargameValidationIssue& Issue : Report.Issues)
 	{
@@ -699,8 +993,19 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 			*Issue.Message);
 	}
 
+	if (!WriteValidationReportJson(JsonReportPath, Report, ActiveProfileName))
+	{
+		UE_LOG(LogTemp, Error, TEXT("Could not write validation JSON report '%s'."), *JsonReportPath);
+		return 1;
+	}
+
 	if (Report.HasBlockingIssues())
 	{
+		return 1;
+	}
+	if (bFailOnWarnings && HasValidationWarnings(Report))
+	{
+		UE_LOG(LogTemp, Error, TEXT("%s validation failed because -FailOnWarnings is set and warnings were reported."), ActiveProfileName);
 		return 1;
 	}
 

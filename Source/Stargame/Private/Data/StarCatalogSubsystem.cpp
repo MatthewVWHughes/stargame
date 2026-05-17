@@ -116,17 +116,58 @@ namespace
 		DockingPort.RequiredAlignmentDegrees = 10.0;
 		return DockingPort;
 	}
+
+	void AddSystemMapEntry(FStarSystemDefinition& SystemDefinition, FName SourceId, FName EntryType)
+	{
+		FMapEntryDefinition Entry;
+		Entry.MapEntryId = SourceId;
+		Entry.SourceId = SourceId;
+		Entry.EntryType = EntryType;
+		SystemDefinition.MapEntries.Add(Entry);
+	}
+
+	FStarSystemDefinition MakeFrontierArrivalSystemDefinition()
+	{
+		FStarSystemDefinition SystemDefinition;
+		SystemDefinition.SystemId = TEXT("frontier_arrival_test_01");
+		SystemDefinition.DisplayName = FText::FromString(TEXT("Frontier Arrival Test 01"));
+
+		FGateDefinition Gate;
+		Gate.GateId = TEXT("arrival_gate_a");
+		Gate.DisplayName = FText::FromString(TEXT("Arrival Gate A"));
+		Gate.FrameType = TEXT("system_barycentric");
+		Gate.Transform = FTransform(FRotator(0.0, 180.0, 0.0), FVector::ZeroVector);
+		Gate.VisualRadiusCm = 16000.0;
+		Gate.ActivationRangeCm = 50000.0;
+		Gate.GateProfileId = FPrimaryAssetId(UGateProfileAsset::AssetType, TEXT("frontier_gate_basic"));
+		Gate.NavigationTarget = MakeGeneratedNavigationTarget(Gate.GateId, TEXT("Arrival Gate A"), TEXT("gate"), Gate.FrameType, NAME_None);
+
+		FSpawnZoneDefinition Arrival;
+		Arrival.SpawnZoneId = TEXT("arrival_from_frontier_gate_a");
+		Arrival.DisplayName = FText::FromString(TEXT("Arrival From Frontier Gate A"));
+		Arrival.FrameType = TEXT("gate_relative");
+		Arrival.AnchorId = Gate.GateId;
+		Arrival.Transform = FTransform(FRotator(0.0, 180.0, 0.0), FVector(0.0, 18000.0, 0.0));
+		Arrival.RadiusCm = 12000.0;
+		Arrival.AllowedContexts = { TEXT("arrival"), TEXT("reload") };
+
+		SystemDefinition.Gates = { Gate };
+		SystemDefinition.SpawnZones = { Arrival };
+		AddSystemMapEntry(SystemDefinition, Gate.GateId, TEXT("gate"));
+		return SystemDefinition;
+	}
 }
 
 void UStarCatalogSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
-	BuildAssetCatalogCache(true);
+	BuildAssetCatalogCache();
 }
 
 void UStarCatalogSubsystem::ResetCatalogCache()
 {
 	CatalogEntries.Reset();
+	RouteGraphEdges.Reset();
 	StartProfilesById.Reset();
 	SystemsById.Reset();
 	ShipArchetypesById.Reset();
@@ -162,6 +203,12 @@ void UStarCatalogSubsystem::BuildNativeFixtureCache()
 		if (SystemDefinition.Gates.Num() > 0)
 		{
 			SystemDefinition.Gates[0].GateProfileId = FPrimaryAssetId(UGateProfileAsset::AssetType, TEXT("frontier_gate_basic"));
+			SystemDefinition.Gates[0].DestinationSystemId = TEXT("frontier_arrival_test_01");
+			SystemDefinition.Gates[0].DestinationGateId = TEXT("arrival_gate_a");
+			SystemDefinition.Gates[0].DestinationArrivalId = TEXT("arrival_from_frontier_gate_a");
+			SystemDefinition.Gates[0].DestinationArrivalFrame = TEXT("gate_relative");
+			SystemDefinition.Gates[0].DestinationArrivalLocalOffsetCm = FVector(0.0, 18000.0, 0.0);
+			SystemDefinition.Gates[0].DestinationArrivalRotation = FRotator(0.0, 180.0, 0.0);
 		}
 
 		FGravityWellDefinition Well;
@@ -207,6 +254,29 @@ void UStarCatalogSubsystem::BuildNativeFixtureCache()
 		CatalogEntry.SystemDefinitionAsset = FPrimaryAssetId(UStarSystemDefinitionAsset::AssetType, SystemDefinition.SystemId);
 		CatalogEntries.Add(CatalogEntry);
 	}
+
+	FStarSystemDefinition ArrivalSystemDefinition = MakeFrontierArrivalSystemDefinition();
+	SystemsById.Add(ArrivalSystemDefinition.SystemId, ArrivalSystemDefinition);
+
+	FStarCatalogEntry ArrivalCatalogEntry;
+	ArrivalCatalogEntry.SystemId = ArrivalSystemDefinition.SystemId;
+	ArrivalCatalogEntry.DisplayName = ArrivalSystemDefinition.DisplayName;
+	ArrivalCatalogEntry.StellarClass = TEXT("test_fixture_arrival");
+	ArrivalCatalogEntry.CatalogSource = TEXT("native_fixture");
+	ArrivalCatalogEntry.SystemDefinitionAsset = FPrimaryAssetId(UStarSystemDefinitionAsset::AssetType, ArrivalSystemDefinition.SystemId);
+	CatalogEntries.Add(ArrivalCatalogEntry);
+
+	FRouteGraphEdge ArrivalRouteEdge;
+	ArrivalRouteEdge.RouteEdgeId = TEXT("edge_frontier_gate_a_to_arrival_gate_a");
+	ArrivalRouteEdge.SourceSystemId = FFrontierTestFixtureProvider::FrontierSystemId;
+	ArrivalRouteEdge.SourceGateId = TEXT("frontier_gate_a");
+	ArrivalRouteEdge.DestinationSystemId = ArrivalSystemDefinition.SystemId;
+	ArrivalRouteEdge.DestinationGateId = TEXT("arrival_gate_a");
+	ArrivalRouteEdge.DestinationArrivalId = TEXT("arrival_from_frontier_gate_a");
+	ArrivalRouteEdge.RouteType = TEXT("jump_gate");
+	ArrivalRouteEdge.bArtificialGate = true;
+	ArrivalRouteEdge.bInitiallyKnown = true;
+	RouteGraphEdges.Add(ArrivalRouteEdge);
 
 	FShipMovementProfileDefinition Movement;
 	Movement.MovementProfileId = TEXT("wayfarer_movement_basic");
@@ -256,7 +326,7 @@ void UStarCatalogSubsystem::BuildNativeFixtureCache()
 	ShipArchetypesById.Add(Ship.ShipArchetypeId, Ship);
 }
 
-bool UStarCatalogSubsystem::BuildAssetCatalogCache(bool bAllowNativeFallback)
+bool UStarCatalogSubsystem::BuildAssetCatalogCache()
 {
 	ResetCatalogCache();
 
@@ -294,6 +364,7 @@ bool UStarCatalogSubsystem::BuildAssetCatalogCache(bool bAllowNativeFallback)
 		if (const UStarCatalogAsset* Asset = Cast<UStarCatalogAsset>(LoadAsset(AssetId)))
 		{
 			CatalogEntries.Append(Asset->Systems);
+			RouteGraphEdges.Append(Asset->RouteEdges);
 		}
 	}
 
@@ -356,11 +427,6 @@ bool UStarCatalogSubsystem::BuildAssetCatalogCache(bool bAllowNativeFallback)
 		DurabilityProfilesById.Num() > 0 &&
 		LoadoutProfilesById.Num() > 0 &&
 		ResourceProfilesById.Num() > 0;
-	if (!bUsingAssetCatalog && bAllowNativeFallback)
-	{
-		BuildNativeFixtureCache();
-	}
-
 	return bUsingAssetCatalog;
 }
 
@@ -371,7 +437,7 @@ bool UStarCatalogSubsystem::ResolveStartProfile(FName StartProfileId, FStartProf
 		OutStartProfile = *Found;
 		return true;
 	}
-	return bUsingAssetCatalog ? false : FFrontierTestFixtureProvider::ResolveStartProfile(StartProfileId, OutStartProfile);
+	return false;
 }
 
 bool UStarCatalogSubsystem::ResolveSystemDefinition(FName SystemId, FStarSystemDefinition& OutSystemDefinition) const
@@ -381,7 +447,20 @@ bool UStarCatalogSubsystem::ResolveSystemDefinition(FName SystemId, FStarSystemD
 		OutSystemDefinition = *Found;
 		return true;
 	}
-	return bUsingAssetCatalog ? false : FFrontierTestFixtureProvider::ResolveSystemDefinition(SystemId, OutSystemDefinition);
+	return false;
+}
+
+bool UStarCatalogSubsystem::ResolveRouteGraphEdge(FName RouteEdgeId, FRouteGraphEdge& OutRouteEdge) const
+{
+	if (const FRouteGraphEdge* Found = RouteGraphEdges.FindByPredicate([RouteEdgeId](const FRouteGraphEdge& Edge)
+	{
+		return Edge.RouteEdgeId == RouteEdgeId;
+	}))
+	{
+		OutRouteEdge = *Found;
+		return true;
+	}
+	return false;
 }
 
 bool UStarCatalogSubsystem::ResolveShipArchetype(FName ShipArchetypeId, FShipArchetypeDefinition& OutDefinition) const
@@ -399,6 +478,9 @@ FStargameValidationReport UStarCatalogSubsystem::ValidateM1Fixture(FName SystemI
 	FStargameValidationReport Report;
 	Report.Profile = EStargameValidationProfile::M1;
 	Report.SystemId = SystemId;
+	Report.CheckedAssetCount = CatalogEntries.Num() + StartProfilesById.Num() + ShipArchetypesById.Num();
+	Report.CheckedSystemCount = SystemsById.Contains(SystemId) ? 1 : 0;
+	Report.CheckedFixtureCount = 1;
 
 	if (!bUsingAssetCatalog)
 	{
@@ -539,9 +621,42 @@ FStargameValidationReport UStarCatalogSubsystem::ValidateM5Fixture(FName SystemI
 	return Report;
 }
 
-FStargameValidationReport UStarCatalogSubsystem::ValidateM7Fixture(FName SystemId) const
+FStargameValidationReport UStarCatalogSubsystem::ValidateM5_5Fixture(FName SystemId) const
 {
 	FStargameValidationReport Report = ValidateM5Fixture(SystemId);
+	Report.Profile = EStargameValidationProfile::M5_5;
+	if (Report.HasBlockingIssues())
+	{
+		return Report;
+	}
+
+	FStarSystemDefinition SourceSystemDefinition;
+	if (!ResolveSystemDefinition(SystemId, SourceSystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_system"), SystemId, TEXT("Required source system definition could not be resolved."));
+		return Report;
+	}
+
+	const FGateDefinition* SourceGate = SourceSystemDefinition.Gates.FindByPredicate([](const FGateDefinition& Gate)
+	{
+		return Gate.GateId == FName(TEXT("frontier_gate_a"));
+	});
+	const FName DestinationSystemId = SourceGate ? SourceGate->DestinationSystemId : NAME_None;
+
+	FStarSystemDefinition DestinationSystemDefinition;
+	if (DestinationSystemId.IsNone() || !ResolveSystemDefinition(DestinationSystemId, DestinationSystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("m5_5_missing_destination_system"), DestinationSystemId, TEXT("M5.5 requires frontier_gate_a to resolve its destination system."));
+		return Report;
+	}
+
+		ValidateM5_5SystemDefinition(SourceSystemDefinition, DestinationSystemDefinition, Report);
+	return Report;
+}
+
+FStargameValidationReport UStarCatalogSubsystem::ValidateM7Fixture(FName SystemId) const
+{
+	FStargameValidationReport Report = ValidateM5_5Fixture(SystemId);
 	Report.Profile = EStargameValidationProfile::M7;
 	if (Report.HasBlockingIssues())
 	{
@@ -619,9 +734,29 @@ FStargameValidationReport UStarCatalogSubsystem::ValidateM10Fixture(FName System
 	return Report;
 }
 
-FStargameValidationReport UStarCatalogSubsystem::ValidateM11Fixture(FName SystemId) const
+FStargameValidationReport UStarCatalogSubsystem::ValidateM10_5Fixture(FName SystemId) const
 {
 	FStargameValidationReport Report = ValidateM10Fixture(SystemId);
+	Report.Profile = EStargameValidationProfile::M10_5;
+	if (Report.HasBlockingIssues())
+	{
+		return Report;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	if (!ResolveSystemDefinition(SystemId, SystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_system"), SystemId, TEXT("Required system definition could not be resolved."));
+		return Report;
+	}
+
+	ValidateM10_5SystemDefinition(SystemDefinition, Report);
+	return Report;
+}
+
+FStargameValidationReport UStarCatalogSubsystem::ValidateM11Fixture(FName SystemId) const
+{
+	FStargameValidationReport Report = ValidateM10_5Fixture(SystemId);
 	Report.Profile = EStargameValidationProfile::M11;
 	if (Report.HasBlockingIssues())
 	{
@@ -838,6 +973,8 @@ FStargameValidationReport UStarCatalogSubsystem::ValidateM6GeneratedSystemDefini
 	FStargameValidationReport Report;
 	Report.Profile = EStargameValidationProfile::M6;
 	Report.SystemId = SystemDefinition.SystemId;
+	Report.CheckedSystemCount = 1;
+	Report.CheckedFixtureCount = 1;
 
 	ValidateSystemDefinition(SystemDefinition, Report);
 	if (Report.HasBlockingIssues())
@@ -879,10 +1016,14 @@ void UStarCatalogSubsystem::AddIssue(FStargameValidationReport& Report, EStargam
 {
 	FStargameValidationIssue Issue;
 	Issue.Severity = Severity;
+	Issue.Code = RuleId;
 	Issue.RuleId = RuleId;
 	Issue.ObjectId = ObjectId;
+	Issue.SystemId = Report.SystemId;
+	Issue.SourceId = ObjectId;
 	Issue.Message = Message;
 	Report.Issues.Add(Issue);
+	Report.RefreshSummary();
 }
 
 bool UStarCatalogSubsystem::ValidateAssetManagerCoverage(FStargameValidationReport& Report) const
@@ -1188,7 +1329,7 @@ bool UStarCatalogSubsystem::ValidateSystemDefinition(const FStarSystemDefinition
 		{
 			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("invalid_map_entry"), MapEntry.MapEntryId, TEXT("Map entry IDs must be non-empty and unique."));
 		}
-		if (!EntityExists(MapEntry.SourceId))
+		if (!EntityExists(MapEntry.SourceId) && !SpawnZoneIds.Contains(MapEntry.SourceId))
 		{
 			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("unresolved_map_entry_source"), MapEntry.MapEntryId, TEXT("Map entry source ID does not resolve to a system entity."));
 		}
@@ -1592,6 +1733,98 @@ bool UStarCatalogSubsystem::ValidateM5SystemDefinition(const FStarSystemDefiniti
 		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m5_missing_ship_docking_size"), StartProfile.ShipArchetypeId, TEXT("M5 requires the start ship to declare a docking size class."));
 		bValid = false;
 	}
+
+	return bValid && !Report.HasBlockingIssues();
+}
+
+bool UStarCatalogSubsystem::ValidateM5_5SystemDefinition(const FStarSystemDefinition& SourceSystemDefinition, const FStarSystemDefinition& DestinationSystemDefinition, FStargameValidationReport& Report) const
+{
+	bool bValid = true;
+
+	auto Require = [this, &Report, &bValid](bool bCondition, FName RuleId, FName ObjectId, const TCHAR* Message)
+	{
+		if (!bCondition)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, RuleId, ObjectId, Message);
+			bValid = false;
+		}
+	};
+
+	const FGateDefinition* SourceGate = SourceSystemDefinition.Gates.FindByPredicate([](const FGateDefinition& Gate)
+	{
+		return Gate.GateId == FName(TEXT("frontier_gate_a"));
+	});
+	if (!SourceGate)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m5_5_missing_source_gate"), TEXT("frontier_gate_a"), TEXT("M5.5 requires frontier_gate_a to be registered in the active source system."));
+		return false;
+	}
+
+	Require(SourceGate->DestinationSystemId == FName(TEXT("frontier_arrival_test_01")), TEXT("m5_5_invalid_destination_system"), SourceGate->GateId, TEXT("frontier_gate_a must target frontier_arrival_test_01."));
+	Require(SourceGate->DestinationGateId == FName(TEXT("arrival_gate_a")), TEXT("m5_5_invalid_destination_gate"), SourceGate->GateId, TEXT("frontier_gate_a must target arrival_gate_a."));
+	Require(SourceGate->DestinationArrivalId == FName(TEXT("arrival_from_frontier_gate_a")), TEXT("m5_5_invalid_destination_arrival"), SourceGate->GateId, TEXT("frontier_gate_a must target arrival_from_frontier_gate_a."));
+	Require(SourceGate->DestinationArrivalFrame == FName(TEXT("gate_relative")), TEXT("m5_5_invalid_arrival_frame"), SourceGate->GateId, TEXT("M5.5 arrival placement must be gate-relative."));
+	Require(SourceGate->DestinationArrivalLocalOffsetCm.Equals(FVector(0.0, 18000.0, 0.0), 0.01), TEXT("m5_5_invalid_arrival_offset"), SourceGate->GateId, TEXT("M5.5 arrival offset must match the documented fixture."));
+	Require(SourceGate->DestinationArrivalRotation.Equals(FRotator(0.0, 180.0, 0.0), 0.01), TEXT("m5_5_invalid_arrival_rotation"), SourceGate->GateId, TEXT("M5.5 arrival rotation must match the documented fixture."));
+
+	const bool bDestinationCatalogEntry = CatalogEntries.ContainsByPredicate([SourceGate](const FStarCatalogEntry& Entry)
+	{
+		return Entry.SystemId == SourceGate->DestinationSystemId;
+	});
+	Require(bDestinationCatalogEntry, TEXT("m5_5_missing_destination_catalog_entry"), SourceGate->DestinationSystemId, TEXT("M5.5 requires the destination system to resolve through the catalog."));
+
+	ValidateSystemDefinition(DestinationSystemDefinition, Report);
+
+	const bool bRouteEdge = RouteGraphEdges.ContainsByPredicate([SourceGate, &SourceSystemDefinition](const FRouteGraphEdge& Edge)
+	{
+		return Edge.RouteEdgeId == FName(TEXT("edge_frontier_gate_a_to_arrival_gate_a")) &&
+			Edge.SourceSystemId == SourceSystemDefinition.SystemId &&
+			Edge.SourceGateId == SourceGate->GateId &&
+			Edge.DestinationSystemId == SourceGate->DestinationSystemId &&
+			Edge.DestinationGateId == SourceGate->DestinationGateId &&
+			Edge.DestinationArrivalId == SourceGate->DestinationArrivalId &&
+			Edge.RouteType == FName(TEXT("jump_gate")) &&
+			Edge.bArtificialGate;
+	});
+	Require(bRouteEdge, TEXT("m5_5_missing_catalog_route_edge"), SourceGate->GateId, TEXT("M5.5 requires an authored catalog route edge from frontier_gate_a to the destination arrival."));
+
+	const FGateDefinition* DestinationGate = DestinationSystemDefinition.Gates.FindByPredicate([SourceGate](const FGateDefinition& Gate)
+	{
+		return Gate.GateId == SourceGate->DestinationGateId;
+	});
+	Require(DestinationGate != nullptr, TEXT("m5_5_missing_destination_gate"), SourceGate->DestinationGateId, TEXT("M5.5 destination system must register arrival_gate_a."));
+
+	const FSpawnZoneDefinition* Arrival = DestinationSystemDefinition.SpawnZones.FindByPredicate([SourceGate](const FSpawnZoneDefinition& SpawnZone)
+	{
+		return SpawnZone.SpawnZoneId == SourceGate->DestinationArrivalId;
+	});
+	if (!Arrival)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m5_5_missing_arrival_marker"), SourceGate->DestinationArrivalId, TEXT("M5.5 destination system must register the configured arrival marker."));
+		bValid = false;
+	}
+	else
+	{
+		Require(Arrival->FrameType == SourceGate->DestinationArrivalFrame && Arrival->AnchorId == SourceGate->DestinationGateId, TEXT("m5_5_arrival_marker_frame_mismatch"), Arrival->SpawnZoneId, TEXT("M5.5 arrival marker must be anchored in the configured gate-relative frame."));
+		Require(Arrival->Transform.GetLocation().Equals(SourceGate->DestinationArrivalLocalOffsetCm, 0.01), TEXT("m5_5_arrival_marker_offset_mismatch"), Arrival->SpawnZoneId, TEXT("M5.5 arrival marker offset must match source gate arrival data."));
+		Require(Arrival->Transform.Rotator().Equals(SourceGate->DestinationArrivalRotation, 0.01), TEXT("m5_5_arrival_marker_rotation_mismatch"), Arrival->SpawnZoneId, TEXT("M5.5 arrival marker rotation must match source gate arrival data."));
+		Require(Arrival->AllowedContexts.Contains(FName(TEXT("arrival"))), TEXT("m5_5_arrival_marker_context_missing"), Arrival->SpawnZoneId, TEXT("M5.5 arrival marker must allow arrival context."));
+	}
+
+	FShipSaveLocation PendingArrival;
+	PendingArrival.SystemId = SourceGate->DestinationSystemId;
+	PendingArrival.LocationMode = EShipLocationMode::GateArrival;
+	PendingArrival.CoordinateFrame.FrameType = SourceGate->DestinationArrivalFrame;
+	PendingArrival.CoordinateFrame.AnchorId = SourceGate->DestinationGateId;
+	PendingArrival.AnchorId = SourceGate->DestinationGateId;
+	PendingArrival.GateArrivalId = SourceGate->DestinationArrivalId;
+	PendingArrival.PositionCm = SourceGate->DestinationArrivalLocalOffsetCm;
+	PendingArrival.Rotation = SourceGate->DestinationArrivalRotation;
+	Require(PendingArrival.LocationMode == EShipLocationMode::GateArrival &&
+		PendingArrival.SystemId == SourceGate->DestinationSystemId &&
+		PendingArrival.GateArrivalId == SourceGate->DestinationArrivalId &&
+		PendingArrival.CoordinateFrame.FrameType == FName(TEXT("gate_relative")),
+		TEXT("m5_5_pending_arrival_save_invalid"), SourceGate->GateId, TEXT("M5.5 pending-arrival save state must preserve destination system, arrival marker, and gate-relative frame."));
 
 	return bValid && !Report.HasBlockingIssues();
 }
@@ -2175,6 +2408,52 @@ bool UStarCatalogSubsystem::ValidateM10SystemDefinition(const FStarSystemDefinit
 			!Promotion.RealizationToken.IsNone() &&
 			!Promotion.bCanResolveEncounter;
 	}), TEXT("m10_missing_promotion_attachment"), SystemDefinition.SystemId, TEXT("M10 requires promotion metadata that attaches later actors to an existing logical encounter without allowing actors to resolve it."));
+
+	return bValid && !Report.HasBlockingIssues();
+}
+
+bool UStarCatalogSubsystem::ValidateM10_5SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const
+{
+	bool bValid = true;
+	const FSystemicGameplayState& State = SystemDefinition.SystemicGameplay;
+
+	auto Require = [this, &Report, &bValid](bool bCondition, FName RuleId, FName ObjectId, const TCHAR* Message)
+	{
+		if (!bCondition)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, RuleId, ObjectId, Message);
+			bValid = false;
+		}
+	};
+
+	FString CombatValidationError;
+	if (!USystemicGameplayQueryService::ValidateCombatDamageThreatState(SystemDefinition, State, CombatValidationError))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m10_5_invalid_combat_damage_threat_state"), SystemDefinition.SystemId, CombatValidationError);
+		bValid = false;
+	}
+
+	const bool bCanApplyLogicalDamage = State.ShipDurabilityStates.ContainsByPredicate([](const FShipDurabilityState& Durability)
+	{
+		return Durability.CombatantId == FName(TEXT("trader_brink_01")) && Durability.Hull > 0.0 && Durability.Shield >= 0.0;
+	});
+	Require(bCanApplyLogicalDamage, TEXT("m10_5_missing_logical_damage_target"), SystemDefinition.SystemId, TEXT("M10.5 requires a logical NPC durability target that can receive damage without an actor pointer."));
+
+	Require(State.ThreatRecords.ContainsByPredicate([](const FThreatRecord& Threat)
+	{
+		return Threat.ThreatId == FName(TEXT("threat_m11_pirate_trade_lane_01")) &&
+			Threat.AttackerId == FName(TEXT("pirate_raider_01")) &&
+			Threat.DefenderId == FName(TEXT("trader_brink_01")) &&
+			Threat.LastKnownTarget.TargetType == FName(TEXT("route_sample"));
+	}), TEXT("m10_5_missing_route_frame_threat"), SystemDefinition.SystemId, TEXT("M10.5 requires flee/patrol-readable threat state in a moving route frame."));
+
+	Require(State.RealizedSteeringIntents.ContainsByPredicate([](const FRealizedAISteeringIntent& Intent)
+	{
+		return Intent.IntentType == FName(TEXT("attack")) &&
+			Intent.ShipInstanceId == FName(TEXT("pirate_raider_01")) &&
+			Intent.TargetShipId == FName(TEXT("trader_brink_01")) &&
+			Intent.TargetFrame.TargetType == FName(TEXT("route_sample"));
+	}), TEXT("m10_5_missing_attack_intent"), SystemDefinition.SystemId, TEXT("M10.5 requires an abstract attack intent shared by logical and realized combat."));
 
 	return bValid && !Report.HasBlockingIssues();
 }

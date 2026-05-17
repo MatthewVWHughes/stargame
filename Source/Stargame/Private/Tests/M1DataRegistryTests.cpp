@@ -5,6 +5,7 @@
 #include "Engine/AssetManagerSettings.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Flight/ShipFlightModeComponent.h"
 #include "Flight/SpaceFlightPawn.h"
 #include "GameFramework/PlayerController.h"
@@ -24,7 +25,7 @@ namespace
 		UStarCatalogSubsystem* Catalog = NewObject<UStarCatalogSubsystem>(GameInstance);
 		if (Catalog)
 		{
-			Catalog->BuildAssetCatalogCache(false);
+			Catalog->BuildAssetCatalogCache();
 		}
 		return Catalog;
 	}
@@ -47,6 +48,59 @@ namespace
 
 		return nullptr;
 	}
+
+	ASpaceFlightPawn* FindM1SpaceFlightPawn(UWorld* World, APlayerController* PlayerController)
+	{
+		if (ASpaceFlightPawn* PossessedPawn = PlayerController ? Cast<ASpaceFlightPawn>(PlayerController->GetPawn()) : nullptr)
+		{
+			return PossessedPawn;
+		}
+		if (!World)
+		{
+			return nullptr;
+		}
+		UStarSystemSubsystem* StarSystem = World->GetSubsystem<UStarSystemSubsystem>();
+		if (APawn* ActivePlayerPawn = StarSystem ? StarSystem->GetActivePlayerPawn() : nullptr)
+		{
+			return Cast<ASpaceFlightPawn>(ActivePlayerPawn);
+		}
+		return nullptr;
+	}
+
+	struct FM1RuntimeSessionContext
+	{
+		UWorld* World = nullptr;
+		UGameInstance* GameInstance = nullptr;
+		UStarCatalogSubsystem* Catalog = nullptr;
+		UStargameSessionSubsystem* Session = nullptr;
+		UStarSystemSubsystem* StarSystem = nullptr;
+
+		bool Initialize(FAutomationTestBase& Test)
+		{
+			World = FindM1AutomationWorld();
+			Test.TestNotNull(TEXT("Automation world exists"), World);
+			if (!World)
+			{
+				return false;
+			}
+
+			GameInstance = NewObject<UGameInstance>();
+			Catalog = NewObject<UStarCatalogSubsystem>(GameInstance);
+			Session = NewObject<UStargameSessionSubsystem>(GameInstance);
+			StarSystem = World->GetSubsystem<UStarSystemSubsystem>();
+			Test.TestNotNull(TEXT("Catalog object created"), Catalog);
+			Test.TestNotNull(TEXT("Session object created"), Session);
+			Test.TestNotNull(TEXT("Star system subsystem exists"), StarSystem);
+			if (!Catalog || !Session || !StarSystem)
+			{
+				return false;
+			}
+
+			Catalog->BuildAssetCatalogCache();
+			Session->ConfigureAutomationTestContext(World, Catalog);
+			return true;
+		}
+	};
 
 	ASpaceFlightPawn* SpawnM5PawnAt(UWorld* World, const FFrameResolvedTransform& Transform, const FVector& VelocityCmPerSec)
 	{
@@ -520,7 +574,7 @@ bool FM2ClockAndSaveLocationTest::RunTest(const FString& Parameters)
 
 	FStargameM0SaveState SaveState = Session->MakeCurrentM0SaveState();
 	TestEqual(TEXT("Save state preserves clock time"), SaveState.ClockSnapshot.AuthoritativeSimulationTimeSeconds, Snapshot.AuthoritativeSimulationTimeSeconds);
-	TestEqual(TEXT("Save location stores logical frame, not actor path"), SaveState.ShipLocation.CoordinateFrame.FrameType, FName(TEXT("local_free_flight")));
+	TestEqual(TEXT("Save location stores logical frame, not actor path"), SaveState.ShipLocation.CoordinateFrame.FrameType, FName(TEXT("system_barycentric")));
 	TestEqual(TEXT("Save location mode is explicit"), SaveState.ShipLocation.LocationMode, EShipLocationMode::Respawn);
 
 	return true;
@@ -533,19 +587,15 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FM2SessionSaveLoadRestoresFreeFlightLocationTest::RunTest(const FString& Parameters)
 {
-	UWorld* World = FindM1AutomationWorld();
-	TestNotNull(TEXT("Automation world exists"), World);
-	UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
-	UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
-	if (!World || !Session)
+	FM1RuntimeSessionContext Context;
+	if (!Context.Initialize(*this))
 	{
-		AddInfo(TEXT("Skipping full session save/load restore test: automation world has no game instance/session subsystem."));
-		return true;
+		return false;
 	}
 
-	TestEqual(TEXT("Session starts"), Session->StartNewSession(FName(TEXT("frontier_test_start"))), EStartSessionResult::Success);
-	APlayerController* PlayerController = World->GetFirstPlayerController();
-	ASpaceFlightPawn* Pawn = PlayerController ? Cast<ASpaceFlightPawn>(PlayerController->GetPawn()) : nullptr;
+	TestEqual(TEXT("Session starts"), Context.Session->StartNewSession(FName(TEXT("frontier_test_start"))), EStartSessionResult::Success);
+	APlayerController* PlayerController = Context.World->GetFirstPlayerController();
+	ASpaceFlightPawn* Pawn = FindM1SpaceFlightPawn(Context.World, PlayerController);
 	TestNotNull(TEXT("Space flight pawn exists"), Pawn);
 	if (!Pawn)
 	{
@@ -557,14 +607,14 @@ bool FM2SessionSaveLoadRestoresFreeFlightLocationTest::RunTest(const FString& Pa
 	const FVector SavedVelocity(1200.0, -300.0, 50.0);
 	Pawn->SetFlightTestTransformAndVelocity(FTransform(SavedRotation, SavedPosition), SavedVelocity);
 
-	const FStargameM0SaveState SavedState = Session->MakeCurrentM0SaveState();
+	const FStargameM0SaveState SavedState = Context.Session->MakeCurrentM0SaveState();
 	TestEqual(TEXT("Free-flight save mode is explicit"), SavedState.ShipLocation.LocationMode, EShipLocationMode::FreeFlight);
-	TestTrue(TEXT("Save development slot"), Session->SaveDevelopmentSlot(SavedState));
+	TestTrue(TEXT("Save development slot"), Context.Session->SaveDevelopmentSlot(SavedState));
 
 	Pawn->SetFlightTestTransformAndVelocity(FTransform(FRotator::ZeroRotator, FVector::ZeroVector), FVector::ZeroVector);
-	TestTrue(TEXT("Load development slot"), Session->LoadDevelopmentSlot());
+	TestTrue(TEXT("Load development slot"), Context.Session->LoadDevelopmentSlot());
 
-	ASpaceFlightPawn* RestoredPawn = PlayerController ? Cast<ASpaceFlightPawn>(PlayerController->GetPawn()) : nullptr;
+	ASpaceFlightPawn* RestoredPawn = FindM1SpaceFlightPawn(Context.World, PlayerController);
 	TestNotNull(TEXT("Restored pawn exists"), RestoredPawn);
 	if (RestoredPawn)
 	{
@@ -573,6 +623,7 @@ bool FM2SessionSaveLoadRestoresFreeFlightLocationTest::RunTest(const FString& Pa
 	}
 
 	UGameplayStatics::DeleteGameInSlot(UStargameSessionSubsystem::DevelopmentSlotName, 0);
+	Context.StarSystem->TearDownActiveSystem();
 	return true;
 }
 
@@ -1102,6 +1153,205 @@ bool FM5CatalogValidationTest::RunTest(const FString& Parameters)
 		}
 	}
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM5_5CatalogValidationTest,
+	"Stargame.M5.5.Gate.ValidatesTransitionAndArrivalFixture",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM5_5CatalogValidationTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	FStarSystemDefinition SourceSystem;
+	TestTrue(TEXT("M5.5 source system resolves"), Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SourceSystem));
+	const FGateDefinition* SourceGate = SourceSystem.Gates.FindByPredicate([](const FGateDefinition& Gate)
+	{
+		return Gate.GateId == FName(TEXT("frontier_gate_a"));
+	});
+	TestNotNull(TEXT("M5.5 source gate resolves"), SourceGate);
+	if (!SourceGate)
+	{
+		return false;
+	}
+	TestEqual(TEXT("M5.5 source gate destination system"), SourceGate->DestinationSystemId, FName(TEXT("frontier_arrival_test_01")));
+	TestEqual(TEXT("M5.5 source gate destination gate"), SourceGate->DestinationGateId, FName(TEXT("arrival_gate_a")));
+	TestEqual(TEXT("M5.5 source gate destination arrival"), SourceGate->DestinationArrivalId, FName(TEXT("arrival_from_frontier_gate_a")));
+	TestEqual(TEXT("M5.5 source gate arrival frame"), SourceGate->DestinationArrivalFrame, FName(TEXT("gate_relative")));
+	TestTrue(TEXT("M5.5 source gate arrival offset"), SourceGate->DestinationArrivalLocalOffsetCm.Equals(FVector(0.0, 18000.0, 0.0), 0.01));
+
+	FStarSystemDefinition DestinationSystem;
+	TestTrue(TEXT("M5.5 destination system resolves"), Catalog->ResolveSystemDefinition(SourceGate->DestinationSystemId, DestinationSystem));
+	TestTrue(TEXT("M5.5 destination gate resolves"), DestinationSystem.Gates.ContainsByPredicate([SourceGate](const FGateDefinition& Gate)
+	{
+		return Gate.GateId == SourceGate->DestinationGateId;
+	}));
+	TestTrue(TEXT("M5.5 destination arrival marker resolves"), DestinationSystem.SpawnZones.ContainsByPredicate([SourceGate](const FSpawnZoneDefinition& SpawnZone)
+	{
+		return SpawnZone.SpawnZoneId == SourceGate->DestinationArrivalId &&
+			SpawnZone.FrameType == SourceGate->DestinationArrivalFrame &&
+			SpawnZone.AnchorId == SourceGate->DestinationGateId &&
+			SpawnZone.Transform.GetLocation().Equals(SourceGate->DestinationArrivalLocalOffsetCm, 0.01);
+	}));
+
+	FRouteGraphEdge RouteEdge;
+	TestTrue(TEXT("M5.5 route edge resolves"), Catalog->ResolveRouteGraphEdge(TEXT("edge_frontier_gate_a_to_arrival_gate_a"), RouteEdge));
+	TestEqual(TEXT("M5.5 route edge source gate"), RouteEdge.SourceGateId, SourceGate->GateId);
+	TestEqual(TEXT("M5.5 route edge destination arrival"), RouteEdge.DestinationArrivalId, SourceGate->DestinationArrivalId);
+
+	const FStargameValidationReport Report = Catalog->ValidateM5_5Fixture(FName(TEXT("frontier_test_01")));
+	TestFalse(TEXT("M5.5 validation report has no blocking issues"), Report.HasBlockingIssues());
+	if (Report.HasBlockingIssues())
+	{
+		for (const FStargameValidationIssue& Issue : Report.Issues)
+		{
+			AddError(Issue.Message);
+		}
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM5_5ArrivalSystemRegistryTest,
+	"Stargame.M5.5.Gate.BuildsArrivalSystemRegistry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM5_5ArrivalSystemRegistryTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FindM1AutomationWorld();
+	TestNotNull(TEXT("Automation world exists"), World);
+	UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	TestNotNull(TEXT("Star system subsystem exists"), StarSystem);
+
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!World || !StarSystem || !Catalog)
+	{
+		return false;
+	}
+
+	FStarSystemDefinition ArrivalSystem;
+	TestTrue(TEXT("M5.5 arrival system resolves"), Catalog->ResolveSystemDefinition(TEXT("frontier_arrival_test_01"), ArrivalSystem));
+	TestTrue(TEXT("M5.5 arrival system builds"), StarSystem->BuildSystem(ArrivalSystem));
+
+	TArray<FName> EntityIds;
+	StarSystem->GetRegisteredEntityIds(EntityIds);
+	TestTrue(TEXT("M5.5 registers arrival gate"), EntityIds.Contains(FName(TEXT("arrival_gate_a"))));
+
+	TArray<FName> SpawnZoneIds;
+	StarSystem->GetRegisteredSpawnZoneIds(SpawnZoneIds);
+	TestTrue(TEXT("M5.5 registers arrival marker"), SpawnZoneIds.Contains(FName(TEXT("arrival_from_frontier_gate_a"))));
+
+	FFrameResolvedTransform ArrivalFrame;
+	const FSimulationClockSnapshot Clock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(ArrivalSystem.SystemId, 0.0);
+	TestTrue(TEXT("M5.5 arrival marker frame resolves"), UOrbitRouteFrameQueryService::ResolveEntityFrame(ArrivalSystem, TEXT("arrival_from_frontier_gate_a"), Clock, 0.0, ArrivalFrame));
+	TestEqual(TEXT("M5.5 arrival marker anchor"), ArrivalFrame.AnchorId, FName(TEXT("arrival_gate_a")));
+
+	StarSystem->TearDownActiveSystem();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM5_5GateTransitionRuntimeTest,
+	"Stargame.M5.5.Gate.RuntimeTransitionAndPendingArrival",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM5_5GateTransitionRuntimeTest::RunTest(const FString& Parameters)
+{
+	FM1RuntimeSessionContext Context;
+	if (!Context.Initialize(*this))
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("Session starts in source system"), Context.Session->StartNewSession(FName(TEXT("frontier_test_start"))), EStartSessionResult::Success);
+	TestEqual(TEXT("Source system active before transition"), Context.Session->GetCurrentSystemId(), FName(TEXT("frontier_test_01")));
+
+	FGateTransitionRequest Request;
+	Request.SourceGateId = TEXT("frontier_gate_a");
+	FGateTransitionResult Result;
+	TestTrue(TEXT("Fixture gate transition succeeds"), Context.Session->RequestGateTransition(Request, Result));
+	TestTrue(TEXT("Gate transition result accepted"), Result.bAccepted);
+	TestEqual(TEXT("Destination system after transition"), Context.Session->GetCurrentSystemId(), FName(TEXT("frontier_arrival_test_01")));
+	TestEqual(TEXT("Destination arrival spawn zone selected"), Context.Session->GetCurrentSpawnZoneId(), FName(TEXT("arrival_from_frontier_gate_a")));
+	TestTrue(TEXT("Session owns pending gate arrival"), Context.Session->HasPendingGateArrival());
+	TestEqual(TEXT("Pending arrival mode"), Context.Session->GetPendingGateArrivalLocation().LocationMode, EShipLocationMode::GateArrival);
+	TestEqual(TEXT("Pending arrival ID"), Context.Session->GetPendingGateArrivalLocation().GateArrivalId, FName(TEXT("arrival_from_frontier_gate_a")));
+
+	TArray<FName> EntityIds;
+	Context.StarSystem->GetRegisteredEntityIds(EntityIds);
+	TestFalse(TEXT("Source registry cleared after handoff"), EntityIds.Contains(FName(TEXT("frontier_gate_a"))));
+	TestTrue(TEXT("Destination registry built after handoff"), EntityIds.Contains(FName(TEXT("arrival_gate_a"))));
+
+	const FStargameM0SaveState SaveState = Context.Session->MakeCurrentM0SaveState();
+	TestEqual(TEXT("Save during pending arrival preserves mode"), SaveState.ShipLocation.LocationMode, EShipLocationMode::GateArrival);
+	TestEqual(TEXT("Save during pending arrival preserves arrival ID"), SaveState.ShipLocation.GateArrivalId, FName(TEXT("arrival_from_frontier_gate_a")));
+
+	TestTrue(TEXT("Save pending arrival"), Context.Session->SaveDevelopmentSlot(SaveState));
+	TestTrue(TEXT("Reload pending arrival"), Context.Session->LoadDevelopmentSlot());
+	TestEqual(TEXT("Reload keeps destination system"), Context.Session->GetCurrentSystemId(), FName(TEXT("frontier_arrival_test_01")));
+	TestTrue(TEXT("Reload restores pending gate arrival"), Context.Session->HasPendingGateArrival());
+	UGameplayStatics::DeleteGameInSlot(UStargameSessionSubsystem::DevelopmentSlotName, 0);
+
+	Context.Session->CompleteGateArrivalSafetyWindow();
+	TestFalse(TEXT("Safety completion clears pending arrival"), Context.Session->HasPendingGateArrival());
+	Context.StarSystem->TearDownActiveSystem();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM5_5InvalidGateTransitionRuntimeTest,
+	"Stargame.M5.5.Gate.InvalidRuntimeTransitionDoesNotChangeSystem",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM5_5InvalidGateTransitionRuntimeTest::RunTest(const FString& Parameters)
+{
+	FM1RuntimeSessionContext Context;
+	if (!Context.Initialize(*this))
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("Session starts in source system"), Context.Session->StartNewSession(FName(TEXT("frontier_test_start"))), EStartSessionResult::Success);
+	FGateTransitionRequest Request;
+	Request.SourceGateId = TEXT("missing_gate");
+	FGateTransitionResult Result;
+	TestFalse(TEXT("Invalid gate transition fails"), Context.Session->RequestGateTransition(Request, Result));
+	TestEqual(TEXT("Invalid gate reports missing source"), Result.ResultCode, EGateTransitionResultCode::MissingSourceGate);
+	TestEqual(TEXT("Invalid gate does not change active system"), Context.Session->GetCurrentSystemId(), FName(TEXT("frontier_test_01")));
+	TestFalse(TEXT("Invalid gate does not create pending arrival"), Context.Session->HasPendingGateArrival());
+
+	TArray<FName> EntityIds;
+	Context.StarSystem->GetRegisteredEntityIds(EntityIds);
+	TestTrue(TEXT("Source registry remains active after invalid transition"), EntityIds.Contains(FName(TEXT("frontier_gate_a"))));
+	Context.StarSystem->TearDownActiveSystem();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM5_5InvalidSourceValidationFailsTest,
+	"Stargame.M5.5.Gate.InvalidSourceFailsValidation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM5_5InvalidSourceValidationFailsTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	const FStargameValidationReport Report = Catalog->ValidateM5_5Fixture(TEXT("frontier_arrival_test_01"));
+	TestTrue(TEXT("M5.5 validation rejects a system without frontier_gate_a"), Report.HasBlockingIssues());
 	return true;
 }
 
@@ -1683,11 +1933,11 @@ bool FM8LogicalTraderProgressTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FM8DemotionFallbacksToOffRouteLocationTest,
-	"Stargame.M8.Traffic.DemotionFallbacksToOffRouteLocation",
+	FM8DemotionStoresOffRouteLocationTest,
+	"Stargame.M8.Traffic.DemotionStoresOffRouteLocation",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FM8DemotionFallbacksToOffRouteLocationTest::RunTest(const FString& Parameters)
+bool FM8DemotionStoresOffRouteLocationTest::RunTest(const FString& Parameters)
 {
 	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
 	FStarSystemDefinition SystemDefinition;
@@ -1698,7 +1948,7 @@ bool FM8DemotionFallbacksToOffRouteLocationTest::RunTest(const FString& Paramete
 	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
 	FString FailureReason;
 	FRouteSample PromotionTarget;
-	TestTrue(TEXT("M8 trader promotes for off-route fallback"), ULogicalTrafficQueryService::PromoteLogicalTrader(SystemDefinition, Ship, Clock0, 0.0, TEXT("m8_pooled_actor_01"), PromotionTarget, FailureReason));
+	TestTrue(TEXT("M8 trader promotes before off-route demotion"), ULogicalTrafficQueryService::PromoteLogicalTrader(SystemDefinition, Ship, Clock0, 0.0, TEXT("m8_pooled_actor_01"), PromotionTarget, FailureReason));
 
 	FRouteSample DivergedActorSample = PromotionTarget;
 	DivergedActorSample.ResolvedTransform.PositionCm += FVector(100000000.0, 0.0, 0.0);
@@ -1706,15 +1956,15 @@ bool FM8DemotionFallbacksToOffRouteLocationTest::RunTest(const FString& Paramete
 	DivergedActorSample.SimulationTimeSeconds = 20.0;
 
 	TestTrue(TEXT("M8 demotion falls back instead of failing"), ULogicalTrafficQueryService::DemoteLogicalTrader(SystemDefinition, Ship, DivergedActorSample, Clock0, 20.0, TEXT("m8_pooled_actor_01"), FailureReason));
-	TestEqual(TEXT("M8 off-route fallback returns to logical tier"), Ship.TrafficTier, ELogicalTrafficTier::Tier2Logical);
-	TestTrue(TEXT("M8 off-route fallback clears realization token"), Ship.RealizationToken.IsNone());
-	TestFalse(TEXT("M8 off-route fallback disables route recovery"), Ship.bRouteRecoverable);
-	TestEqual(TEXT("M8 off-route fallback stores durable logical location"), Ship.LogicalLocation.TargetType, FName(TEXT("off_route_free_flight")));
-	TestEqual(TEXT("M8 off-route fallback stores logical frame"), Ship.LogicalLocation.CoordinateFrame.FrameType, FName(TEXT("system_barycentric")));
-	TestEqual(TEXT("M8 off-route fallback stores logical anchor"), Ship.LogicalLocation.AnchorId, SystemDefinition.SystemId);
-	TestTrue(TEXT("M8 off-route fallback stores logical offset"), Ship.LogicalLocation.LocalOffsetCm.SizeSquared() > 1.0);
-	TestTrue(TEXT("M8 off-route fallback stores logical velocity"), Ship.LogicalVelocityCmPerSec.SizeSquared() > 1.0);
-	TestEqual(TEXT("M8 off-route fallback decision reason"), Ship.LastDecisionReason, FName(TEXT("demoted_off_route_tolerance_failed")));
+	TestEqual(TEXT("M8 off-route demotion returns to logical tier"), Ship.TrafficTier, ELogicalTrafficTier::Tier2Logical);
+	TestTrue(TEXT("M8 off-route demotion clears realization token"), Ship.RealizationToken.IsNone());
+	TestFalse(TEXT("M8 off-route demotion disables route recovery"), Ship.bRouteRecoverable);
+	TestEqual(TEXT("M8 off-route demotion stores durable logical location"), Ship.LogicalLocation.TargetType, FName(TEXT("off_route_free_flight")));
+	TestEqual(TEXT("M8 off-route demotion stores logical frame"), Ship.LogicalLocation.CoordinateFrame.FrameType, FName(TEXT("system_barycentric")));
+	TestEqual(TEXT("M8 off-route demotion stores logical anchor"), Ship.LogicalLocation.AnchorId, SystemDefinition.SystemId);
+	TestTrue(TEXT("M8 off-route demotion stores logical offset"), Ship.LogicalLocation.LocalOffsetCm.SizeSquared() > 1.0);
+	TestTrue(TEXT("M8 off-route demotion stores logical velocity"), Ship.LogicalVelocityCmPerSec.SizeSquared() > 1.0);
+	TestEqual(TEXT("M8 off-route demotion decision reason"), Ship.LastDecisionReason, FName(TEXT("demoted_off_route_tolerance_failed")));
 
 	return true;
 }
@@ -1895,38 +2145,35 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FM8SessionLoadRejectsInvalidTrafficStateTest::RunTest(const FString& Parameters)
 {
-	UWorld* World = FindM1AutomationWorld();
-	TestNotNull(TEXT("Automation world exists"), World);
-	UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
-	UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
-	if (!Session)
-	{
-		AddInfo(TEXT("Skipping full session invalid traffic load test: automation world has no game instance/session subsystem."));
-		return true;
-	}
-
-	TestEqual(TEXT("Session starts"), Session->StartNewSession(FName(TEXT("frontier_test_start"))), EStartSessionResult::Success);
-	TestTrue(TEXT("Can select stable target before invalid load"), Session->SelectNavigationTargetById(FName(TEXT("ember"))));
-	const FName TargetBeforeInvalidLoad = Session->GetSelectedTargetId();
-
-	UStarCatalogSubsystem* Catalog = GameInstance ? GameInstance->GetSubsystem<UStarCatalogSubsystem>() : nullptr;
-	FStarSystemDefinition SystemDefinition;
-	TestTrue(TEXT("Frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(FName(TEXT("frontier_test_01")), SystemDefinition));
-	if (!Catalog || SystemDefinition.LogicalTraffic.IsEmpty())
+	FM1RuntimeSessionContext Context;
+	if (!Context.Initialize(*this))
 	{
 		return false;
 	}
 
-	FStargameM0SaveState InvalidState = Session->MakeCurrentM0SaveState();
+	TestEqual(TEXT("Session starts"), Context.Session->StartNewSession(FName(TEXT("frontier_test_start"))), EStartSessionResult::Success);
+	TestTrue(TEXT("Can select stable target before invalid load"), Context.Session->SelectNavigationTargetById(FName(TEXT("ember"))));
+	const FName TargetBeforeInvalidLoad = Context.Session->GetSelectedTargetId();
+
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("Frontier system resolves"), Context.Catalog && Context.Catalog->ResolveSystemDefinition(FName(TEXT("frontier_test_01")), SystemDefinition));
+	if (!Context.Catalog || SystemDefinition.LogicalTraffic.IsEmpty())
+	{
+		return false;
+	}
+
+	FStargameM0SaveState InvalidState = Context.Session->MakeCurrentM0SaveState();
 	InvalidState.SelectedTargetId = FName(TEXT("brink_watch"));
 	InvalidState.ActiveTrafficState = ULogicalTrafficQueryService::MakeM8FixtureTrafficState(SystemDefinition, 0.0);
 	InvalidState.ActiveTrafficState.Ships[0].CurrentGoal.RouteSegmentId = FName(TEXT("missing_route_for_load_rejection"));
 
-	TestTrue(TEXT("Invalid save payload writes"), Session->SaveDevelopmentSlot(InvalidState));
-	TestFalse(TEXT("Invalid traffic load is rejected"), Session->LoadDevelopmentSlot());
-	TestEqual(TEXT("Rejected load leaves selected target unchanged"), Session->GetSelectedTargetId(), TargetBeforeInvalidLoad);
+	TestTrue(TEXT("Invalid save payload writes"), Context.Session->SaveDevelopmentSlot(InvalidState));
+	AddExpectedError(TEXT("Saved traffic ship 'trader_brink_01' has an invalid route goal"), EAutomationExpectedErrorFlags::Contains, 1);
+	TestFalse(TEXT("Invalid traffic load is rejected"), Context.Session->LoadDevelopmentSlot());
+	TestEqual(TEXT("Rejected load leaves selected target unchanged"), Context.Session->GetSelectedTargetId(), TargetBeforeInvalidLoad);
 
 	UGameplayStatics::DeleteGameInSlot(UStargameSessionSubsystem::DevelopmentSlotName, 0);
+	Context.StarSystem->TearDownActiveSystem();
 	return true;
 }
 
@@ -2508,6 +2755,51 @@ bool FM10EncounterResolutionTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM10_5CatalogValidationTest,
+	"Stargame.M10.5.Catalog.ValidatesCombatDamageThreatFixture",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM10_5CatalogValidationTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	const FStargameValidationReport Report = Catalog->ValidateM10_5Fixture(TEXT("frontier_test_01"));
+	TestFalse(TEXT("M10.5 validation report has no blocking issues"), Report.HasBlockingIssues());
+	TestEqual(TEXT("M10.5 validation report uses profile"), Report.Profile, EStargameValidationProfile::M10_5);
+
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M10.5 frontier system resolves"), Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	FString FailureReason;
+	TestTrue(TEXT("M10.5 combat damage threat state validates"), USystemicGameplayQueryService::ValidateCombatDamageThreatState(SystemDefinition, SystemDefinition.SystemicGameplay, FailureReason));
+	TestFalse(TEXT("M10.5 has threat records"), SystemDefinition.SystemicGameplay.ThreatRecords.IsEmpty());
+	TestFalse(TEXT("M10.5 has durability states"), SystemDefinition.SystemicGameplay.ShipDurabilityStates.IsEmpty());
+	TestFalse(TEXT("M10.5 has damage events"), SystemDefinition.SystemicGameplay.DamageEvents.IsEmpty());
+	TestTrue(TEXT("M10.5 has attack intent"), SystemDefinition.SystemicGameplay.RealizedSteeringIntents.ContainsByPredicate([](const FRealizedAISteeringIntent& Intent)
+	{
+		return Intent.IntentType == FName(TEXT("attack"));
+	}));
+
+	FSystemicGameplayState MissingThreatState = SystemDefinition.SystemicGameplay;
+	MissingThreatState.ThreatRecords.Reset();
+	TestFalse(TEXT("M10.5 rejects missing threats"), USystemicGameplayQueryService::ValidateCombatDamageThreatState(SystemDefinition, MissingThreatState, FailureReason));
+
+	FSystemicGameplayState MissingAttackIntentState = SystemDefinition.SystemicGameplay;
+	MissingAttackIntentState.RealizedSteeringIntents.RemoveAll([](const FRealizedAISteeringIntent& Intent)
+	{
+		return Intent.IntentType == FName(TEXT("attack"));
+	});
+	TestFalse(TEXT("M10.5 rejects missing attack intent"), USystemicGameplayQueryService::ValidateCombatDamageThreatState(SystemDefinition, MissingAttackIntentState, FailureReason));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FM11CatalogValidationTest,
 	"Stargame.M11.Catalog.ValidatesRealizedAISliceFixture",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -2682,15 +2974,15 @@ bool FM11PromotionDemotionStateTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FM11DamageThreatContractTest,
-	"Stargame.M11.Combat.AppliesDamageThreatAndIdempotency",
+	FM10_5DamageThreatContractTest,
+	"Stargame.M10.5.Combat.AppliesDamageThreatAndIdempotency",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FM11DamageThreatContractTest::RunTest(const FString& Parameters)
+bool FM10_5DamageThreatContractTest::RunTest(const FString& Parameters)
 {
 	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
 	FStarSystemDefinition SystemDefinition;
-	TestTrue(TEXT("M11 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	TestTrue(TEXT("M10.5 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
 
 	auto MakeDamage = [](FName EventId, FName DamageType, double Amount)
 	{
@@ -2710,49 +3002,49 @@ bool FM11DamageThreatContractTest::RunTest(const FString& Parameters)
 	const int32 InitialDamageEventCount = DamageState.DamageEvents.Num();
 	FString FailureReason;
 	FDamageEventRecord Result;
-	TestTrue(TEXT("M11 kinetic damage applies through threat contract"), USystemicGameplayQueryService::ApplyDamageEventOnce(DamageState, MakeDamage(TEXT("damage_m11_test_disable_01"), TEXT("kinetic"), 185.0), Result, FailureReason));
-	TestEqual(TEXT("M11 damage result records applied state"), Result.ResultState, FName(TEXT("applied")));
+	TestTrue(TEXT("M10.5 kinetic damage applies through threat contract"), USystemicGameplayQueryService::ApplyDamageEventOnce(DamageState, MakeDamage(TEXT("damage_m10_5_test_disable_01"), TEXT("kinetic"), 185.0), Result, FailureReason));
+	TestEqual(TEXT("M10.5 damage result records applied state"), Result.ResultState, FName(TEXT("applied")));
 	const FShipDurabilityState* DamagedTrader = DamageState.ShipDurabilityStates.FindByPredicate([](const FShipDurabilityState& Candidate)
 	{
 		return Candidate.CombatantId == FName(TEXT("trader_brink_01"));
 	});
-	TestNotNull(TEXT("M11 damaged trader durability exists"), DamagedTrader);
+	TestNotNull(TEXT("M10.5 damaged trader durability exists"), DamagedTrader);
 	if (DamagedTrader)
 	{
-		TestEqual(TEXT("M11 damage disables trader at recovery threshold"), DamagedTrader->State, FName(TEXT("disabled")));
-		TestEqual(TEXT("M11 damage writes last event"), DamagedTrader->LastDamageEventId, FName(TEXT("damage_m11_test_disable_01")));
+		TestEqual(TEXT("M10.5 damage disables trader at recovery threshold"), DamagedTrader->State, FName(TEXT("disabled")));
+		TestEqual(TEXT("M10.5 damage writes last event"), DamagedTrader->LastDamageEventId, FName(TEXT("damage_m10_5_test_disable_01")));
 	}
 
 	const FSystemicGameplayState ReloadedDamageState = DamageState;
 	DamageState = ReloadedDamageState;
-	TestTrue(TEXT("M11 duplicate damage is idempotent after reload"), USystemicGameplayQueryService::ApplyDamageEventOnce(DamageState, MakeDamage(TEXT("damage_m11_test_disable_01"), TEXT("kinetic"), 185.0), Result, FailureReason));
-	TestEqual(TEXT("M11 duplicate damage does not append another event"), DamageState.DamageEvents.Num(), InitialDamageEventCount + 1);
+	TestTrue(TEXT("M10.5 duplicate damage is idempotent after reload"), USystemicGameplayQueryService::ApplyDamageEventOnce(DamageState, MakeDamage(TEXT("damage_m10_5_test_disable_01"), TEXT("kinetic"), 185.0), Result, FailureReason));
+	TestEqual(TEXT("M10.5 duplicate damage does not append another event"), DamageState.DamageEvents.Num(), InitialDamageEventCount + 1);
 
-	TestTrue(TEXT("M11 follow-up damage can destroy target"), USystemicGameplayQueryService::ApplyDamageEventOnce(DamageState, MakeDamage(TEXT("damage_m11_test_destroy_01"), TEXT("kinetic"), 20.0), Result, FailureReason));
+	TestTrue(TEXT("M10.5 follow-up damage can destroy target"), USystemicGameplayQueryService::ApplyDamageEventOnce(DamageState, MakeDamage(TEXT("damage_m10_5_test_destroy_01"), TEXT("kinetic"), 20.0), Result, FailureReason));
 	DamagedTrader = DamageState.ShipDurabilityStates.FindByPredicate([](const FShipDurabilityState& Candidate)
 	{
 		return Candidate.CombatantId == FName(TEXT("trader_brink_01"));
 	});
 	if (DamagedTrader)
 	{
-		TestEqual(TEXT("M11 follow-up damage destroys target"), DamagedTrader->State, FName(TEXT("destroyed")));
+		TestEqual(TEXT("M10.5 follow-up damage destroys target"), DamagedTrader->State, FName(TEXT("destroyed")));
 	}
 
 	FSystemicGameplayState SurrenderState = SystemDefinition.SystemicGameplay;
-	TestTrue(TEXT("M11 surrender outcome applies"), USystemicGameplayQueryService::ApplyDamageEventOnce(SurrenderState, MakeDamage(TEXT("damage_m11_test_surrender_01"), TEXT("surrender"), 1.0), Result, FailureReason));
+	TestTrue(TEXT("M10.5 surrender outcome applies"), USystemicGameplayQueryService::ApplyDamageEventOnce(SurrenderState, MakeDamage(TEXT("damage_m10_5_test_surrender_01"), TEXT("surrender"), 1.0), Result, FailureReason));
 	const FShipDurabilityState* SurrenderedTrader = SurrenderState.ShipDurabilityStates.FindByPredicate([](const FShipDurabilityState& Candidate)
 	{
 		return Candidate.CombatantId == FName(TEXT("trader_brink_01"));
 	});
-	TestTrue(TEXT("M11 surrender writes durability outcome"), SurrenderedTrader && SurrenderedTrader->State == FName(TEXT("surrendered")));
+	TestTrue(TEXT("M10.5 surrender writes durability outcome"), SurrenderedTrader && SurrenderedTrader->State == FName(TEXT("surrendered")));
 
 	FSystemicGameplayState EscapeState = SystemDefinition.SystemicGameplay;
-	TestTrue(TEXT("M11 escape outcome applies"), USystemicGameplayQueryService::ApplyDamageEventOnce(EscapeState, MakeDamage(TEXT("damage_m11_test_escape_01"), TEXT("escape"), 1.0), Result, FailureReason));
+	TestTrue(TEXT("M10.5 escape outcome applies"), USystemicGameplayQueryService::ApplyDamageEventOnce(EscapeState, MakeDamage(TEXT("damage_m10_5_test_escape_01"), TEXT("escape"), 1.0), Result, FailureReason));
 	const FShipDurabilityState* EscapedTrader = EscapeState.ShipDurabilityStates.FindByPredicate([](const FShipDurabilityState& Candidate)
 	{
 		return Candidate.CombatantId == FName(TEXT("trader_brink_01"));
 	});
-	TestTrue(TEXT("M11 escape writes durability outcome"), EscapedTrader && EscapedTrader->State == FName(TEXT("escaped")));
+	TestTrue(TEXT("M10.5 escape writes durability outcome"), EscapedTrader && EscapedTrader->State == FName(TEXT("escaped")));
 
 	return true;
 }

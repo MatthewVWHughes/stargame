@@ -108,7 +108,7 @@ Required envelope fields:
 - `GeneratedFollowupOpportunityState`
 - `RespawnInsuranceState`
 
-The M0 save is intentionally smaller:
+The narrow startup save is intentionally smaller than the full envelope:
 
 - `SaveFormatVersion`
 - `GameContentVersion`
@@ -117,7 +117,7 @@ The M0 save is intentionally smaller:
 - `SpawnZoneId`
 - `SelectedTargetId`, optional
 
-M0 load restores by rebuilding the saved system and placing the player at the saved spawn zone. Full ship frame restoration starts when `FShipSaveLocation` is implemented.
+Startup load restores by rebuilding the saved system and placing the player at the saved spawn zone. The active save path also supports `FShipSaveLocation` for free flight, docked state, gate arrival, and respawn.
 
 ## Version Policy
 
@@ -133,7 +133,7 @@ Rules:
 
 - Production saves may only load through explicit version upgrade functions.
 - Development saves may be rejected on `BuildCompatibilityId` mismatch.
-- No load path may silently fall back to `sol`, a default spawn, or a best-effort actor scan.
+- No load path may silently substitute `sol`, a default spawn, or a best-effort actor scan.
 - Unknown required stable IDs fail the load before actors are spawned.
 - Optional sections can be absent only when the version upgrade step supplies a deterministic default.
 - Version upgrades run on data only, before any system build or actor spawn.
@@ -175,7 +175,7 @@ On load:
 4. log the slot, expected version, found version, and reason
 5. leave the current runtime session unchanged
 
-The UI/debug surface should show the invalid slot and reason. It should offer a new game path, not an implicit fallback.
+The UI/debug surface should show the invalid slot and reason. It should offer a new game path, not an implicit substitution.
 
 Do not delete invalid development saves automatically. Keep deletion as an explicit user/debug command so failed compatibility checks remain inspectable.
 
@@ -427,31 +427,30 @@ Mission, service, and conversation state must save:
 
 On load, markets and AI catch up before the active system realizes actors. The active station market UI reads the persistent market state after catch-up. A nearby NPC actor is spawned from the already-updated logical ship state, not from stale saved actor data.
 
-## Build Checklist
+## Implementation Checklist
 
-Implement in this order:
+The save/load implementation must provide:
 
-1. Create the `USaveGame` envelope and M0 save fields.
-2. Add version header read and validation.
-3. Add development invalidation through `BuildCompatibilityId`.
-4. Implement M0 save/load for `SystemId`, `SpawnZoneId`, and optional `SelectedTargetId`.
-5. Add guarded load state so normal ticks cannot advance simulation during restore.
-6. Add `FSimulationClockSnapshot` persistence.
-7. Add event queue and processed watermark persistence.
-8. Add idempotent catch-up for markets and scheduled AI events.
-9. Add `FShipSaveLocation` for free flight.
-10. Add docked restore ordering.
-11. Add gate arrival and respawn restore paths.
-12. Add production save upgrade steps when versions change.
-13. Add gameplay transaction prepare/commit/recovery journal persistence.
-14. Add ship instance durability/loadout resource persistence and service result restore.
-15. Add M12 systemic save/load tests for mission, legal cargo, services, arbitration, and faction/reputation deltas.
+1. `USaveGame` envelope and version header validation.
+2. Development invalidation through `BuildCompatibilityId`.
+3. Startup save/load for `SystemId`, `SpawnZoneId`, and optional `SelectedTargetId`.
+4. Guarded load state so normal ticks cannot advance simulation during restore.
+5. `FSimulationClockSnapshot` persistence.
+6. Event queue and processed watermark persistence.
+7. Idempotent catch-up for markets and scheduled AI events.
+8. `FShipSaveLocation` for free flight.
+9. Docked restore ordering.
+10. Gate arrival and respawn restore paths.
+11. Production save upgrade steps when versions change.
+12. Gameplay transaction prepare/commit/recovery journal persistence.
+13. Ship instance durability/loadout resource persistence and service result restore.
+14. Systemic save/load tests for mission, legal cargo, services, arbitration, and faction/reputation deltas.
 
 ## Test Matrix
 
 | Area | Test |
 | --- | --- |
-| M0 save/reload | Save `frontier_test_01`, `spawn_deep_space`, and selected target; reload returns to the same system and target without Sol fallback |
+| Startup save/reload | Save `frontier_test_01`, `spawn_deep_space`, and selected target; reload returns to the same system and target without substituting Sol |
 | Header validation | Invalid `BuildCompatibilityId` returns `DevelopmentSaveInvalid` and leaves the current session unchanged |
 | Unsupported version | Future `SaveFormatVersion` returns `UnsupportedVersion` before system build |
 | Version upgrade | Old compatible envelope upgrades in memory and validates before actors spawn |
@@ -473,13 +472,13 @@ Implement in this order:
 | Actor independence | Save file contains no actor paths, component pointers, registry handles, or pooled actor state |
 | Duplicate IDs | Duplicate event IDs, market IDs, or stable object IDs fail validation |
 | Atomic write | Failed save write does not corrupt the previous valid slot |
-| M12 transaction prepare | Saving with a prepared transaction and no side effects reloads without applying ledger, cargo, mission, or service mutations |
-| M12 transaction partial commit | Saving after a ledger side effect but before later ordered side effects resumes or recovers the same transaction without duplicate ledger entries |
-| M12 transaction recovery | A prepared or partial market/service/mission transaction writes one recovery record and leaves journal entries in a deterministic state |
-| M12 active mission turn-in | Reload during an active mission turn-in resolves through the same service request, mission state, ledger/escrow records, and commit journal |
-| M12 repeated reward | Repeating mission turn-in input or reprocessing the same event does not create duplicate rewards, reputation deltas, permits, cargo removals, or messages |
-| M12 illegal cargo rejection | Illegal cargo buy/sell/mission delivery is rejected through legal/access validation before stock, cargo, or ledger state mutates |
-| M12 service repair/refuel/rearm | Repair, refuel, and rearm service requests persist result records, ship durability/resource/loadout state, ledger entries, and rejection/partial reasons |
-| M12 arbitration restore | Reload restores the selected, queued, suppressed, and expired message arbitration result without presenting a different message |
-| M12 reputation deltas | Mission, legal, trade, and route-security outcomes persist reputation, faction relationship, and faction operational delta records and do not reapply them after reload |
-| M12 ledger/account integrity | Save validation rejects non-conserving ledger entries, negative balances, duplicate escrow transitions, and player credit caches that do not match account state |
+| Transaction prepare | Saving with a prepared transaction and no side effects reloads without applying ledger, cargo, mission, or service mutations |
+| Transaction partial commit | Saving after a ledger side effect but before later ordered side effects resumes or recovers the same transaction without duplicate ledger entries |
+| Transaction recovery | A prepared or partial market/service/mission transaction writes one recovery record and leaves journal entries in a deterministic state |
+| Active mission turn-in | Reload during an active mission turn-in resolves through the same service request, mission state, ledger/escrow records, and commit journal |
+| Repeated reward | Repeating mission turn-in input or reprocessing the same event does not create duplicate rewards, reputation deltas, permits, cargo removals, or messages |
+| Illegal cargo rejection | Illegal cargo buy/sell/mission delivery is rejected through legal/access validation before stock, cargo, or ledger state mutates |
+| Service repair/refuel/rearm | Repair, refuel, and rearm service requests persist result records, ship durability/resource/loadout state, ledger entries, and rejection/partial reasons |
+| Arbitration restore | Reload restores the selected, queued, suppressed, and expired message arbitration result without presenting a different message |
+| Reputation deltas | Mission, legal, trade, and route-security outcomes persist reputation, faction relationship, and faction operational delta records and do not reapply them after reload |
+| Ledger/account integrity | Save validation rejects non-conserving ledger entries, negative balances, duplicate escrow transitions, and player credit caches that do not match account state |

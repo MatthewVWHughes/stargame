@@ -2,6 +2,7 @@
 
 const FName FFrontierTestFixtureProvider::DefaultStartProfileId(TEXT("frontier_test_start"));
 const FName FFrontierTestFixtureProvider::FrontierSystemId(TEXT("frontier_test_01"));
+const FName FFrontierTestFixtureProvider::ArrivalSystemId(TEXT("frontier_arrival_test_01"));
 const FName FFrontierTestFixtureProvider::DeepSpaceSpawnZoneId(TEXT("spawn_deep_space"));
 
 namespace
@@ -61,9 +62,43 @@ bool FFrontierTestFixtureProvider::ResolveStartProfile(FName StartProfileId, FSt
 
 bool FFrontierTestFixtureProvider::ResolveSystemDefinition(FName SystemId, FStarSystemDefinition& OutSystemDefinition)
 {
-	if (SystemId != FrontierSystemId)
+	if (SystemId != FrontierSystemId && SystemId != ArrivalSystemId)
 	{
 		return false;
+	}
+
+	if (SystemId == ArrivalSystemId)
+	{
+		FGateDefinition ArrivalGate;
+		ArrivalGate.GateId = TEXT("arrival_gate_a");
+		ArrivalGate.DisplayName = FText::FromString(TEXT("Arrival Gate A"));
+		ArrivalGate.FrameType = SystemFrameType;
+		ArrivalGate.Transform = FTransform(FRotator(0.0, 180.0, 0.0), FVector::ZeroVector);
+		ArrivalGate.VisualRadiusCm = 16000.0;
+		ArrivalGate.ActivationRangeCm = 50000.0;
+		ArrivalGate.NavigationTarget = MakeNavigationTarget(ArrivalGate.GateId, TEXT("Arrival Gate A"), TEXT("gate"));
+
+		FSpawnZoneDefinition ArrivalMarker;
+		ArrivalMarker.SpawnZoneId = TEXT("arrival_from_frontier_gate_a");
+		ArrivalMarker.DisplayName = FText::FromString(TEXT("Arrival From Frontier Gate A"));
+		ArrivalMarker.FrameType = TEXT("gate_relative");
+		ArrivalMarker.AnchorId = ArrivalGate.GateId;
+		ArrivalMarker.Transform = FTransform(FRotator(0.0, 180.0, 0.0), FVector(0.0, 18000.0, 0.0));
+		ArrivalMarker.RadiusCm = 12000.0;
+		ArrivalMarker.AllowedContexts = { TEXT("arrival"), TEXT("reload") };
+
+		FMapEntryDefinition GateMapEntry;
+		GateMapEntry.MapEntryId = ArrivalGate.GateId;
+		GateMapEntry.SourceId = ArrivalGate.GateId;
+		GateMapEntry.EntryType = TEXT("gate");
+
+		OutSystemDefinition = FStarSystemDefinition();
+		OutSystemDefinition.SystemId = ArrivalSystemId;
+		OutSystemDefinition.DisplayName = FText::FromString(TEXT("Frontier Arrival Test 01"));
+		OutSystemDefinition.Gates = { ArrivalGate };
+		OutSystemDefinition.SpawnZones = { ArrivalMarker };
+		OutSystemDefinition.MapEntries = { GateMapEntry };
+		return true;
 	}
 
 	FBodyDefinition Body;
@@ -90,6 +125,12 @@ bool FFrontierTestFixtureProvider::ResolveSystemDefinition(FName SystemId, FStar
 	Gate.Transform = FTransform(FRotator(0.0, -35.0, 0.0), FVector(-360000.0, -210000.0, 10000.0));
 	Gate.VisualRadiusCm = 16000.0;
 	Gate.ActivationRangeCm = 50000.0;
+	Gate.DestinationSystemId = ArrivalSystemId;
+	Gate.DestinationGateId = TEXT("arrival_gate_a");
+	Gate.DestinationArrivalId = TEXT("arrival_from_frontier_gate_a");
+	Gate.DestinationArrivalFrame = TEXT("gate_relative");
+	Gate.DestinationArrivalLocalOffsetCm = FVector(0.0, 18000.0, 0.0);
+	Gate.DestinationArrivalRotation = FRotator(0.0, 180.0, 0.0);
 	Gate.NavigationTarget = MakeNavigationTarget(Gate.GateId, TEXT("Frontier Gate A"), TEXT("gate"));
 
 	FSpawnZoneDefinition SpawnZone;

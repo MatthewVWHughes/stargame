@@ -65,6 +65,9 @@ public:
 	bool SpawnPlayerAtSpawnZone(FName SpawnZoneId, APlayerController* PlayerController, TSubclassOf<APawn> PawnClass = nullptr);
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	APawn* GetActivePlayerPawn() const { return ActivePlayerPawn.Get(); }
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	FName GetActiveSystemId() const { return ActiveSystemDefinition.SystemId; }
 
 	const FStarSystemDefinition& GetActiveSystemDefinition() const { return ActiveSystemDefinition; }
@@ -77,6 +80,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	FString GetLastBuildError() const { return LastBuildError; }
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	FStargameValidationReport GetLastBuildValidationReport() const { return LastBuildValidationReport; }
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	void GetNavigationTargets(TArray<FNavigationTargetDefinition>& OutTargets) const;
@@ -161,6 +167,7 @@ public:
 
 private:
 	bool ValidateSystemForBuild(const FStarSystemDefinition& SystemDefinition, FString& OutError) const;
+	void AddBuildValidationIssue(FName Code, FName ObjectId, const FString& Message);
 	bool RegisterEntity(FName EntityId, FName EntityType, const FTransform& Transform, double VisualRadiusCm);
 	bool RegisterNavigationTarget(const FNavigationTargetDefinition& Target);
 	bool RegisterSpawnZone(const FSpawnZoneDefinition& SpawnZone);
@@ -199,6 +206,12 @@ private:
 
 	UPROPERTY()
 	TArray<TObjectPtr<AActor>> SpawnedSystemActors;
+
+	UPROPERTY()
+	TWeakObjectPtr<APawn> ActivePlayerPawn;
+
+	UPROPERTY()
+	FStargameValidationReport LastBuildValidationReport;
 
 	int32 ActiveBuildGeneration = 0;
 	bool bBuildComplete = false;

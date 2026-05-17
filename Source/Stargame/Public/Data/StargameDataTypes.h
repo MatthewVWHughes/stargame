@@ -64,6 +64,15 @@ enum class EStargameValidationSeverity : uint8
 };
 
 UENUM(BlueprintType)
+enum class EStargameValidationResultType : uint8
+{
+	Valid,
+	ValidWithWarnings,
+	Invalid,
+	ValidationFailed
+};
+
+UENUM(BlueprintType)
 enum class EStargameValidationProfile : uint8
 {
 	Editor,
@@ -75,11 +84,13 @@ enum class EStargameValidationProfile : uint8
 	M3,
 	M4,
 	M5,
+	M5_5,
 	M6,
 	M7,
 	M8,
 	M9,
 	M10,
+	M10_5,
 	M11,
 	M12Gameplay,
 	M12
@@ -173,19 +184,43 @@ struct STARGAME_API FStargameValidationIssue
 	EStargameValidationSeverity Severity = EStargameValidationSeverity::Info;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	FName Code;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
 	FName RuleId;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
 	FName ObjectId;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	FString ObjectPath;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	FName SystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	FName SourceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	FName ReferenceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	FString FieldPath;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
 	FString Message;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	FString SuggestedAction;
 };
 
 USTRUCT(BlueprintType)
 struct STARGAME_API FStargameValidationReport
 {
 	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	EStargameValidationResultType ResultType = EStargameValidationResultType::Valid;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
 	EStargameValidationProfile Profile = EStargameValidationProfile::Editor;
@@ -196,16 +231,88 @@ struct STARGAME_API FStargameValidationReport
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
 	TArray<FStargameValidationIssue> Issues;
 
-	bool HasBlockingIssues() const
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	int32 CheckedAssetCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	int32 CheckedSystemCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	int32 CheckedFixtureCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	int32 BlockingIssueCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Validation")
+	FString GeneratedAtUtc;
+
+	int32 CountBlockingIssues() const
 	{
+		int32 Count = 0;
 		for (const FStargameValidationIssue& Issue : Issues)
 		{
 			if (Issue.Severity == EStargameValidationSeverity::Error || Issue.Severity == EStargameValidationSeverity::Fatal)
+			{
+				++Count;
+			}
+		}
+		return Count;
+	}
+
+	bool HasWarnings() const
+	{
+		for (const FStargameValidationIssue& Issue : Issues)
+		{
+			if (Issue.Severity == EStargameValidationSeverity::Warning)
 			{
 				return true;
 			}
 		}
 		return false;
+	}
+
+	bool HasFatalIssues() const
+	{
+		for (const FStargameValidationIssue& Issue : Issues)
+		{
+			if (Issue.Severity == EStargameValidationSeverity::Fatal)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	EStargameValidationResultType ComputeResultType() const
+	{
+		if (HasFatalIssues())
+		{
+			return EStargameValidationResultType::ValidationFailed;
+		}
+		if (CountBlockingIssues() > 0)
+		{
+			return EStargameValidationResultType::Invalid;
+		}
+		if (HasWarnings())
+		{
+			return EStargameValidationResultType::ValidWithWarnings;
+		}
+		return EStargameValidationResultType::Valid;
+	}
+
+	void RefreshSummary()
+	{
+		BlockingIssueCount = CountBlockingIssues();
+		ResultType = ComputeResultType();
+		if (GeneratedAtUtc.IsEmpty())
+		{
+			GeneratedAtUtc = FDateTime::UtcNow().ToIso8601();
+		}
+	}
+
+	bool HasBlockingIssues() const
+	{
+		return CountBlockingIssues() > 0;
 	}
 };
 
@@ -459,6 +566,9 @@ struct STARGAME_API FShipSaveLocation
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
 	FName AnchorId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FName GateArrivalId;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save", meta = (Units = "cm"))
 	FVector PositionCm = FVector::ZeroVector;
@@ -1026,6 +1136,15 @@ struct STARGAME_API FGateDefinition
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
 	FName DestinationArrivalId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+	FName DestinationArrivalFrame = TEXT("gate_relative");
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System", meta = (Units = "cm"))
+	FVector DestinationArrivalLocalOffsetCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+	FRotator DestinationArrivalRotation = FRotator::ZeroRotator;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
 	FPrimaryAssetId GateProfileId;
@@ -3785,7 +3904,7 @@ struct STARGAME_API FStargameM0SaveState
 	int32 GameContentVersion = 1;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
-	FString BuildCompatibilityId = TEXT("m0");
+	FString BuildCompatibilityId = TEXT("foundation_m12");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
 	FName SystemId;

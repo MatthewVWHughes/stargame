@@ -411,9 +411,9 @@ If Behavior Trees or StateTree are used:
 
 MassEntity may be useful later for high-volume active-system updates. It is not required for the first implementation, and it should not replace the hard logical contracts above.
 
-## Implementation Plan
+## Implementation Shape
 
-This is not an M0 feature. It becomes valid only after system definitions, reference frames, supercruise, docking, and seeded system generation are already testable. The plan below is the required build order once space AI starts.
+Space AI becomes valid only after system definitions, reference frames, supercruise, docking, and seeded system generation are testable. The sections below describe the dependency order for building the AI stack.
 
 ### Phase AI-0: Query Foundation
 

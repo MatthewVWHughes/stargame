@@ -4,14 +4,14 @@
 
 These docs describe the Unreal-native game we are building.
 
-`docs/build-roadmap.md` owns milestone sequencing, including M0. `docs/implementation-plan-m0.md` owns the exact M0 implementation checklist and acceptance details. For M0 code work, read `docs/runtime-architecture.md` and `docs/cpp-blueprint-ownership.md` before fixture/data-contract implementation details so subsystem and Blueprint boundaries are clear up front.
+Start with `docs/README.md`. The active game contracts live in the domain docs: runtime architecture, system data contracts, frontier fixture, save/load, flight/docking, validation/tooling, AI, and systemic gameplay. `docs/build-roadmap.md` and `docs/implementation-plan-m0.md` are historical planning references; do not treat stale staging text there as more authoritative than the current domain contracts.
 
-Current roadmap sequencing includes M1 System Data Schemas And Registries, M5.5 Gate Transition And Arrival, M10.5 Combat, Damage, And Threat Contract, M11 Realized Space AI Slice, and M12 Playable Systemic Progression. M0 validator scope is limited here to the non-Sol startup fixture path; full validation tooling and profile mapping for M2-M8, M5.5, M10.5, and later gates remains owned by `docs/content-validation-and-tooling.md`.
+The current foundation is the authored frontier slice through the systemic progression foundation: non-Sol startup, system build, save/load, flight, supercruise, docking, gate arrival, generated-system support, logical traffic, systemic records, logical encounters, combat/threat records, realized AI hooks, and service-level progression. It is an engineering-playable foundation, not yet a complete player-facing vertical slice.
 
 | Doc | Status | Owns |
 | --- | --- | --- |
-| `docs/build-roadmap.md` | canonical | milestone order, milestone gates, acceptance tests, M0 validator scope |
-| `docs/implementation-plan-m0.md` | canonical | exact M0 startup, fixture, save, test, and cleanup scope |
+| `docs/build-roadmap.md` | historical planning | original staged build order, gates, and acceptance-test history |
+| `docs/implementation-plan-m0.md` | historical planning | original startup, fixture, save, test, and cleanup scope |
 | `docs/frontier-test-fixture.md` | canonical | first non-Sol fixture IDs, provisional scale values, validation content |
 | `docs/runtime-architecture.md` | canonical | subsystem ownership, catalog/route/discovery/start-selection ownership, active system lifecycle, registry rules |
 | `docs/system-data-contracts.md` | canonical | field-level C++ data contracts and stable IDs |

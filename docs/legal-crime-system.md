@@ -4,7 +4,7 @@ The legal/crime system should be a careful simulation layer, not a simple global
 
 It connects factions, policing, piracy, smuggling, mining rights, station access, comms, missions, reputation, and economy. It should be designed early enough that other systems can leave hooks for it, but not implemented before the core flight/system architecture is stable.
 
-This is a future-system architecture document. The offense, evidence, and response sections describe required data shapes and integration seams, not behavior that M0 or M1 should build.
+This is a future-system architecture document. The offense, evidence, and response sections describe required data shapes and integration seams, not behavior that the current foundation should build.
 
 ## Core Principle
 
@@ -35,7 +35,7 @@ Required data:
 - enforcement profile ID
 - station/system/zone references
 - priority
-- fallback/default jurisdiction behavior
+- explicit uncontrolled-jurisdiction behavior
 
 When jurisdictions overlap, resolution must be deterministic. Station-local jurisdiction should normally beat broad system jurisdiction; explicit patrol or restricted zones may override both if their priority says so. Debug output must show why a jurisdiction won.
 
@@ -447,11 +447,11 @@ If minor mistakes always create combat, players will stop experimenting. Warning
 
 Legal systems become frustrating if players and developers cannot understand why a response happened. Debug visibility is mandatory.
 
-## M0 Relevance
+## Foundation Relevance
 
-M0 does not implement crime.
+The current foundation does not implement crime.
 
-M0 should only avoid blocking it by preserving:
+The foundation should only avoid blocking it by preserving:
 
 - stable faction IDs later
 - station IDs

@@ -6,7 +6,7 @@ Use KSP as the main reference for planet presentation, not for flight physics.
 
 The problem to solve is visual scale and atmospheric transition, not orbital simulation. Many games already solve this with multiple planet representations rather than one object that works at every distance. The Unreal implementation should follow that established pattern.
 
-This document is not the canonical runtime architecture. It is the rendering/scale direction for planets and atmospheres. Canonical build scope is in `build-roadmap.md`, M0 execution is in `implementation-plan-m0.md`, and data contracts are in `system-data-contracts.md`.
+This document is not the canonical runtime architecture. It is the rendering/scale direction for planets and atmospheres. Current runtime scope belongs in `runtime-architecture.md`, current data contracts belong in `system-data-contracts.md`, and historical sequencing remains in `build-roadmap.md` and `implementation-plan-m0.md`.
 
 ## Implementation Rule
 
@@ -141,7 +141,7 @@ Eliminate these Godot shortcuts during implementation:
 - hard-coded combat spawn points
 - hard-coded NPC trade route/station lists
 - hard-coded system-map body entries
-- fallback-to-Sol behavior for unknown system IDs
+- substitution to Sol for unknown system IDs
 - node paths as gameplay identity
 - scene paths as the main data contract
 
@@ -503,6 +503,6 @@ Acceptance criteria should include horizon continuity, no one-frame representati
 
 ## Next Practical Step
 
-Do not rebuild planet rendering in M0. M0 uses crude body/station/gate placeholders to prove startup, fixture data, registries, targeting, and save/reload.
+Do not rebuild planet rendering as part of the current foundation. The active fixture uses crude body/station/gate placeholders to prove startup, fixture data, registries, targeting, and save/reload.
 
-Planet rendering resumes after the M0/M1 architecture can build a system from data. Then rebuild planet rendering as a deliberate scaled-space/near-space system, proving each representation separately before blending them.
+Planet rendering resumes after the architecture can build a system from data. Then rebuild planet rendering as a deliberate scaled-space/near-space system, proving each representation separately before blending them.

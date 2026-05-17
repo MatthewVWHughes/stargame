@@ -1,16 +1,12 @@
 # Content Validation And Tooling
 
-Content validation is the build gate for Stargame's authored game data.
+Content validation is the build gate for Stargame's authored and generated game data.
 
 The game depends on stable gameplay IDs, soft asset references, fixture data, generated runtime registries, and editor-created assets all agreeing before the player enters a system. Validation exists to catch broken data while it is still cheap to fix: duplicate IDs, missing references, invalid start profiles, broken fixture slices, assets outside Asset Manager scans, and MCP-created assets that look valid in the editor but cannot be built by the game.
 
-Validation is not a separate design tool. It is part of the game architecture. The same validation code must serve commandlets, editor utilities, automation tests, MCP workflows, and runtime development assertions.
+Validation is part of the game architecture. The same validation code serves commandlets, editor utilities, automation tests, MCP workflows, and runtime development assertions.
 
-## Core Contract
-
-Create one C++ validation module owned by Stargame code, not by a Blueprint utility or MCP wrapper.
-
-Required types:
+## Core Types
 
 `EStargameValidationSeverity`:
 
@@ -41,7 +37,7 @@ Required types:
 `FStargameValidationReport`:
 
 - `ResultType`
-- `Profile`: `Editor`, `Build`, `Cook`, `M0`, `M1`, `M2`, `M3`, `M4`, `M5`, `M5.5`, `M6`, `M7`, `M8`, `M9`, `M10`, `M10.5`, `M11`, `M12Gameplay`, `M12`, or `MCP`.
+- `Profile`: validation profile label such as `Editor`, `Build`, `Cook`, `Startup`, `AuthoredData`, `FlightTravel`, `TrafficAI`, `SystemicGameplay`, `LogicalEncounters`, `CombatThreat`, `RealizedAI`, `PlayableProgression`, or `MCP`.
 - `Issues`
 - `CheckedAssetCount`
 - `CheckedSystemCount`
@@ -61,47 +57,21 @@ Use a shared validator service with small domain-specific passes:
 - `FStarCatalogValidator` for catalog entries, Asset Manager coverage, primary asset IDs, discoverability metadata, and generated/authored source rules.
 - `FStargameFixtureValidator` for required test fixtures such as `frontier_test_01`.
 - `FStargameMcpAssetValidator` for assets created or modified through MCP before those assets are considered usable.
-- `FSystemicGameplayValidator` for M9 factions, jurisdictions, inventory, commodity/item bridges, markets, credit accounts, ledgers, services, comms, and mission lifecycle records.
-- `FLogicalEncounterValidator` for M10 logical encounters, route security snapshots, patrol reservations, interdiction hazards, distress, and idempotent event results.
-- `FRealizedAISliceValidator` for M11 fixture requirements that connect logical ships, comms hooks, encounters, and actor promotion/demotion budgets.
+- `FSystemicGameplayValidator` for factions, jurisdictions, inventory, commodity/item bridges, markets, credit accounts, ledgers, services, comms, and mission lifecycle records.
+- `FLogicalEncounterValidator` for logical encounters, route security snapshots, patrol reservations, interdiction hazards, distress, and idempotent event results.
+- `FRealizedAISliceValidator` for fixture requirements that connect logical ships, comms hooks, encounters, and actor promotion/demotion budgets.
 - `FGeneratedGameplayPassValidator` for generated markets, routes, jurisdictions, patrols, ambushes, factions, services, and mission seeds.
 - `FUnrealOwnershipValidator` for C++/Blueprint boundaries: canonical state must be native, mutators must go through approved C++ intent APIs, and Blueprint/StateTree/Behavior Tree assets must not own authoritative simulation writes.
 
 Every entry point must call these validators instead of duplicating rules.
 
-## Entry Points
+## Commandlet
 
-### Commandlet
-
-Add a commandlet for headless validation:
+Headless validation runs through the project commandlet:
 
 ```text
 UnrealEditor-Cmd Stargame.uproject -run=StargameValidateContent -ValidationProfile=Build
 ```
-
-Expected profiles:
-
-- `M0`: validate in-code fixture data, start profile, non-Sol startup contract, and exactly the M0 target slice.
-- `M1`: validate all primary data assets, Asset Manager scan coverage, references, registries, and `frontier_test_01` full authored system data.
-- `M2`: validate frame/location value types, deterministic orbit/frame definitions, local bubble scale values, map entries, and save locations without requiring playable supercruise or docking.
-- `M3`: validate normal-flight target selection, approach targets, HUD/debug target data, and local-bubble projection inputs.
-- `M4`: validate supercruise mode data, speed/dropout/lockout values, gravity-well definitions, and the distant fixture travel leg.
-- `M5`: validate docking-port definitions, moving-frame docking fixtures, docking save fields, and docked restore references.
-- `M5.5`: validate gate transition readiness, including `frontier_gate_a` destination system, arrival ID, catalog route edge, destination arrival system slice, and arrival transform rule.
-- `M6`: validate generated physical system definitions only: stars, bodies, orbits, stations, gates, gravity wells, resource zones, spawn zones, map metadata, and generated source metadata.
-- `M7`: validate AI route sampling inputs, moving endpoint prediction data, route segment stubs, and opaque jurisdiction/risk metadata without interpreting M9 legal/security semantics.
-- `M8`: validate logical traffic goal state, route progress, group state, promotion/demotion harness data, and reserved non-trade goal serialization without requiring autonomous patrol/pirate/flee/fight decisions.
-- `M9`: validate systemic gameplay foundations: event envelope, faction/legal records, inventory/cargo, commodity/item bridges, market transactions, credit ledger/escrow, station services, comms, and mission lifecycle hooks.
-- `M10`: validate logical encounter readiness: route security, patrol reservations, encounter events, interdiction hazards, distress, abstract engagement, legal/economy/cargo outcomes, and idempotent result records.
-- `M10.5`: validate combat, damage, durability, threat, and abstract attack-intent contracts for logical and realized combatants.
-- `M11`: validate realized AI slice readiness: required moving endpoints, route, trader/patrol/pirate groups, distress/interdiction fixtures, low actor cap, comms hooks, and logical-to-actor promotion contracts.
-- `M12Gameplay`: validate generated or authored gameplay pass data for markets, routes, jurisdictions, patrols, ambushes, factions, services, and missions.
-- `M12`: run `M12Gameplay` validation, then require the named M12 automation/PIE scenario tests for progression, services, illegal rejection, encounter outcome, save/reload, idempotency, and debug trace.
-- `Build`: run the strict profile required by CI and packaged builds.
-- `Cook`: same as `Build`, plus any cook-only asset reachability checks.
-- `MCP`: validate only the assets touched in the current MCP operation plus any owning system assets they reference.
-
-The commandlet exits non-zero if `ResultType` is `Invalid` or `ValidationFailed`, or if policy promotes warnings to blocking for the selected profile.
 
 Required commandlet options:
 
@@ -111,11 +81,30 @@ Required commandlet options:
 - `-JsonReport=<path>` for CI/MCP report capture.
 - `-FailOnWarnings` for release/cook hardening.
 
-If the C++ implementation uses enum-safe names, map `M5_5` to the external profile string `M5.5` and `M10_5` to `M10.5`. Logs, JSON reports, docs, and commandlet examples should use the dotted milestone names.
+Current profile labels:
 
-### Editor Utility
+| Profile | Purpose |
+| --- | --- |
+| `Editor` | Warning-friendly authoring pass for selected assets or the current system. |
+| `Startup` | Non-Sol start profile, source system, spawn zone, required HUD targets, and basic save/reload fields. |
+| `AuthoredData` | Primary asset discovery, catalog entries, references, ship archetypes, registries, build/teardown/rebuild. |
+| `FlightTravel` | Frames, scale, map entries, normal-flight approach, supercruise data, docking ports, gate transition, and pending arrival state. |
+| `GeneratedPhysicalSystem` | Generated physical systems: stars, bodies, orbits, stations, gates, gravity wells, resource zones, spawn zones, map metadata, and source metadata. |
+| `TrafficAI` | Route sampling, moving endpoint prediction, logical traffic, group state, promotion/demotion, and reserved goal serialization. |
+| `SystemicGameplay` | Factions, jurisdictions, legal records, inventory/cargo, commodity bridges, markets, credit ledger, escrow, services, comms, and mission hooks. |
+| `LogicalEncounters` | Route security, patrol reservations, interdiction, distress, abstract engagement, legal/economy/cargo outcomes, and idempotent result records. |
+| `CombatThreat` | Combatant IDs, damage events, durability state, threat records, and abstract attack intent. |
+| `RealizedAI` | Logical-to-actor promotion contracts, low actor cap, comms hooks, damage/threat writeback, and demotion snapshots. |
+| `PlayableProgression` | Runnable progression scenarios using validated gameplay data: services, trade, illegal rejection, encounter outcome, save/reload, idempotency, and debug trace. |
+| `Build` | Strict active-foundation gate required by CI and packaged builds. |
+| `Cook` | `Build` plus cook-only asset reachability checks. |
+| `MCP` | Targeted checks for assets touched in the current MCP operation plus owning system/catalog/start-profile references. |
 
-Add an editor utility entry point for designers and content authors. It can be an Editor Utility Widget, toolbar command, or content browser action, but it must call the same validator service.
+The commandlet exits non-zero if `ResultType` is `Invalid` or `ValidationFailed`, or if policy promotes warnings to blocking for the selected profile.
+
+## Editor Utility
+
+Editor utilities may be widgets, toolbar commands, or content browser actions, but they must call the same validator service as the commandlet.
 
 Required actions:
 
@@ -127,21 +116,21 @@ Required actions:
 
 Editor validation may show warnings without blocking saves, but it must clearly mark errors as build-blocking.
 
-### Automation Tests
+## Automation Tests
 
-Automation tests should assert the core rules directly so validation remains stable as tooling changes.
+Automation tests assert the core rules directly so validation remains stable as tooling changes.
 
 Required tests:
 
-- duplicate entity IDs produce `Error` and include both object paths or owning field paths.
+- duplicate entity IDs produce `Error` and include every owning field path.
 - duplicate navigation target IDs produce `Error`.
 - unresolved start profile `SystemId` produces `Error`.
 - unresolved `SpawnZoneId` produces `Error`.
-- unresolved station, gate, body, map entry, and profile references produce `Error` once those fields are required by milestone scope.
-- `frontier_test_01` passes the active M0/M1 fixture profile.
-- no M0 startup validation path falls back to Sol or Sol body names.
+- unresolved station, gate, body, map entry, and profile references produce `Error` when those fields are required by the selected validation profile.
+- `frontier_test_01` passes the active fixture profile.
+- no startup validation path substitutes Sol or Sol body names.
 
-### Runtime Development Guard
+## Runtime Development Guard
 
 Runtime system build must refuse invalid data in development builds. `UStarSystemSubsystem::BuildSystem` should accept only a validated definition or run the strict system-level validator before spawning actors.
 
@@ -149,18 +138,18 @@ For development builds:
 
 - validation errors stop the system build before actor spawn.
 - the last validation report is exposed through debug output.
-- a failed build returns a typed failure result, not a silent fallback.
+- a failed build returns a typed failure result, not a silent substitution.
 
 For shipping builds:
 
 - authored content should already be validated by commandlet/CI.
-- runtime should still reject impossible or corrupt data and show a controlled failure path.
+- runtime still rejects impossible or corrupt data and shows a controlled failure path.
 
 ## Asset Manager Scan Validation
 
-M1 data assets must be discoverable by Unreal's Asset Manager. Validation must confirm the project scan settings cover every required primary asset type and package path.
+Primary data assets must be discoverable by Unreal's Asset Manager. Validation confirms the project scan settings cover every required primary asset type and package path.
 
-Required checks:
+Required primary asset types:
 
 - `UStarCatalogAsset`
 - `UStartProfileAsset`
@@ -171,7 +160,7 @@ Required checks:
 - `UGateProfileAsset`
 - `UShipArchetypeDataAsset`
 
-For `UShipArchetypeDataAsset`, M1 validation checks only the minimal spawn/identity contract: archetype ID, ship class tags, pawn/actor class reference, movement profile ID, cargo capacity fields, durability profile, loadout/resource profile, and docking size class. Equipment progression, ship purchase, outfitting, and detailed service availability are not M1 validation concerns.
+For `UShipArchetypeDataAsset`, validation checks the spawn/identity contract: archetype ID, ship class tags, pawn/actor class reference, movement profile ID, cargo capacity fields, durability profile, loadout/resource profile, and docking size class. Equipment progression, ship purchase, outfitting, and detailed service availability are validated by the relevant service/progression profiles.
 
 For each primary asset:
 
@@ -182,34 +171,23 @@ For each primary asset:
 - soft object/class references resolve when required by the selected validation profile.
 - hard references are rejected unless the field explicitly allows always-loaded default assets or test-only placeholders.
 
-Asset Manager scan failure is an `Error` in `Build`, `Cook`, and `M1`; it may be a `Warning` in `Editor` only while an asset is still being authored and is not referenced by an active system.
+Asset Manager scan failure is an `Error` in `Build`, `Cook`, and `AuthoredData`; it may be a `Warning` in `Editor` only while an asset is still being authored and is not referenced by an active system.
 
-## Profile Scope Matrix
+## Active Build Scope
 
-Validation profiles are cumulative only where a later milestone consumes an earlier contract. They must not pull later-system semantics backward into earlier profiles.
+`Build` validates the current active foundation:
 
-| Profile | Required scope | Explicitly out of scope |
-| --- | --- | --- |
-| `M0` | start-profile resolution, non-Sol boot, M0 fixture slice, target IDs, M0 save/reload fields | authored Asset Manager coverage, docking, supercruise, gate transition |
-| `M1` | native schemas, empty/optional later-system containers, primary asset discovery, unique IDs, references required by M1, active registries, build/teardown/rebuild | playable docking, gravity behavior, supercruise behavior, gate transition, AI route semantics, systemic gameplay semantics |
-| `M2` | coordinate frames, scale values, deterministic orbit/frame evaluation, map entries, logical save location | normal-flight acceptance, supercruise mode, docking |
-| `M3` | normal-flight target/approach data and HUD/debug view-model references | supercruise, docking, gate transition |
-| `M4` | supercruise speed/dropout/lockout/gravity-well data and distant-leg fixture checks | docking, gate transition |
-| `M5` | docking port definitions, moving-frame docking data, docking save/restore references | gate transition |
-| `M5.5` | source gate registration, destination system/arrival/catalog route edge, arrival transform rule, pending-arrival save state | generated systems, AI route/security, systemic gameplay |
-| `M6` | generated physical system definitions and generated source metadata | traffic, patrol, pirate, economy, encounters |
-| `M7` | moving endpoint prediction, route samples, route segment IDs, opaque jurisdiction/risk/security stub fields | legal authority, faction ownership, patrol risk, pirate risk, enforcement outcomes |
-| `M8` | logical trader route progress, group state, promotion/demotion harness, reserved goal serialization | autonomous patrol/pirate/flee/fight decisions and encounter resolution |
-| `M9` | systemic event, faction, jurisdiction, legal, inventory, market, services, comms, mission hooks | logical encounter resolution and actor realization |
-| `M10` | zero-actor logical encounters, route security, patrol reservation, interdiction, distress, abstract engagement, idempotent outcomes | requiring spawned actors to complete an encounter |
-| `M10.5` | combatant IDs, damage events, durability, threat records, abstract weapon/attack intent | actor steering and full realized AI slice |
-| `M11` | realized actor promotion/demotion attached to logical records, low actor cap, comms hooks, damage/threat writeback | repeatable player progression loop |
-| `M12Gameplay` | generated/authored gameplay pass data for markets, routes, jurisdictions, patrols, ambushes, factions, services, missions | scenario execution |
-| `M12` | runnable progression scenarios using validated M12 gameplay data | station interiors and mature economy balancing |
+- start profile `frontier_test_start`.
+- source system `frontier_test_01`.
+- destination arrival system `frontier_arrival_test_01`.
+- primary asset discovery for catalog, start profile, systems, visual/profile assets, and ship archetype/profile assets.
+- unique gameplay IDs across the namespaces listed below.
+- source system registries, navigation targets, map entries, frames, spawn zones, gravity wells, docking ports, gates, route segments, traffic, systemic records, encounters, combat/threat records, realized AI hooks, and progression data.
+- `frontier_gate_a` destination system, destination gate, destination arrival, catalog route edge, and gate-relative arrival transform.
+- generated physical-system definitions and generated source metadata.
+- generated/authored gameplay pass records for markets, routes, jurisdictions, patrols, ambushes, factions, services, and missions where referenced by the active foundation.
 
-`Build` maps to the strictest profile required by the current branch target plus all earlier consumed profiles. Before M5.5 lands, `Build` must not fail because `frontier_gate_a` destination fields are unset. Once M5.5 is active, `Build` includes `M5.5` and those fields become blocking.
-
-`Cook` maps to `Build` plus cook-only asset reachability checks. `Editor` may run any profile in warning-friendly mode, but selected active fixture profiles still treat errors as blocking. `MCP` runs targeted checks for touched assets plus the owning profile of any referenced system or fixture.
+`Cook` maps to `Build` plus cook-only asset reachability checks. `Editor` may run any profile in warning-friendly mode, but active fixture errors remain blocking. `MCP` runs targeted checks for touched assets plus owning system/catalog/start-profile references.
 
 ## Duplicate ID Rules
 
@@ -228,6 +206,9 @@ Required namespaces:
 - map entry IDs within a system
 - gravity well IDs within a system
 - resource zone IDs within a system
+- route segment IDs within a system
+- logical ship IDs within a system
+- ship group IDs within a system
 - faction IDs
 - faction operational state IDs by faction/system/zone
 - faction relationship IDs
@@ -270,8 +251,11 @@ Required namespaces:
 - interdiction hazard IDs
 - distress event IDs
 - logical engagement IDs
+- combatant IDs
+- damage event IDs
+- threat record IDs
 
-Report format for duplicate IDs:
+Duplicate ID issue format:
 
 - code: `SGV_DUPLICATE_ID`
 - severity: `Error`
@@ -279,7 +263,7 @@ Report format for duplicate IDs:
 - field path: namespace and field where the duplicate was found
 - message: name the namespace and every owner that claims the ID
 
-For M0, the validator must reject duplicate IDs across `ember`, `brink_watch`, `frontier_gate_a`, `spawn_deep_space`, and their navigation targets. `TargetId == source object ID` is required for M0 targets.
+The startup fixture must reject duplicate IDs across `ember`, `brink_watch`, `frontier_gate_a`, `spawn_deep_space`, and their navigation targets. `TargetId == source object ID` is required for visible startup targets.
 
 ## Unresolved References
 
@@ -291,29 +275,28 @@ Examples:
 - start profile `SpawnZoneId` resolves inside that system.
 - station/gate/body `AnchorId` resolves when set.
 - navigation target `AnchorId` resolves when set.
-- gate destination fields resolve once transition validation is enabled.
-- visual/profile primary asset references resolve once profile assets are required.
+- gate destination fields resolve when transition validation is active.
+- visual/profile primary asset references resolve when profile assets are required.
 - map entries reference valid target IDs.
 - docking ports belong to a valid station.
+- systemic gameplay records resolve their referenced factions, jurisdictions, accounts, markets, services, comms endpoints, missions, legal records, and generated records.
 
-Report format for unresolved references:
+Unresolved reference issue format:
 
 - code: `SGV_UNRESOLVED_REFERENCE`
 - severity: `Error` when the field is required by the selected profile.
 - source ID: owner ID.
 - reference ID: missing ID or primary asset ID.
 - field path: exact referencing field.
-- suggested action: create the referenced object, clear an optional field, or move the content to a later profile.
+- suggested action: create the referenced object, clear an optional field, or move the content out of an active validation profile.
 
 Optional references may be unset. Optional references that are set but invalid are still errors unless a profile explicitly allows work-in-progress warnings.
 
-For M1, empty arrays and unset optional fields for later systems are valid only when the profile marks those systems inactive. For example, an empty `DockingPorts` array is valid for a station until M5, unset gate destination fields are valid until M5.5, route risk IDs are opaque until M9, and combat/threat fields are absent until M10.5. Once a later profile activates a field, unset or malformed data becomes an unresolved-reference or missing-required-field error.
-
 ## Systemic Reference Validation
 
-M9 and later profiles must validate cross-system gameplay references before logical encounters or station services can execute.
+Systemic gameplay validation checks cross-system gameplay references before logical encounters or station services can execute.
 
-Required M9 checks:
+Required checks:
 
 - every `FSimulationEventRecord` result references one canonical event and idempotency key.
 - every transaction-scoped gameplay mutation has one `FGameplayTransactionRecord`.
@@ -332,7 +315,9 @@ Required M9 checks:
 - every mission offer/instance/objective/reward/cargo flag references valid station/service/faction/container/legal/comms records for its active lifecycle state.
 - every faction operational state references a valid faction and a valid system or zone when scoped.
 
-Required M10 checks:
+## Encounter, Combat, And Realization Validation
+
+Logical encounter validation runs without requiring spawned actors:
 
 - every route security snapshot references valid route segments and time windows.
 - every patrol reservation references real patrol assets, jurisdiction, faction operational state, and expiry/cooldown policy.
@@ -341,24 +326,22 @@ Required M10 checks:
 - every distress event references source, threat, location, responding patrol assets when assigned, and generated messages.
 - every abstract engagement output references cargo transfer, market transaction, offense/evidence, criminal record, faction reputation, and message IDs where those effects occurred.
 - processed watermarks prevent the same encounter/event outcome from applying twice.
+- completing a logical encounter must not require an actor pointer, actor transform, or promoted actor lifecycle.
 
-M10 checks must execute without spawned actors. Promotion metadata may be validated only to prove that a later realized actor can attach to an existing logical encounter/event record; M10 must fail if completing the encounter requires an actor pointer, actor transform, or promoted actor lifecycle.
-
-Required M10.5 checks:
+Combat/threat validation checks:
 
 - every damage event has a stable event ID, source combatant ID, target combatant ID, damage type, amount, authority timestamp, and idempotency key.
-- every combatant ID resolves to a player, logical NPC, or realized actor mapping allowed by the selected test.
+- every combatant ID resolves to a player, logical NPC, or realized actor mapping allowed by the selected validation profile.
 - durability state can represent shields, hull, disabled, destroyed, surrendered, and escaped outcomes without actor-owned canonical state.
 - threat records are keyed by attacker/defender IDs and include last-known frame, severity, confidence, and expiry.
 - abstract attack intent records can be consumed by both logical and realized combat without inventing a second health or threat model.
 - repeated damage event IDs do not apply twice after save/load.
 
-Required M11 checks:
+Realized AI validation checks:
 
 - the fixture contains one fast-orbiting station endpoint and one nested-moon endpoint.
 - the fixture contains one valuable moving route with route security/risk state and gravity lockout interaction.
 - required trader, patrol, and pirate logical ships/groups have valid goals, route segments, factions, cargo summaries, and promotion eligibility.
-- the fixture resolves the named M10/M11 IDs from `frontier-test-fixture.md`: three trader ships, trader group, patrol group, pirate group, distress event, interdiction hazard, low actor budget profile, and message definitions.
 - distress, scan, pirate demand, flee/surrender, and interdiction comms hooks resolve to message/conversation definitions.
 - actor cap and promotion priority are configured low enough to prove budget behavior.
 - realized actors can map back to logical ship IDs, group IDs, goal state, target/threat IDs, and demotion snapshots.
@@ -368,7 +351,7 @@ Required M11 checks:
 
 The generated gameplay pass is valid only when it emits the same contracts authored content would emit.
 
-`M12Gameplay` must validate:
+Validation checks:
 
 - markets: each station with trade service has market profile, stock, price policy, account, access policy, and commodity/item bridge coverage.
 - routes: each gameplay route has stable route/segment IDs, moving endpoint anchors, tier/value/security metadata, and eligible cargo/service links.
@@ -380,29 +363,24 @@ The generated gameplay pass is valid only when it emits the same contracts autho
 - missions: each generated mission pool resolves source service, issuer faction, objective target pools, reward policy, legal exception policy, and turn-in endpoint.
 - graph completeness: at least one generated/authored loop connects route, market/service endpoint, cargo or mission objective, account/ledger records, legal context, faction/reputation outcome, message hooks, and save/load result records.
 
-Generated output must also declare source metadata: generated seed, generator version, source system ID, generation profile, and authored override IDs. Validation must reject generated gameplay data that depends on array order, actor names, or editor-only object state.
+Generated output must also declare source metadata: generated seed, generator version, source system ID, generation profile, and authored override IDs. Validation rejects generated gameplay data that depends on array order, actor names, or editor-only object state.
 
 ## Fixture Validation
 
-Fixtures are not informal examples. They are buildable test content.
+Fixtures are buildable test content, not informal examples.
 
-`frontier_test_01` is the required architecture fixture. The fixture validator must check the active profile:
-
-M0 profile:
+`frontier_test_01` is the required architecture fixture. The fixture validator checks:
 
 - start profile `frontier_test_start` exists.
 - `frontier_test_start.SystemId == frontier_test_01`.
 - `frontier_test_start.SpawnZoneId == spawn_deep_space`.
 - no Sol, Earth, Mars, or Luna startup dependency is required.
-- system contains exactly one M0 body target: `ember`.
-- system contains exactly one M0 station target: `brink_watch`.
-- system contains exactly one M0 gate target: `frontier_gate_a`.
+- startup system contains the required body target: `ember`.
+- startup system contains the required station target: `brink_watch`.
+- startup system contains the required gate target: `frontier_gate_a`.
 - exactly three navigation targets satisfy `bShowInHud && bCanTarget`.
-- `frontier_gate_a` destination references are unset.
+- `frontier_gate_a` resolves its authored destination system, gate, arrival marker, and arrival transform under active build validation.
 - player spawn zone transform is valid and comes from fixture data.
-
-M1 profile:
-
 - all authored primary data assets for `frontier_test_01` are discoverable through Asset Manager.
 - all system entities have unique IDs.
 - all required references resolve.
@@ -411,7 +389,7 @@ M1 profile:
 - registry build, teardown, and rebuild can run without stale entries.
 - debug/map/navigation lists are sourced from registry data, not actor names.
 
-M5.5 profile:
+Gate transition and arrival validation checks:
 
 - `frontier_gate_a.DestinationSystemId == frontier_arrival_test_01`.
 - `frontier_gate_a.DestinationArrivalId == arrival_from_frontier_gate_a`.
@@ -421,19 +399,19 @@ M5.5 profile:
 - arrival transform is resolved from the destination gate frame and configured local offset/rotation.
 - invalid destination or arrival IDs block transition and leave the active system unchanged.
 
-M7/M8 fixture profiles:
+AI route and logical traffic validation checks:
 
 - route segment `m7_brink_watch_wayfarer_trade` resolves moving endpoints and gravity-well exclusion IDs.
-- `JurisdictionId`, `SecurityRating`, and `RiskProfileId` are present where the route fixture requires them, but are treated as opaque/stub metadata until M9.
-- M8 reserved patrol, pirate, flee, and fight goal records serialize and reject autonomous execution until M9/M10 inputs are available.
+- `JurisdictionId`, `SecurityRating`, and `RiskProfileId` are present where the route fixture requires them.
+- reserved patrol, pirate, flee, and fight goal records serialize and reject autonomous execution unless their required systemic and encounter inputs are present.
 
-Fixture validation should run before acceptance tests that spawn actors. If fixture data is invalid, actor-spawn tests should fail fast with the validation report.
+Fixture validation should run before acceptance tests that spawn actors. If fixture data is invalid, actor-spawn tests fail fast with the validation report.
 
 ## MCP-Created Asset Validation
 
 MCP may create or modify assets, but MCP is not a source of truth. MCP output must pass the same validator as manually authored content before the asset is considered usable by the game.
 
-Ownership validation must run for MCP and milestone profiles:
+Ownership validation must run for MCP and validation profiles:
 
 - Blueprint assets may call approved intent/query APIs, but must not expose direct authoritative mutators for credits, inventory, cargo, legal state, faction state, ship location, route progress, docking state, combat state, or transaction commit state.
 - `BlueprintCallable` functions that mutate canonical state must be explicitly allowlisted and route through a C++ subsystem command with validation, result records, and debug output.
@@ -470,7 +448,7 @@ Always fail build:
 Warn in editor, fail when promoted by profile:
 
 - optional content fields left unset.
-- placeholder visual/profile assets used outside M0.
+- placeholder visual/profile assets used outside the startup fixture.
 - asset path is valid but outside the preferred folder convention.
 - display names missing where gameplay IDs are still valid.
 - map/debug visibility omitted for content not used by the current profile.
@@ -481,76 +459,39 @@ Info only:
 - skipped optional references.
 - profile-specific checks that are not active.
 
-`Build`, `Cook`, `M0`, `M1`, `M2`, `M3`, `M4`, `M5`, `M5.5`, `M6`, `M7`, `M8`, and `M10.5` should treat all `Error` and `Fatal` issues as blocking. `Build` and `Cook` may use `-FailOnWarnings` once content stabilizes.
+`Build`, `Cook`, and all strict validation profiles treat all `Error` and `Fatal` issues as blocking. Warnings may remain non-blocking only for inactive authored content that is not referenced by the selected profile, fixture, or generated gameplay pass.
 
-`M9`, `M10`, `M11`, `M12Gameplay`, and `M12` also treat all `Error` and `Fatal` issues as blocking. Warnings may remain non-blocking only for inactive authored content that is not referenced by the selected profile, fixture, or generated gameplay pass.
+## Developer Workflows
 
-## M0 Workflow
+Startup fixture workflow:
 
-M0 validation proves the non-Sol playable slice before richer data assets exist.
-
-Expected developer loop:
-
-1. Edit C++ fixture/provider data for `frontier_test_start` and `frontier_test_01`.
-2. Run `StargameValidateContent -ValidationProfile=M0`.
-3. Fix duplicate IDs, unresolved references, or incorrect target counts before opening PIE acceptance tests.
-4. Run M0 automation tests.
+1. Edit fixture/provider data or authored assets for `frontier_test_start`, `frontier_test_01`, and `frontier_arrival_test_01`.
+2. Run `StargameValidateContent -ValidationProfile=Startup` for the narrow startup fixture or `-ValidationProfile=Build` for the full active foundation.
+3. Fix duplicate IDs, unresolved references, incorrect target counts, or missing gate-arrival data before opening PIE acceptance tests.
+4. Run startup automation tests.
 5. Start PIE only after validation passes.
 6. Confirm debug output exposes the selected start profile, current system ID, spawn zone, registered entities, navigation targets, and last validation report.
 
-M0 may validate in-code fixture data directly. It must still produce `FStargameValidationReport` so the path can be reused by M1 asset validation.
-
-## M1 Workflow
-
-M1 validation proves authored data assets and registries.
-
-Expected developer loop:
+Authored data workflow:
 
 1. Add or edit primary data assets for catalog, start profiles, systems, visual profiles, stations, gates, and ship archetypes.
 2. Confirm Asset Manager scan settings include the new primary asset types and content roots.
 3. Run selected-asset validation from the editor while authoring.
-4. Run `StargameValidateContent -ValidationProfile=M1 -SystemId=frontier_test_01`.
-5. Run all Stargame content validation automation tests.
+4. Run `StargameValidateContent -ValidationProfile=AuthoredData -SystemId=frontier_test_01` for asset/registry scope or `-ValidationProfile=Build` for the full active foundation.
+5. Run Stargame content validation automation tests.
 6. Run build/teardown/rebuild registry tests.
-7. Commit only content that passes the M1 profile or is not referenced by active build profiles.
+7. Commit only content that passes the relevant validation scope or is not referenced by active build profiles.
 
-M1 is complete only when `frontier_test_01` can be discovered through Asset Manager, validated without blocking issues, built into runtime registries, torn down, rebuilt, and inspected through debug/MCP output without relying on actor names or editor-only state.
+Systemic and AI workflow:
 
-## M9-M11 Workflow
+1. Add or edit faction, jurisdiction, inventory, commodity, market, account, service, comms, mission, route security, patrol, logical encounter, interdiction, distress, and combat/threat records.
+2. Run the matching strict validation profile or `Build`.
+3. Fix missing canonical event links, missing patrol assets, invalid legal/economy/cargo outcome references, duplicate processed watermarks, invalid comms hooks, actor budget profile issues, promotion/demotion snapshot issues, route anchor issues, or pending-event state issues.
+4. Run the relevant systemic, logical encounter, combat/threat, and realized AI automation tests.
 
-M9 validation proves non-actor systemic gameplay contracts before logical encounters consume them.
+Playable progression workflow:
 
-Expected M9 loop:
-
-1. add or edit faction, jurisdiction, inventory, commodity, market, account, service, comms, and mission hook records.
-2. run `StargameValidateContent -ValidationProfile=M9`.
-3. fix duplicate IDs, unresolved references, missing commodity/item bridges, missing ledger paths, or invalid service endpoints.
-4. run systemic automation tests for event idempotency, NPC offense records, cargo transfer, market transaction, service lookup, and debug reasons.
-
-M10 validation proves logical encounters can resolve without actors.
-
-Expected M10 loop:
-
-1. add route security, patrol reservation, logical encounter, interdiction, distress, and abstract engagement records.
-2. run `StargameValidateContent -ValidationProfile=M10`.
-3. fix missing canonical event links, missing patrol assets, invalid legal/economy/cargo outcome references, or duplicate processed watermarks.
-4. run logical encounter tests across save/load and player-arrival promotion boundaries.
-
-M11 validation proves the first realized AI slice can attach actors to existing logical state.
-
-Expected M11 loop:
-
-1. prepare the fast-station, nested-moon, valuable-route, trader, patrol, pirate, distress, and interdiction fixture data.
-2. run `StargameValidateContent -ValidationProfile=M11`.
-3. fix invalid comms hooks, actor budget profile, promotion/demotion snapshots, route anchors, or pending-event state.
-4. run realized AI acceptance tests with low actor cap and save/reload during interdiction.
-
-M12 gameplay validation proves generated or authored systemic content can support the first repeatable loop.
-
-Expected M12 loop:
-
-1. generate or author gameplay pass data for markets, routes, jurisdictions, patrols, ambushes, factions, services, and missions.
-2. run `StargameValidateContent -ValidationProfile=M12Gameplay -SystemId=<id>`.
-3. fix unresolved endpoint, bridge, jurisdiction, patrol, mission, ledger, escrow, and route-security references.
-4. run `StargameValidateContent -ValidationProfile=M12 -SystemId=<id>` or the equivalent automation test set.
-5. run `M12_TradeRouteGateRoundTrip`, `M12_ServiceTransaction`, `M12_IllegalCargoRejected`, `M12_PirateDistressPatrolOutcome`, `M12_SaveReloadProgression`, `M12_IdempotentCompletion`, and `M12_DebugProgressionTrace` without special-case fixture code.
+1. Generate or author gameplay pass data for markets, routes, jurisdictions, patrols, ambushes, factions, services, and missions.
+2. Run `StargameValidateContent -ValidationProfile=PlayableProgression -SystemId=<id>`.
+3. Fix unresolved endpoint, bridge, jurisdiction, patrol, mission, ledger, escrow, and route-security references.
+4. Run service, trade, illegal-cargo, encounter-outcome, save/reload, idempotency, and debug-trace automation tests without special-case fixture code.

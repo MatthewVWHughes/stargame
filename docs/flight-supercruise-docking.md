@@ -28,7 +28,6 @@ Coordinate frames:
 - `body_relative`
 - `station_relative`
 - `gate_relative`
-- `local_free_flight`
 
 Location modes:
 
@@ -112,7 +111,7 @@ These values are tuning. They must live in data/profile settings, not scattered 
 
 ## Frame-Resolved Transform
 
-`FFrameResolvedTransform` is an M2 contract, not an AI-only contract.
+`FFrameResolvedTransform` is a shared runtime contract, not an AI-only contract.
 
 Required fields:
 
@@ -418,7 +417,7 @@ Save free flight:
 - dominant frame anchor
 - frame inheritance flag
 - flight mode
-- bubble origin metadata if using `local_free_flight`
+- bubble origin metadata for actor-space projection only; saved free-flight location remains `system_barycentric`
 
 Save docked:
 
@@ -435,7 +434,7 @@ Load order follows `save-load-and-versioning.md`.
 
 Port occupancy remains station/system runtime state. The player ship's save location references the port and operation ID, then load validates it against `FDockingPortRuntimeState`. If catch-up changes an NPC reservation before load realizes the player, the player docked occupancy has priority only when the saved port state already names that player ship as occupying the port; otherwise the conflict is a validation failure or explicit content/save upgrade case.
 
-For `local_free_flight`, saved bubble origin is a restore hint, not the authoritative location. Load validates the saved origin against authoritative simulation time and the ship's logical frame. If the saved origin is stale, outside the configured bubble radius, or references a missing anchor, the system recomputes a fresh bubble origin around the restored logical ship position before actor projection.
+Saved bubble origin is a restore hint, not the authoritative location. Load validates any saved projection hint against authoritative simulation time and the ship's logical frame. If the hint is stale, outside the configured bubble radius, or references a missing anchor, the system recomputes a fresh bubble origin around the restored logical ship position before actor projection.
 
 ## Debug Requirements
 

@@ -17,7 +17,7 @@ public:
 	void BuildNativeFixtureCache();
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Catalog")
-	bool BuildAssetCatalogCache(bool bAllowNativeFallback = true);
+	bool BuildAssetCatalogCache();
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
 	bool IsUsingAssetCatalog() const { return bUsingAssetCatalog; }
@@ -47,6 +47,9 @@ public:
 	FStargameValidationReport ValidateM5Fixture(FName SystemId) const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
+	FStargameValidationReport ValidateM5_5Fixture(FName SystemId) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
 	FStargameValidationReport ValidateM7Fixture(FName SystemId) const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
@@ -57,6 +60,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
 	FStargameValidationReport ValidateM10Fixture(FName SystemId) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
+	FStargameValidationReport ValidateM10_5Fixture(FName SystemId) const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
 	FStargameValidationReport ValidateM11Fixture(FName SystemId) const;
@@ -74,6 +80,9 @@ public:
 	bool GenerateSeededPhysicalSystem(int32 Seed, FStarSystemDefinition& OutSystemDefinition) const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
+	bool ResolveRouteGraphEdge(FName RouteEdgeId, FRouteGraphEdge& OutRouteEdge) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
 	void GetKnownSystemIds(TArray<FName>& OutSystemIds) const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
@@ -88,11 +97,13 @@ private:
 	bool ValidateM3SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
 	bool ValidateM4SystemDefinition(const FStarSystemDefinition& SystemDefinition, const FStartProfileDefinition& StartProfile, FStargameValidationReport& Report) const;
 	bool ValidateM5SystemDefinition(const FStarSystemDefinition& SystemDefinition, const FStartProfileDefinition& StartProfile, FStargameValidationReport& Report) const;
+	bool ValidateM5_5SystemDefinition(const FStarSystemDefinition& SourceSystemDefinition, const FStarSystemDefinition& DestinationSystemDefinition, FStargameValidationReport& Report) const;
 	bool ValidateM6SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
 	bool ValidateM7SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
 	bool ValidateM8SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
 	bool ValidateM9SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
 	bool ValidateM10SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
+	bool ValidateM10_5SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
 	bool ValidateM11SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
 	bool ValidateM12GameplaySystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
 	bool ValidateM12ScenarioSystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
@@ -101,6 +112,9 @@ private:
 
 	UPROPERTY()
 	TArray<FStarCatalogEntry> CatalogEntries;
+
+	UPROPERTY()
+	TArray<FRouteGraphEdge> RouteGraphEdges;
 
 	UPROPERTY()
 	TMap<FName, FStartProfileDefinition> StartProfilesById;

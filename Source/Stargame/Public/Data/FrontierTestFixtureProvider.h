@@ -8,6 +8,7 @@ class STARGAME_API FFrontierTestFixtureProvider
 public:
 	static const FName DefaultStartProfileId;
 	static const FName FrontierSystemId;
+	static const FName ArrivalSystemId;
 	static const FName DeepSpaceSpawnZoneId;
 
 	static bool ResolveStartProfile(FName StartProfileId, FStartProfileDefinition& OutStartProfile);

@@ -18,6 +18,9 @@ public:
 	static FSystemicGameplayState MakeM10FixtureState(const FStarSystemDefinition& SystemDefinition);
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
+	static FSystemicGameplayState MakeM10_5FixtureState(const FStarSystemDefinition& SystemDefinition);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
 	static FSystemicGameplayState MakeM11FixtureState(const FStarSystemDefinition& SystemDefinition);
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
@@ -31,6 +34,12 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
 	static bool ValidateLogicalEncounterState(
+		const FStarSystemDefinition& SystemDefinition,
+		const FSystemicGameplayState& State,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
+	static bool ValidateCombatDamageThreatState(
 		const FStarSystemDefinition& SystemDefinition,
 		const FSystemicGameplayState& State,
 		FString& OutFailureReason);

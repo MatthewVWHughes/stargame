@@ -1,8 +1,8 @@
 # Scale Metrics
 
-This file is legacy prototype context for the removed gas-giant flight slice. It is not the active M0 scale contract.
+This file is legacy prototype context for the removed gas-giant flight slice. It is not the active scale contract.
 
-Active M0 fixture values live in [`../frontier-test-fixture.md`](../frontier-test-fixture.md). Future scale-band decisions belong in [`../build-roadmap.md`](../build-roadmap.md) and the system data contracts.
+Active fixture values live in [`../frontier-test-fixture.md`](../frontier-test-fixture.md). Future scale-band decisions belong in the active domain contract docs and the system data contracts.
 
 ## Unit Convention
 

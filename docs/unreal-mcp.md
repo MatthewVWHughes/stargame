@@ -82,13 +82,13 @@ Known verified setup:
 
 ## Build Workflow Role
 
-MCP becomes important once the fixture system exists:
+MCP is useful for editor-side verification once the fixture system exists:
 
-- M0: verify `frontier_test_01` loads in editor/PIE
-- M1: inspect spawned registry actors and DataAsset references
-- M2: capture map/debug overlays and validate coordinate/frame visualization
-- M3: verify target selection and local approach actors
-- M4: inspect supercruise debug telemetry in PIE
-- M5: verify docking port transforms and docked/undocked state
+- verify `frontier_test_01` loads in editor/PIE
+- inspect spawned registry actors and DataAsset references
+- capture map/debug overlays and validate coordinate/frame visualization
+- verify target selection and local approach actors
+- inspect supercruise debug telemetry in PIE
+- verify docking port transforms and docked/undocked state
 
 If MCP actions create or modify assets, those changes must still follow the C++/Blueprint ownership rules in `cpp-blueprint-ownership.md`, the data rules in `system-data-contracts.md`, and the validation workflow in `content-validation-and-tooling.md`.

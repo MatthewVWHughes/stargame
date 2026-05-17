@@ -21,9 +21,14 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 	TearDownActiveSystem();
 	++ActiveBuildGeneration;
 	LastBuildError.Reset();
+	LastBuildValidationReport = FStargameValidationReport();
+	LastBuildValidationReport.Profile = EStargameValidationProfile::Build;
+	LastBuildValidationReport.SystemId = SystemDefinition.SystemId;
+	LastBuildValidationReport.CheckedSystemCount = SystemDefinition.SystemId.IsNone() ? 0 : 1;
 
 	if (!ValidateSystemForBuild(SystemDefinition, LastBuildError))
 	{
+		AddBuildValidationIssue(TEXT("active_system_build_validation_failed"), SystemDefinition.SystemId, LastBuildError);
 		return false;
 	}
 
@@ -34,6 +39,8 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 		FFrameResolvedTransform ResolvedTransform;
 		if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, Body.BodyId, BuildClock, BuildClock.AuthoritativeSimulationTimeSeconds, ResolvedTransform))
 		{
+			LastBuildError = FString::Printf(TEXT("Failed to resolve body frame '%s' before active system build."), *Body.BodyId.ToString());
+			AddBuildValidationIssue(TEXT("active_system_body_frame_unresolved"), Body.BodyId, LastBuildError);
 			TearDownActiveSystem();
 			return false;
 		}
@@ -41,6 +48,7 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 		if (!RegisterEntity(Body.BodyId, TEXT("body"), FTransform(ResolvedTransform.Rotation, ResolvedTransform.PositionCm), Body.VisualRadiusCm) ||
 			!RegisterNavigationTarget(Body.NavigationTarget))
 		{
+			AddBuildValidationIssue(TEXT("active_system_body_registration_failed"), Body.BodyId, LastBuildError);
 			TearDownActiveSystem();
 			return false;
 		}
@@ -51,6 +59,8 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 		FFrameResolvedTransform ResolvedTransform;
 		if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, Station.StationId, BuildClock, BuildClock.AuthoritativeSimulationTimeSeconds, ResolvedTransform))
 		{
+			LastBuildError = FString::Printf(TEXT("Failed to resolve station frame '%s' before active system build."), *Station.StationId.ToString());
+			AddBuildValidationIssue(TEXT("active_system_station_frame_unresolved"), Station.StationId, LastBuildError);
 			TearDownActiveSystem();
 			return false;
 		}
@@ -58,6 +68,7 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 		if (!RegisterEntity(Station.StationId, TEXT("station"), FTransform(ResolvedTransform.Rotation, ResolvedTransform.PositionCm), Station.VisualRadiusCm) ||
 			!RegisterNavigationTarget(Station.NavigationTarget))
 		{
+			AddBuildValidationIssue(TEXT("active_system_station_registration_failed"), Station.StationId, LastBuildError);
 			TearDownActiveSystem();
 			return false;
 		}
@@ -66,6 +77,7 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 		{
 			if (!RegisterDockingPort(Station.StationId, DockingPort))
 			{
+				AddBuildValidationIssue(TEXT("active_system_docking_port_registration_failed"), DockingPort.PortId, LastBuildError);
 				TearDownActiveSystem();
 				return false;
 			}
@@ -77,6 +89,8 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 		FFrameResolvedTransform ResolvedTransform;
 		if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, Gate.GateId, BuildClock, BuildClock.AuthoritativeSimulationTimeSeconds, ResolvedTransform))
 		{
+			LastBuildError = FString::Printf(TEXT("Failed to resolve gate frame '%s' before active system build."), *Gate.GateId.ToString());
+			AddBuildValidationIssue(TEXT("active_system_gate_frame_unresolved"), Gate.GateId, LastBuildError);
 			TearDownActiveSystem();
 			return false;
 		}
@@ -84,6 +98,7 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 		if (!RegisterEntity(Gate.GateId, TEXT("gate"), FTransform(ResolvedTransform.Rotation, ResolvedTransform.PositionCm), Gate.VisualRadiusCm) ||
 			!RegisterNavigationTarget(Gate.NavigationTarget))
 		{
+			AddBuildValidationIssue(TEXT("active_system_gate_registration_failed"), Gate.GateId, LastBuildError);
 			TearDownActiveSystem();
 			return false;
 		}
@@ -93,6 +108,7 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 	{
 		if (!RegisterSpawnZone(SpawnZone))
 		{
+			AddBuildValidationIssue(TEXT("active_system_spawn_zone_registration_failed"), SpawnZone.SpawnZoneId, LastBuildError);
 			TearDownActiveSystem();
 			return false;
 		}
@@ -102,6 +118,7 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 	{
 		if (!RegisterGravityWell(GravityWell))
 		{
+			AddBuildValidationIssue(TEXT("active_system_gravity_well_registration_failed"), GravityWell.WellId, LastBuildError);
 			TearDownActiveSystem();
 			return false;
 		}
@@ -112,6 +129,8 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 		FFrameResolvedTransform ResolvedTransform;
 		if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, ResourceZone.ZoneId, BuildClock, BuildClock.AuthoritativeSimulationTimeSeconds, ResolvedTransform))
 		{
+			LastBuildError = FString::Printf(TEXT("Failed to resolve resource zone frame '%s' before active system build."), *ResourceZone.ZoneId.ToString());
+			AddBuildValidationIssue(TEXT("active_system_resource_zone_frame_unresolved"), ResourceZone.ZoneId, LastBuildError);
 			TearDownActiveSystem();
 			return false;
 		}
@@ -120,6 +139,7 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 			!RegisterNavigationTarget(ResourceZone.NavigationTarget) ||
 			!RegisterResourceZone(ResourceZone))
 		{
+			AddBuildValidationIssue(TEXT("active_system_resource_zone_registration_failed"), ResourceZone.ZoneId, LastBuildError);
 			TearDownActiveSystem();
 			return false;
 		}
@@ -129,12 +149,14 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 	{
 		if (!RegisterMapEntry(MapEntry))
 		{
+			AddBuildValidationIssue(TEXT("active_system_map_entry_registration_failed"), MapEntry.MapEntryId, LastBuildError);
 			TearDownActiveSystem();
 			return false;
 		}
 	}
 
 	bBuildComplete = true;
+	LastBuildValidationReport.RefreshSummary();
 	OnSystemBuildComplete.Broadcast();
 	return true;
 }
@@ -150,6 +172,7 @@ void UStarSystemSubsystem::TearDownActiveSystem()
 	}
 
 	SpawnedSystemActors.Reset();
+	ActivePlayerPawn.Reset();
 	RegisteredEntities.Reset();
 	NavigationTargetsById.Reset();
 	SpawnZonesById.Reset();
@@ -186,7 +209,8 @@ bool UStarSystemSubsystem::SpawnPlayerAtSpawnZone(FName SpawnZoneId, APlayerCont
 		TSubclassOf<APawn> SpawnClass = PawnClass;
 		if (!SpawnClass)
 		{
-			SpawnClass = ASpaceFlightPawn::StaticClass();
+			LastBuildError = TEXT("Cannot spawn player without an authored pawn class.");
+			return false;
 		}
 		Pawn = World->SpawnActor<APawn>(SpawnClass, SpawnZone.Transform, SpawnParameters);
 		if (PlayerController && Pawn)
@@ -196,9 +220,17 @@ bool UStarSystemSubsystem::SpawnPlayerAtSpawnZone(FName SpawnZoneId, APlayerCont
 	}
 	else
 	{
+		if (PawnClass && !Pawn->IsA(PawnClass))
+		{
+			LastBuildError = FString::Printf(TEXT("Existing player pawn '%s' does not match authored pawn class '%s'."),
+				*Pawn->GetClass()->GetName(),
+				*PawnClass->GetName());
+			return false;
+		}
 		Pawn->SetActorTransform(SpawnZone.Transform, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 
+	ActivePlayerPawn = Pawn;
 	return Pawn != nullptr;
 }
 
@@ -1025,6 +1057,20 @@ bool UStarSystemSubsystem::ValidateSystemForBuild(const FStarSystemDefinition& S
 	}
 
 	return true;
+}
+
+void UStarSystemSubsystem::AddBuildValidationIssue(FName Code, FName ObjectId, const FString& Message)
+{
+	FStargameValidationIssue Issue;
+	Issue.Severity = EStargameValidationSeverity::Error;
+	Issue.Code = Code;
+	Issue.RuleId = Code;
+	Issue.ObjectId = ObjectId;
+	Issue.SystemId = LastBuildValidationReport.SystemId;
+	Issue.SourceId = ObjectId;
+	Issue.Message = Message;
+	LastBuildValidationReport.Issues.Add(Issue);
+	LastBuildValidationReport.RefreshSummary();
 }
 
 bool UStarSystemSubsystem::RegisterEntity(FName EntityId, FName EntityType, const FTransform& Transform, double VisualRadiusCm)

@@ -16,7 +16,18 @@ DEFINE_LOG_CATEGORY_STATIC(LogStargameStartup, Log, All);
 
 namespace
 {
-	bool ValidateNativeFallbackFixture(const UStarCatalogSubsystem* Catalog, const FStarSystemDefinition& SystemDefinition, FString& OutError)
+	bool HasAuthoredSystemicGameplayState(const FSystemicGameplayState& State)
+	{
+		return !State.Factions.IsEmpty() ||
+			!State.Jurisdictions.IsEmpty() ||
+			!State.Items.IsEmpty() ||
+			!State.Containers.IsEmpty() ||
+			!State.Markets.IsEmpty() ||
+			!State.LogicalEncounters.IsEmpty() ||
+			!State.ShipResourceStates.IsEmpty();
+	}
+
+	bool ValidateResolvedSystemDefinitionForRuntime(const UStarCatalogSubsystem* Catalog, const FStarSystemDefinition& SystemDefinition, FString& OutError)
 	{
 		if (Catalog && Catalog->IsUsingAssetCatalog())
 		{
@@ -41,6 +52,60 @@ namespace
 
 		return true;
 	}
+
+	ASpaceFlightPawn* ResolveSpaceFlightPawn(UWorld* World, APlayerController* PlayerController)
+	{
+		if (ASpaceFlightPawn* PossessedPawn = PlayerController ? Cast<ASpaceFlightPawn>(PlayerController->GetPawn()) : nullptr)
+		{
+			return PossessedPawn;
+		}
+
+		if (!World)
+		{
+			return nullptr;
+		}
+
+		UStarSystemSubsystem* StarSystem = World->GetSubsystem<UStarSystemSubsystem>();
+		if (APawn* ActivePlayerPawn = StarSystem ? StarSystem->GetActivePlayerPawn() : nullptr)
+		{
+			return Cast<ASpaceFlightPawn>(ActivePlayerPawn);
+		}
+
+		return nullptr;
+	}
+}
+
+#if WITH_DEV_AUTOMATION_TESTS
+void UStargameSessionSubsystem::ConfigureAutomationTestContext(UWorld* InWorld, UStarCatalogSubsystem* InCatalog)
+{
+	AutomationTestWorld = InWorld;
+	AutomationTestCatalog = InCatalog;
+}
+#endif
+
+UWorld* UStargameSessionSubsystem::ResolveSessionWorld() const
+{
+#if WITH_DEV_AUTOMATION_TESTS
+	if (AutomationTestWorld)
+	{
+		return AutomationTestWorld;
+	}
+#endif
+
+	return GetWorld();
+}
+
+UStarCatalogSubsystem* UStargameSessionSubsystem::ResolveCatalogSubsystem() const
+{
+#if WITH_DEV_AUTOMATION_TESTS
+	if (AutomationTestCatalog)
+	{
+		return AutomationTestCatalog;
+	}
+#endif
+
+	UGameInstance* GameInstance = GetGameInstance();
+	return GameInstance ? GameInstance->GetSubsystem<UStarCatalogSubsystem>() : nullptr;
 }
 
 void UStargameSessionSubsystem::Tick(float DeltaTime)
@@ -71,10 +136,8 @@ EStartSessionResult UStargameSessionSubsystem::StartNewSession(FName InStartProf
 		: InStartProfileId;
 
 	FStartProfileDefinition StartProfile;
-	UStarCatalogSubsystem* Catalog = GetGameInstance() ? GetGameInstance()->GetSubsystem<UStarCatalogSubsystem>() : nullptr;
-	const bool bResolvedStartProfile = Catalog
-		? Catalog->ResolveStartProfile(RequestedStartProfileId, StartProfile)
-		: FFrontierTestFixtureProvider::ResolveStartProfile(RequestedStartProfileId, StartProfile);
+	UStarCatalogSubsystem* Catalog = ResolveCatalogSubsystem();
+	const bool bResolvedStartProfile = Catalog && Catalog->ResolveStartProfile(RequestedStartProfileId, StartProfile);
 	if (!bResolvedStartProfile)
 	{
 		LastStartSessionResult = EStartSessionResult::MissingStartProfile;
@@ -104,7 +167,7 @@ void UStargameSessionSubsystem::AdvanceSimulationClock(double DeltaSeconds)
 {
 	ClockSnapshot.AuthoritativeSimulationTimeSeconds += FMath::Max(0.0, DeltaSeconds) * ClockSnapshot.TimeScale;
 
-	UWorld* World = GetWorld();
+	UWorld* World = ResolveSessionWorld();
 	UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
 	if (StarSystem && StarSystem->GetActiveSystemId() == CurrentSystemId)
 	{
@@ -125,6 +188,10 @@ void UStargameSessionSubsystem::ClearSessionState()
 	ClockSnapshot = FSimulationClockSnapshot();
 	ActiveTrafficState = FActiveTrafficSimulationState();
 	SystemicGameplayState = FSystemicGameplayState();
+	bHasPendingGateArrival = false;
+	PendingGateArrivalLocation = FShipSaveLocation();
+	LastGateTransitionResult = FGateTransitionResult();
+	ActivePlayerPawnClass = nullptr;
 }
 
 bool UStargameSessionSubsystem::SelectNavigationTargetById(FName TargetId)
@@ -135,7 +202,7 @@ bool UStargameSessionSubsystem::SelectNavigationTargetById(FName TargetId)
 		return true;
 	}
 
-	const UWorld* World = GetWorld();
+	const UWorld* World = ResolveSessionWorld();
 	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
 	FNavigationTargetDefinition Target;
 	if (!StarSystem || !StarSystem->FindNavigationTarget(TargetId, Target) || !Target.bCanTarget)
@@ -149,7 +216,7 @@ bool UStargameSessionSubsystem::SelectNavigationTargetById(FName TargetId)
 
 bool UStargameSessionSubsystem::CycleNavigationTarget()
 {
-	const UWorld* World = GetWorld();
+	const UWorld* World = ResolveSessionWorld();
 	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
 	if (!StarSystem)
 	{
@@ -191,11 +258,16 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 		return false;
 	}
 
+	FString ValidationError;
+	if (!ValidateLoadedSaveHeader(LoadedState, ValidationError))
+	{
+		ReportStartupError(ValidationError);
+		return false;
+	}
+
 	FStarSystemDefinition SystemDefinition;
-	UStarCatalogSubsystem* Catalog = GetGameInstance() ? GetGameInstance()->GetSubsystem<UStarCatalogSubsystem>() : nullptr;
-	bool bResolvedSystem = Catalog
-		? Catalog->ResolveSystemDefinition(LoadedState.SystemId, SystemDefinition)
-		: FFrontierTestFixtureProvider::ResolveSystemDefinition(LoadedState.SystemId, SystemDefinition);
+	UStarCatalogSubsystem* Catalog = ResolveCatalogSubsystem();
+	bool bResolvedSystem = Catalog && Catalog->ResolveSystemDefinition(LoadedState.SystemId, SystemDefinition);
 	if (!bResolvedSystem && Catalog && LoadedState.bSavedSystemIsGenerated)
 	{
 		FStarSystemDefinition RegeneratedSystem;
@@ -214,8 +286,7 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 		return false;
 	}
 
-	FString ValidationError;
-	if (!ValidateNativeFallbackFixture(Catalog, SystemDefinition, ValidationError))
+	if (!ValidateResolvedSystemDefinitionForRuntime(Catalog, SystemDefinition, ValidationError))
 	{
 		ReportStartupError(ValidationError);
 		return false;
@@ -224,22 +295,13 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 	FSimulationClockSnapshot RestoredClock = LoadedState.ClockSnapshot;
 	if (RestoredClock.ClockOwner.IsNone())
 	{
-		RestoredClock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(LoadedState.SystemId, LoadedState.ShipLocation.AuthoritativeSimulationTimeSeconds);
+		ReportStartupError(TEXT("Saved clock snapshot is missing its owner."));
+		return false;
 	}
 	FActiveTrafficSimulationState RestoredTrafficState = LoadedState.ActiveTrafficState;
-	if (RestoredTrafficState.SystemId.IsNone())
-	{
-		RestoredTrafficState.SystemId = LoadedState.SystemId;
-		RestoredTrafficState.Ships = SystemDefinition.LogicalTraffic;
-		RestoredTrafficState.Groups = SystemDefinition.ShipGroups;
-	}
-	FSystemicGameplayState RestoredSystemicState = LoadedState.SystemicGameplayState;
-	if (RestoredSystemicState.Factions.IsEmpty())
-	{
-		RestoredSystemicState = USystemicGameplayQueryService::MakeM9FixtureState(SystemDefinition);
-	}
+	FSystemicGameplayState RestoredSystemicState;
 	ULogicalTrafficQueryService::RefreshTransientRouteSamples(SystemDefinition, RestoredClock, RestoredClock.AuthoritativeSimulationTimeSeconds, RestoredTrafficState);
-	if (!ValidateLoadedSystemicState(SystemDefinition, RestoredSystemicState, ValidationError))
+	if (!ResolveRuntimeSystemicState(SystemDefinition, &LoadedState.SystemicGameplayState, RestoredSystemicState, ValidationError))
 	{
 		ReportStartupError(ValidationError);
 		return false;
@@ -250,7 +312,76 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 		return false;
 	}
 
-	UWorld* World = GetWorld();
+	if (!SystemDefinition.SpawnZones.ContainsByPredicate([&LoadedState](const FSpawnZoneDefinition& SpawnZone)
+	{
+		return SpawnZone.SpawnZoneId == LoadedState.SpawnZoneId;
+	}))
+	{
+		ReportStartupError(FString::Printf(TEXT("Saved spawn zone '%s' does not exist in system '%s'."),
+			*LoadedState.SpawnZoneId.ToString(),
+			*LoadedState.SystemId.ToString()));
+		return false;
+	}
+
+	TSubclassOf<APawn> PawnClass = nullptr;
+	FStartProfileDefinition StartProfile;
+	const FName LoadStartProfileId = StartProfileId.IsNone()
+		? FFrontierTestFixtureProvider::DefaultStartProfileId
+		: StartProfileId;
+	const bool bResolvedLoadStartProfile = Catalog && Catalog->ResolveStartProfile(LoadStartProfileId, StartProfile);
+	if (bResolvedLoadStartProfile)
+	{
+		FShipArchetypeDefinition Ship;
+		if (Catalog && Catalog->ResolveShipArchetype(StartProfile.ShipArchetypeId, Ship))
+		{
+			PawnClass = Ship.PawnClass.LoadSynchronous();
+		}
+	}
+	if (!PawnClass)
+	{
+		ReportStartupError(FString::Printf(TEXT("Saved session requires authored pawn class from start profile '%s'."), *LoadStartProfileId.ToString()));
+		return false;
+	}
+
+	if (LoadedState.ShipLocation.LocationMode == EShipLocationMode::FreeFlight)
+	{
+		const bool bSystemFrame = LoadedState.ShipLocation.SystemId == LoadedState.SystemId &&
+			LoadedState.ShipLocation.CoordinateFrame.FrameType == FName(TEXT("system_barycentric")) &&
+			LoadedState.ShipLocation.CoordinateFrame.AnchorId == LoadedState.SystemId;
+		if (!bSystemFrame)
+		{
+			ReportStartupError(TEXT("Saved free-flight location must use a system_barycentric coordinate frame."));
+			return false;
+		}
+	}
+	else if (LoadedState.ShipLocation.LocationMode == EShipLocationMode::GateArrival)
+	{
+		FTransform PreflightArrivalTransform;
+		FVector PreflightArrivalVelocityCmPerSec = FVector::ZeroVector;
+		if (!ResolveGateArrivalLocation(SystemDefinition, LoadedState.ShipLocation, PreflightArrivalTransform, PreflightArrivalVelocityCmPerSec, ValidationError))
+		{
+			ReportStartupError(ValidationError);
+			return false;
+		}
+	}
+	else if (LoadedState.ShipLocation.LocationMode == EShipLocationMode::StationDocked)
+	{
+		const FStationDefinition* DockedStation = SystemDefinition.Stations.FindByPredicate([&LoadedState](const FStationDefinition& Station)
+		{
+			return Station.StationId == LoadedState.ShipLocation.DockedStationId;
+		});
+		const bool bDockingPortAuthored = DockedStation && DockedStation->DockingPorts.ContainsByPredicate([&LoadedState](const FDockingPortDefinition& Port)
+		{
+			return Port.PortId == LoadedState.ShipLocation.DockingPortId;
+		});
+		if (!bDockingPortAuthored)
+		{
+			ReportStartupError(TEXT("Saved docked location does not resolve to an authored station docking port."));
+			return false;
+		}
+	}
+
+	UWorld* World = ResolveSessionWorld();
 	UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
 	if (!StarSystem || !StarSystem->BuildSystem(SystemDefinition, RestoredClock.AuthoritativeSimulationTimeSeconds))
 	{
@@ -264,23 +395,6 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 		StarSystem->TearDownActiveSystem();
 		ClearSessionState();
 		return false;
-	}
-
-	TSubclassOf<APawn> PawnClass = nullptr;
-	FStartProfileDefinition StartProfile;
-	const FName LoadStartProfileId = StartProfileId.IsNone()
-		? FFrontierTestFixtureProvider::DefaultStartProfileId
-		: StartProfileId;
-	const bool bResolvedLoadStartProfile = Catalog
-		? Catalog->ResolveStartProfile(LoadStartProfileId, StartProfile)
-		: FFrontierTestFixtureProvider::ResolveStartProfile(LoadStartProfileId, StartProfile);
-	if (bResolvedLoadStartProfile && StartProfile.SystemId == LoadedState.SystemId && StartProfile.SpawnZoneId == LoadedState.SpawnZoneId)
-	{
-		FShipArchetypeDefinition Ship;
-		if (Catalog && Catalog->ResolveShipArchetype(StartProfile.ShipArchetypeId, Ship))
-		{
-			PawnClass = Ship.PawnClass.LoadSynchronous();
-		}
 	}
 
 	APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
@@ -298,6 +412,9 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 	ClockSnapshot = RestoredClock;
 	ActiveTrafficState = RestoredTrafficState;
 	SystemicGameplayState = RestoredSystemicState;
+	bHasPendingGateArrival = LoadedState.ShipLocation.LocationMode == EShipLocationMode::GateArrival;
+	PendingGateArrivalLocation = bHasPendingGateArrival ? LoadedState.ShipLocation : FShipSaveLocation();
+	ActivePlayerPawnClass = PawnClass;
 
 	FString RestoreError;
 	if (!RestoreSavedShipLocation(LoadedState.ShipLocation, PlayerController, RestoreError))
@@ -309,6 +426,213 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 	}
 
 	return true;
+}
+
+bool UStargameSessionSubsystem::RequestGateTransition(const FGateTransitionRequest& Request, FGateTransitionResult& OutResult)
+{
+	OutResult = FGateTransitionResult();
+	OutResult.SourceSystemId = CurrentSystemId;
+	OutResult.SourceGateId = Request.SourceGateId;
+
+	UWorld* World = ResolveSessionWorld();
+	UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	if (!StarSystem || StarSystem->GetActiveSystemId() != CurrentSystemId || CurrentSystemId.IsNone())
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::MissingActiveSystem;
+		OutResult.FailureReason = TEXT("Gate transition requires an active source system.");
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+
+	const FStarSystemDefinition SourceSystemDefinition = StarSystem->GetActiveSystemDefinition();
+	const FGateDefinition* SourceGate = SourceSystemDefinition.Gates.FindByPredicate([&Request](const FGateDefinition& Gate)
+	{
+		return Gate.GateId == Request.SourceGateId;
+	});
+	if (!SourceGate)
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::MissingSourceGate;
+		OutResult.FailureReason = FString::Printf(TEXT("Source gate '%s' is not registered in the active system."), *Request.SourceGateId.ToString());
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+
+	OutResult.DestinationSystemId = SourceGate->DestinationSystemId;
+	OutResult.DestinationGateId = SourceGate->DestinationGateId;
+	OutResult.DestinationArrivalId = SourceGate->DestinationArrivalId;
+	OutResult.ArrivalFrame = SourceGate->DestinationArrivalFrame;
+	if (SourceGate->DestinationSystemId.IsNone())
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::MissingDestinationSystem;
+		OutResult.FailureReason = FString::Printf(TEXT("Source gate '%s' has no destination system."), *SourceGate->GateId.ToString());
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+	if (SourceGate->DestinationGateId.IsNone())
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::MissingDestinationGate;
+		OutResult.FailureReason = FString::Printf(TEXT("Source gate '%s' has no destination gate."), *SourceGate->GateId.ToString());
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+	if (SourceGate->DestinationArrivalId.IsNone())
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::MissingDestinationArrival;
+		OutResult.FailureReason = FString::Printf(TEXT("Source gate '%s' has no destination arrival target."), *SourceGate->GateId.ToString());
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+	if (SourceGate->DestinationArrivalFrame != FName(TEXT("gate_relative")))
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::InvalidArrivalFrame;
+		OutResult.FailureReason = FString::Printf(TEXT("Source gate '%s' uses unsupported arrival frame '%s'."),
+			*SourceGate->GateId.ToString(),
+			*SourceGate->DestinationArrivalFrame.ToString());
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+
+	FStarSystemDefinition DestinationSystemDefinition;
+	UStarCatalogSubsystem* Catalog = ResolveCatalogSubsystem();
+	const bool bResolvedDestinationSystem = Catalog && Catalog->ResolveSystemDefinition(SourceGate->DestinationSystemId, DestinationSystemDefinition);
+	if (!bResolvedDestinationSystem)
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::MissingDestinationSystem;
+		OutResult.FailureReason = FString::Printf(TEXT("Destination system '%s' could not be resolved for source gate '%s'."),
+			*SourceGate->DestinationSystemId.ToString(),
+			*SourceGate->GateId.ToString());
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+
+	const FGateDefinition* DestinationGate = DestinationSystemDefinition.Gates.FindByPredicate([SourceGate](const FGateDefinition& Gate)
+	{
+		return Gate.GateId == SourceGate->DestinationGateId;
+	});
+	if (!DestinationGate)
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::MissingDestinationGate;
+		OutResult.FailureReason = FString::Printf(TEXT("Destination gate '%s' could not be resolved in system '%s'."),
+			*SourceGate->DestinationGateId.ToString(),
+			*DestinationSystemDefinition.SystemId.ToString());
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+
+	const FSpawnZoneDefinition* Arrival = DestinationSystemDefinition.SpawnZones.FindByPredicate([SourceGate](const FSpawnZoneDefinition& SpawnZone)
+	{
+		return SpawnZone.SpawnZoneId == SourceGate->DestinationArrivalId;
+	});
+	if (!Arrival || Arrival->FrameType != SourceGate->DestinationArrivalFrame || Arrival->AnchorId != SourceGate->DestinationGateId)
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::MissingDestinationArrival;
+		OutResult.FailureReason = FString::Printf(TEXT("Destination arrival '%s' could not be resolved in gate-relative frame '%s'."),
+			*SourceGate->DestinationArrivalId.ToString(),
+			*SourceGate->DestinationGateId.ToString());
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+
+	FString SystemicError;
+	FSystemicGameplayState DestinationSystemicState;
+	if (!ResolveRuntimeSystemicState(DestinationSystemDefinition, nullptr, DestinationSystemicState, SystemicError))
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::SystemBuildFailed;
+		OutResult.FailureReason = SystemicError;
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+
+	FShipSaveLocation ArrivalLocation;
+	ArrivalLocation.SystemId = DestinationSystemDefinition.SystemId;
+	ArrivalLocation.LocationMode = EShipLocationMode::GateArrival;
+	ArrivalLocation.CoordinateFrame.FrameType = SourceGate->DestinationArrivalFrame;
+	ArrivalLocation.CoordinateFrame.AnchorId = SourceGate->DestinationGateId;
+	ArrivalLocation.AnchorId = SourceGate->DestinationGateId;
+	ArrivalLocation.GateArrivalId = SourceGate->DestinationArrivalId;
+	ArrivalLocation.PositionCm = SourceGate->DestinationArrivalLocalOffsetCm;
+	ArrivalLocation.Rotation = SourceGate->DestinationArrivalRotation;
+	ArrivalLocation.VelocityFrame = ArrivalLocation.CoordinateFrame;
+	ArrivalLocation.AuthoritativeSimulationTimeSeconds = ClockSnapshot.AuthoritativeSimulationTimeSeconds;
+
+	FTransform ArrivalTransform;
+	FVector ArrivalVelocityCmPerSec = FVector::ZeroVector;
+	FString ArrivalError;
+	if (!ResolveGateArrivalLocation(DestinationSystemDefinition, ArrivalLocation, ArrivalTransform, ArrivalVelocityCmPerSec, ArrivalError))
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::InvalidArrivalFrame;
+		OutResult.FailureReason = ArrivalError;
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+
+	if (!StarSystem->BuildSystem(DestinationSystemDefinition, ClockSnapshot.AuthoritativeSimulationTimeSeconds))
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::SystemBuildFailed;
+		OutResult.FailureReason = StarSystem->GetLastBuildError();
+		ClearSessionState();
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+
+	APlayerController* PlayerController = World->GetFirstPlayerController();
+	if (!StarSystem->SpawnPlayerAtSpawnZone(SourceGate->DestinationArrivalId, PlayerController, ActivePlayerPawnClass))
+	{
+		OutResult.ResultCode = EGateTransitionResultCode::PlayerSpawnFailed;
+		OutResult.FailureReason = StarSystem->GetLastBuildError();
+		StarSystem->TearDownActiveSystem();
+		ClearSessionState();
+		LastGateTransitionResult = OutResult;
+		ReportSessionFailure(OutResult.FailureReason);
+		return false;
+	}
+
+	ASpaceFlightPawn* FlightPawn = ResolveSpaceFlightPawn(World, PlayerController);
+	if (FlightPawn)
+	{
+		FlightPawn->SetFlightTestTransformAndVelocity(ArrivalTransform, ArrivalVelocityCmPerSec);
+	}
+	else if (APawn* Pawn = PlayerController ? PlayerController->GetPawn() : nullptr)
+	{
+		Pawn->SetActorTransform(ArrivalTransform, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+
+	CurrentSystemId = DestinationSystemDefinition.SystemId;
+	CurrentSpawnZoneId = SourceGate->DestinationArrivalId;
+	SelectedTargetId = NAME_None;
+	ActiveTrafficState.SystemId = CurrentSystemId;
+	ActiveTrafficState.Ships = DestinationSystemDefinition.LogicalTraffic;
+	ActiveTrafficState.Groups = DestinationSystemDefinition.ShipGroups;
+	ULogicalTrafficQueryService::RefreshTransientRouteSamples(DestinationSystemDefinition, ClockSnapshot, ClockSnapshot.AuthoritativeSimulationTimeSeconds, ActiveTrafficState);
+	SystemicGameplayState = DestinationSystemicState;
+	bHasPendingGateArrival = true;
+	PendingGateArrivalLocation = ArrivalLocation;
+
+	OutResult.bAccepted = true;
+	OutResult.ResultCode = EGateTransitionResultCode::Success;
+	OutResult.ElapsedTransitionSeconds = 0.0;
+	OutResult.ArrivalLocation = PendingGateArrivalLocation;
+	LastGateTransitionResult = OutResult;
+	LastSessionError.Reset();
+	return true;
+}
+
+void UStargameSessionSubsystem::CompleteGateArrivalSafetyWindow()
+{
+	bHasPendingGateArrival = false;
+	PendingGateArrivalLocation = FShipSaveLocation();
 }
 
 bool UStargameSessionSubsystem::SaveDevelopmentSlot(const FStargameM0SaveState& State)
@@ -345,6 +669,33 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot(FStargameM0SaveState& OutSta
 	return true;
 }
 
+bool UStargameSessionSubsystem::ValidateLoadedSaveHeader(const FStargameM0SaveState& LoadedState, FString& OutError) const
+{
+	const FStargameM0SaveState CurrentHeader;
+	if (LoadedState.SaveFormatVersion != CurrentHeader.SaveFormatVersion)
+	{
+		OutError = FString::Printf(TEXT("Unsupported save format version %d; expected %d."),
+			LoadedState.SaveFormatVersion,
+			CurrentHeader.SaveFormatVersion);
+		return false;
+	}
+	if (LoadedState.GameContentVersion != CurrentHeader.GameContentVersion)
+	{
+		OutError = FString::Printf(TEXT("Unsupported game content version %d; expected %d."),
+			LoadedState.GameContentVersion,
+			CurrentHeader.GameContentVersion);
+		return false;
+	}
+	if (LoadedState.BuildCompatibilityId != CurrentHeader.BuildCompatibilityId)
+	{
+		OutError = FString::Printf(TEXT("Development save compatibility '%s' does not match current build '%s'."),
+			*LoadedState.BuildCompatibilityId,
+			*CurrentHeader.BuildCompatibilityId);
+		return false;
+	}
+	return true;
+}
+
 FStargameM0SaveState UStargameSessionSubsystem::MakeCurrentM0SaveState() const
 {
 	FStargameM0SaveState State;
@@ -362,7 +713,7 @@ FStargameM0SaveState UStargameSessionSubsystem::MakeCurrentM0SaveState() const
 	State.ShipLocation.VelocityFrame = State.ShipLocation.CoordinateFrame;
 	State.ShipLocation.AuthoritativeSimulationTimeSeconds = ClockSnapshot.AuthoritativeSimulationTimeSeconds;
 
-	const UWorld* World = GetWorld();
+	UWorld* World = ResolveSessionWorld();
 	if (const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr)
 	{
 		const FStarSystemDefinition& ActiveDefinition = StarSystem->GetActiveSystemDefinition();
@@ -372,8 +723,8 @@ FStargameM0SaveState UStargameSessionSubsystem::MakeCurrentM0SaveState() const
 			State.GeneratedSystemSourceMetadata = ActiveDefinition.GeneratedSourceMetadata;
 		}
 	}
-	const APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
-	const ASpaceFlightPawn* FlightPawn = PlayerController ? Cast<ASpaceFlightPawn>(PlayerController->GetPawn()) : nullptr;
+	APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
+	const ASpaceFlightPawn* FlightPawn = ResolveSpaceFlightPawn(World, PlayerController);
 	if (FlightPawn)
 	{
 		State.ShipLocation.PositionCm = FlightPawn->GetLogicalSystemPositionCm();
@@ -408,6 +759,16 @@ FStargameM0SaveState UStargameSessionSubsystem::MakeCurrentM0SaveState() const
 					State.ShipLocation.DockingPortRuntimeState = RuntimeState.DockingState;
 				}
 			}
+		}
+	}
+	if (bHasPendingGateArrival)
+	{
+		State.ShipLocation = PendingGateArrivalLocation;
+		State.ShipLocation.SystemId = CurrentSystemId;
+		State.ShipLocation.AuthoritativeSimulationTimeSeconds = ClockSnapshot.AuthoritativeSimulationTimeSeconds;
+		if (FlightPawn)
+		{
+			State.ShipLocation.LinearVelocityCmPerSec = FlightPawn->GetLinearVelocityCmPerSec();
 		}
 	}
 	return State;
@@ -547,6 +908,48 @@ bool UStargameSessionSubsystem::ValidateLoadedSystemicState(const FStarSystemDef
 	return true;
 }
 
+bool UStargameSessionSubsystem::ResolveRuntimeSystemicState(
+	const FStarSystemDefinition& SystemDefinition,
+	const FSystemicGameplayState* SavedSystemicState,
+	FSystemicGameplayState& OutSystemicState,
+	FString& OutError) const
+{
+	if (SavedSystemicState && HasAuthoredSystemicGameplayState(*SavedSystemicState))
+	{
+		if (!ValidateLoadedSystemicState(SystemDefinition, *SavedSystemicState, OutError))
+		{
+			return false;
+		}
+		OutSystemicState = *SavedSystemicState;
+		return true;
+	}
+	if (SavedSystemicState)
+	{
+		if (HasAuthoredSystemicGameplayState(SystemDefinition.SystemicGameplay))
+		{
+			OutError = TEXT("Saved systemic gameplay state is missing required authored records.");
+			return false;
+		}
+
+		OutSystemicState = FSystemicGameplayState();
+		return true;
+	}
+
+	if (HasAuthoredSystemicGameplayState(SystemDefinition.SystemicGameplay))
+	{
+		if (!ValidateLoadedSystemicState(SystemDefinition, SystemDefinition.SystemicGameplay, OutError))
+		{
+			OutError = FString::Printf(TEXT("Authored systemic gameplay state is invalid: %s"), *OutError);
+			return false;
+		}
+		OutSystemicState = SystemDefinition.SystemicGameplay;
+		return true;
+	}
+
+	OutSystemicState = FSystemicGameplayState();
+	return true;
+}
+
 bool UStargameSessionSubsystem::RestoreSavedShipLocation(const FShipSaveLocation& ShipLocation, APlayerController* PlayerController, FString& OutError)
 {
 	if (ShipLocation.LocationMode == EShipLocationMode::Respawn)
@@ -554,8 +957,8 @@ bool UStargameSessionSubsystem::RestoreSavedShipLocation(const FShipSaveLocation
 		return true;
 	}
 
-	APawn* Pawn = PlayerController ? PlayerController->GetPawn() : nullptr;
-	ASpaceFlightPawn* FlightPawn = Cast<ASpaceFlightPawn>(Pawn);
+	UWorld* World = ResolveSessionWorld();
+	ASpaceFlightPawn* FlightPawn = ResolveSpaceFlightPawn(World, PlayerController);
 	if (!FlightPawn)
 	{
 		OutError = TEXT("Saved ship location requires a space flight pawn.");
@@ -583,7 +986,37 @@ bool UStargameSessionSubsystem::RestoreSavedShipLocation(const FShipSaveLocation
 		return true;
 	}
 
-	if (ShipLocation.LocationMode == EShipLocationMode::FreeFlight || ShipLocation.LocationMode == EShipLocationMode::GateArrival)
+	if (ShipLocation.LocationMode == EShipLocationMode::GateArrival)
+	{
+		if (ShipLocation.SystemId != CurrentSystemId)
+		{
+			OutError = FString::Printf(TEXT("Saved gate arrival system '%s' does not match loaded system '%s'."),
+				*ShipLocation.SystemId.ToString(),
+				*CurrentSystemId.ToString());
+			return false;
+		}
+
+		const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+		if (!StarSystem || StarSystem->GetActiveSystemId() != CurrentSystemId)
+		{
+			OutError = TEXT("Saved gate arrival requires the destination system to be active.");
+			return false;
+		}
+
+		FTransform ArrivalTransform;
+		FVector ArrivalVelocityCmPerSec = FVector::ZeroVector;
+		if (!ResolveGateArrivalLocation(StarSystem->GetActiveSystemDefinition(), ShipLocation, ArrivalTransform, ArrivalVelocityCmPerSec, OutError))
+		{
+			return false;
+		}
+
+		FlightPawn->SetFlightTestTransformAndVelocity(ArrivalTransform, ShipLocation.LinearVelocityCmPerSec + ArrivalVelocityCmPerSec);
+		bHasPendingGateArrival = true;
+		PendingGateArrivalLocation = ShipLocation;
+		return true;
+	}
+
+	if (ShipLocation.LocationMode == EShipLocationMode::FreeFlight)
 	{
 		if (ShipLocation.SystemId != CurrentSystemId)
 		{
@@ -593,8 +1026,7 @@ bool UStargameSessionSubsystem::RestoreSavedShipLocation(const FShipSaveLocation
 			return false;
 		}
 		const bool bSystemFrame = ShipLocation.CoordinateFrame.FrameType == FName(TEXT("system_barycentric")) && ShipLocation.CoordinateFrame.AnchorId == CurrentSystemId;
-		const bool bLegacySystemAnchoredFreeFlight = ShipLocation.CoordinateFrame.FrameType == FName(TEXT("local_free_flight")) && ShipLocation.CoordinateFrame.AnchorId == CurrentSystemId;
-		if (!bSystemFrame && !bLegacySystemAnchoredFreeFlight)
+		if (!bSystemFrame)
 		{
 			OutError = TEXT("Saved free-flight location must use a system_barycentric coordinate frame.");
 			return false;
@@ -610,6 +1042,40 @@ bool UStargameSessionSubsystem::RestoreSavedShipLocation(const FShipSaveLocation
 	return false;
 }
 
+bool UStargameSessionSubsystem::ResolveGateArrivalLocation(const FStarSystemDefinition& SystemDefinition, const FShipSaveLocation& GateArrivalLocation, FTransform& OutTransform, FVector& OutVelocityCmPerSec, FString& OutError) const
+{
+	if (GateArrivalLocation.LocationMode != EShipLocationMode::GateArrival)
+	{
+		OutError = TEXT("Gate arrival resolver requires a gate_arrival save location.");
+		return false;
+	}
+	if (GateArrivalLocation.GateArrivalId.IsNone() || GateArrivalLocation.AnchorId.IsNone())
+	{
+		OutError = TEXT("Gate arrival save location is missing arrival or gate ID.");
+		return false;
+	}
+	if (GateArrivalLocation.CoordinateFrame.FrameType != FName(TEXT("gate_relative")) || GateArrivalLocation.CoordinateFrame.AnchorId != GateArrivalLocation.AnchorId)
+	{
+		OutError = TEXT("Gate arrival save location must use a gate_relative frame anchored to the destination gate.");
+		return false;
+	}
+
+	const FSimulationClockSnapshot ArrivalClock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, GateArrivalLocation.AuthoritativeSimulationTimeSeconds);
+	FFrameResolvedTransform ArrivalFrame;
+	if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, GateArrivalLocation.GateArrivalId, ArrivalClock, ArrivalClock.AuthoritativeSimulationTimeSeconds, ArrivalFrame))
+	{
+		OutError = FString::Printf(TEXT("Gate arrival marker '%s' could not be resolved in system '%s'."),
+			*GateArrivalLocation.GateArrivalId.ToString(),
+			*SystemDefinition.SystemId.ToString());
+		return false;
+	}
+
+	OutTransform = FTransform(ArrivalFrame.Rotation, ArrivalFrame.PositionCm);
+	OutVelocityCmPerSec = ArrivalFrame.LinearVelocityCmPerSec;
+	OutError.Reset();
+	return true;
+}
+
 FString UStargameSessionSubsystem::GetM0DebugSummary() const
 {
 	const FString SaveSlotStatus = UGameplayStatics::DoesSaveGameExist(DevelopmentSlotName, 0)
@@ -617,7 +1083,7 @@ FString UStargameSessionSubsystem::GetM0DebugSummary() const
 		: TEXT("missing");
 
 	return FString::Printf(
-		TEXT("StartProfile=%s\nCurrentSystem=%s\nSpawnZone=%s\nSelectedTarget=%s\nClockOwner=%s\nSimulationTimeSeconds=%.2f\nLastStartResult=%d\nLastSessionError=%s\nSaveSlot=%s"),
+		TEXT("StartProfile=%s\nCurrentSystem=%s\nSpawnZone=%s\nSelectedTarget=%s\nClockOwner=%s\nSimulationTimeSeconds=%.2f\nLastStartResult=%d\nLastSessionError=%s\nSaveSlot=%s\nGateTransitionSource=%s\nGateTransitionDestination=%s\nGateTransitionArrival=%s\nGateTransitionFrame=%s\nGateTransitionFailure=%s\nGateTransitionElapsedSeconds=%.2f"),
 		*StartProfileId.ToString(),
 		*CurrentSystemId.ToString(),
 		*CurrentSpawnZoneId.ToString(),
@@ -626,16 +1092,20 @@ FString UStargameSessionSubsystem::GetM0DebugSummary() const
 		ClockSnapshot.AuthoritativeSimulationTimeSeconds,
 		static_cast<int32>(LastStartSessionResult),
 		*LastSessionError,
-		*SaveSlotStatus);
+		*SaveSlotStatus,
+		*LastGateTransitionResult.SourceGateId.ToString(),
+		*LastGateTransitionResult.DestinationSystemId.ToString(),
+		*LastGateTransitionResult.DestinationArrivalId.ToString(),
+		*LastGateTransitionResult.ArrivalFrame.ToString(),
+		*LastGateTransitionResult.FailureReason,
+		LastGateTransitionResult.ElapsedTransitionSeconds);
 }
 
 bool UStargameSessionSubsystem::BuildAndSpawnFromStartProfile(const FStartProfileDefinition& StartProfile)
 {
 	FStarSystemDefinition SystemDefinition;
-	UStarCatalogSubsystem* Catalog = GetGameInstance() ? GetGameInstance()->GetSubsystem<UStarCatalogSubsystem>() : nullptr;
-	const bool bResolvedSystem = Catalog
-		? Catalog->ResolveSystemDefinition(StartProfile.SystemId, SystemDefinition)
-		: FFrontierTestFixtureProvider::ResolveSystemDefinition(StartProfile.SystemId, SystemDefinition);
+	UStarCatalogSubsystem* Catalog = ResolveCatalogSubsystem();
+	const bool bResolvedSystem = Catalog && Catalog->ResolveSystemDefinition(StartProfile.SystemId, SystemDefinition);
 	if (!bResolvedSystem)
 	{
 		LastStartSessionResult = EStartSessionResult::MissingSystemDefinition;
@@ -644,14 +1114,21 @@ bool UStargameSessionSubsystem::BuildAndSpawnFromStartProfile(const FStartProfil
 	}
 
 	FString ValidationError;
-	if (!ValidateNativeFallbackFixture(Catalog, SystemDefinition, ValidationError))
+	if (!ValidateResolvedSystemDefinitionForRuntime(Catalog, SystemDefinition, ValidationError))
+	{
+		LastStartSessionResult = EStartSessionResult::ValidationFailed;
+		ReportStartupError(ValidationError);
+		return false;
+	}
+	FSystemicGameplayState InitialSystemicState;
+	if (!ResolveRuntimeSystemicState(SystemDefinition, nullptr, InitialSystemicState, ValidationError))
 	{
 		LastStartSessionResult = EStartSessionResult::ValidationFailed;
 		ReportStartupError(ValidationError);
 		return false;
 	}
 
-	UWorld* World = GetWorld();
+	UWorld* World = ResolveSessionWorld();
 	UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
 	if (!StarSystem)
 	{
@@ -687,16 +1164,28 @@ bool UStargameSessionSubsystem::BuildAndSpawnFromStartProfile(const FStartProfil
 	ActiveTrafficState.Ships = SystemDefinition.LogicalTraffic;
 	ActiveTrafficState.Groups = SystemDefinition.ShipGroups;
 	ULogicalTrafficQueryService::RefreshTransientRouteSamples(SystemDefinition, ClockSnapshot, ClockSnapshot.AuthoritativeSimulationTimeSeconds, ActiveTrafficState);
-	SystemicGameplayState = USystemicGameplayQueryService::MakeM9FixtureState(SystemDefinition);
+	SystemicGameplayState = InitialSystemicState;
+	bHasPendingGateArrival = false;
+	PendingGateArrivalLocation = FShipSaveLocation();
 
 	TSubclassOf<APawn> PawnClass = nullptr;
-	if (Catalog)
+	FShipArchetypeDefinition Ship;
+	if (!Catalog || !Catalog->ResolveShipArchetype(StartProfile.ShipArchetypeId, Ship))
 	{
-		FShipArchetypeDefinition Ship;
-		if (Catalog->ResolveShipArchetype(StartProfile.ShipArchetypeId, Ship))
-		{
-			PawnClass = Ship.PawnClass.LoadSynchronous();
-		}
+		LastStartSessionResult = EStartSessionResult::ValidationFailed;
+		ReportStartupError(FString::Printf(TEXT("Missing ship archetype '%s'."), *StartProfile.ShipArchetypeId.ToString()));
+		StarSystem->TearDownActiveSystem();
+		ClearSessionState();
+		return false;
+	}
+	PawnClass = Ship.PawnClass.LoadSynchronous();
+	if (!PawnClass)
+	{
+		LastStartSessionResult = EStartSessionResult::ValidationFailed;
+		ReportStartupError(FString::Printf(TEXT("Ship archetype '%s' has no authored pawn class."), *StartProfile.ShipArchetypeId.ToString()));
+		StarSystem->TearDownActiveSystem();
+		ClearSessionState();
+		return false;
 	}
 
 	APlayerController* PlayerController = World->GetFirstPlayerController();
@@ -708,6 +1197,7 @@ bool UStargameSessionSubsystem::BuildAndSpawnFromStartProfile(const FStartProfil
 		ClearSessionState();
 		return false;
 	}
+	ActivePlayerPawnClass = PawnClass;
 
 	return true;
 }
@@ -725,4 +1215,10 @@ void UStargameSessionSubsystem::ReportStartupError(const FString& Error)
 			FColor::Red,
 			FString::Printf(TEXT("Stargame startup error: %s"), *LastSessionError));
 	}
+}
+
+void UStargameSessionSubsystem::ReportSessionFailure(const FString& Error)
+{
+	LastSessionError = Error;
+	UE_LOG(LogStargameStartup, Warning, TEXT("%s"), *LastSessionError);
 }

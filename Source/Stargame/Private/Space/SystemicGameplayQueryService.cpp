@@ -522,6 +522,82 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM10FixtureState(const 
 	return State;
 }
 
+FSystemicGameplayState USystemicGameplayQueryService::MakeM10_5FixtureState(const FStarSystemDefinition& SystemDefinition)
+{
+	if (!SystemDefinition.SystemicGameplay.ThreatRecords.IsEmpty() &&
+		!SystemDefinition.SystemicGameplay.ShipDurabilityStates.IsEmpty() &&
+		!SystemDefinition.SystemicGameplay.DamageEvents.IsEmpty())
+	{
+		return SystemDefinition.SystemicGameplay;
+	}
+
+	FSystemicGameplayState State = MakeM10FixtureState(SystemDefinition);
+	const FName RouteId(TEXT("m7_brink_watch_wayfarer_trade"));
+	const FName SourceEventId(TEXT("event_m10_pirate_trade_lane_01"));
+	const FName ThreatId(TEXT("threat_m11_pirate_trade_lane_01"));
+
+	FThreatRecord Threat;
+	Threat.ThreatId = ThreatId;
+	Threat.AttackerId = TEXT("pirate_raider_01");
+	Threat.DefenderId = TEXT("trader_brink_01");
+	Threat.LastKnownTarget.TargetId = RouteId;
+	Threat.LastKnownTarget.TargetType = TEXT("route_sample");
+	Threat.LastKnownTarget.RouteSegmentId = RouteId;
+	Threat.LastKnownTarget.RouteProgress01 = 0.55;
+	Threat.Severity = 0.7;
+	Threat.Confidence = 0.9;
+	Threat.ExpiresAtTimeSeconds = 600.0;
+	Threat.SourceEventId = SourceEventId;
+	Threat.IdempotencyKey = TEXT("idem_m10_5_threat_pirate_trade_lane_01");
+	State.ThreatRecords.Add(Threat);
+
+	auto AddDurability = [&State](FName ShipId)
+	{
+		FShipDurabilityState Durability;
+		Durability.DurabilityId = MakeId(TEXT("durability"), ShipId);
+		Durability.CombatantId = ShipId;
+		Durability.Shield = 100.0;
+		Durability.Hull = 100.0;
+		Durability.State = TEXT("active");
+		Durability.bCanSurrender = ShipId == FName(TEXT("trader_brink_01"));
+		Durability.bCanEscape = ShipId == FName(TEXT("trader_brink_01"));
+		Durability.IdempotencyKey = MakeId(TEXT("idem_durability"), ShipId);
+		State.ShipDurabilityStates.Add(Durability);
+	};
+	AddDurability(TEXT("trader_brink_01"));
+	AddDurability(TEXT("pirate_raider_01"));
+	AddDurability(TEXT("patrol_frontier_local_01"));
+
+	FDamageEventRecord Damage;
+	Damage.DamageEventId = TEXT("damage_m10_5_pirate_warning_shot_01");
+	Damage.SourceCombatantId = TEXT("pirate_raider_01");
+	Damage.TargetCombatantId = TEXT("trader_brink_01");
+	Damage.DamageType = TEXT("kinetic_warning");
+	Damage.Amount = 12.0;
+	Damage.AuthorityTimeSeconds = 60.0;
+	Damage.ResultState = TEXT("applied");
+	Damage.ThreatId = ThreatId;
+	Damage.IdempotencyKey = TEXT("idem_m10_5_damage_warning_shot_01");
+	State.DamageEvents.Add(Damage);
+
+	FRealizedAISteeringIntent AttackIntent;
+	AttackIntent.IntentId = TEXT("attack_intent_m10_5_pirate_trade_lane_01");
+	AttackIntent.ShipInstanceId = TEXT("pirate_raider_01");
+	AttackIntent.IntentType = TEXT("attack");
+	AttackIntent.TargetShipId = TEXT("trader_brink_01");
+	AttackIntent.TargetGroupId = TEXT("pirate_group_01");
+	AttackIntent.RouteSegmentId = RouteId;
+	AttackIntent.ThreatId = ThreatId;
+	AttackIntent.TargetFrame.TargetId = RouteId;
+	AttackIntent.TargetFrame.TargetType = TEXT("route_sample");
+	AttackIntent.TargetFrame.RouteSegmentId = RouteId;
+	AttackIntent.TargetFrame.RouteProgress01 = 0.55;
+	AttackIntent.IdempotencyKey = TEXT("idem_m10_5_attack_intent_pirate_trade_lane_01");
+	State.RealizedSteeringIntents.Add(AttackIntent);
+
+	return State;
+}
+
 FSystemicGameplayState USystemicGameplayQueryService::MakeM11FixtureState(const FStarSystemDefinition& SystemDefinition)
 {
 	if (!SystemDefinition.SystemicGameplay.RealizedActorBudgetProfiles.IsEmpty())
@@ -529,7 +605,7 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM11FixtureState(const 
 		return SystemDefinition.SystemicGameplay;
 	}
 
-	FSystemicGameplayState State = MakeM10FixtureState(SystemDefinition);
+	FSystemicGameplayState State = MakeM10_5FixtureState(SystemDefinition);
 	const FName RouteId(TEXT("m7_brink_watch_wayfarer_trade"));
 	const FName EncounterId(TEXT("encounter_pirate_trade_lane_01"));
 	const FName SourceEventId(TEXT("event_m10_pirate_trade_lane_01"));
@@ -650,50 +726,6 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM11FixtureState(const 
 	AddHook(TEXT("hook_m11_pirate_demand"), TEXT("pirate_demand"), TEXT("msg_pirate_demand_01"), TEXT("pirate_raider_01"), TEXT("trader_brink_01"));
 	AddHook(TEXT("hook_m11_distress"), TEXT("distress"), TEXT("msg_distress_trade_lane_01"), TEXT("trader_brink_01"), TEXT("patrol_frontier_local_01"));
 	AddHook(TEXT("hook_m11_flee_surrender"), TEXT("flee_surrender"), TEXT("msg_flee_surrender_01"), TEXT("trader_brink_01"), TEXT("pirate_raider_01"));
-
-	FThreatRecord Threat;
-	Threat.ThreatId = ThreatId;
-	Threat.AttackerId = TEXT("pirate_raider_01");
-	Threat.DefenderId = TEXT("trader_brink_01");
-	Threat.LastKnownTarget.TargetId = RouteId;
-	Threat.LastKnownTarget.TargetType = TEXT("route_sample");
-	Threat.LastKnownTarget.RouteSegmentId = RouteId;
-	Threat.LastKnownTarget.RouteProgress01 = 0.55;
-	Threat.Severity = 0.7;
-	Threat.Confidence = 0.9;
-	Threat.ExpiresAtTimeSeconds = 600.0;
-	Threat.SourceEventId = SourceEventId;
-	Threat.IdempotencyKey = TEXT("idem_m11_threat_pirate_trade_lane_01");
-	State.ThreatRecords.Add(Threat);
-
-	auto AddDurability = [&State](FName ShipId)
-	{
-		FShipDurabilityState Durability;
-		Durability.DurabilityId = MakeId(TEXT("durability"), ShipId);
-		Durability.CombatantId = ShipId;
-		Durability.Shield = 100.0;
-		Durability.Hull = 100.0;
-		Durability.State = TEXT("active");
-		Durability.bCanSurrender = ShipId == FName(TEXT("trader_brink_01"));
-		Durability.bCanEscape = ShipId == FName(TEXT("trader_brink_01"));
-		Durability.IdempotencyKey = MakeId(TEXT("idem_durability"), ShipId);
-		State.ShipDurabilityStates.Add(Durability);
-	};
-	AddDurability(TEXT("trader_brink_01"));
-	AddDurability(TEXT("pirate_raider_01"));
-	AddDurability(TEXT("patrol_frontier_local_01"));
-
-	FDamageEventRecord Damage;
-	Damage.DamageEventId = TEXT("damage_m11_pirate_warning_shot_01");
-	Damage.SourceCombatantId = TEXT("pirate_raider_01");
-	Damage.TargetCombatantId = TEXT("trader_brink_01");
-	Damage.DamageType = TEXT("kinetic_warning");
-	Damage.Amount = 12.0;
-	Damage.AuthorityTimeSeconds = 60.0;
-	Damage.ResultState = TEXT("applied");
-	Damage.ThreatId = ThreatId;
-	Damage.IdempotencyKey = TEXT("idem_m11_damage_warning_shot_01");
-	State.DamageEvents.Add(Damage);
 
 	return State;
 }
@@ -1537,6 +1569,144 @@ bool USystemicGameplayQueryService::ValidateLogicalEncounterState(const FStarSys
 		}
 		PromotionIds.Add(Promotion.PromotionId);
 		PromotionIdempotencyKeys.Add(Promotion.IdempotencyKey);
+	}
+
+	OutFailureReason.Reset();
+	return true;
+}
+
+bool USystemicGameplayQueryService::ValidateCombatDamageThreatState(const FStarSystemDefinition& SystemDefinition, const FSystemicGameplayState& State, FString& OutFailureReason)
+{
+	if (!ValidateLogicalEncounterState(SystemDefinition, State, OutFailureReason))
+	{
+		return false;
+	}
+
+	auto Fail = [&OutFailureReason](const FString& Reason)
+	{
+		OutFailureReason = Reason;
+		return false;
+	};
+
+	TSet<FName> ShipIds;
+	TSet<FName> GroupIds;
+	TSet<FName> RouteIds;
+	TSet<FName> CombatantIds;
+	CombatantIds.Add(TEXT("player_ship"));
+	for (const FShipTrafficInstance& Ship : SystemDefinition.LogicalTraffic)
+	{
+		ShipIds.Add(Ship.ShipInstanceId);
+		CombatantIds.Add(Ship.ShipInstanceId);
+	}
+	for (const FShipGroupState& Group : SystemDefinition.ShipGroups)
+	{
+		GroupIds.Add(Group.GroupId);
+	}
+	for (const FTrafficRouteSegmentDefinition& Route : SystemDefinition.TrafficRoutes)
+	{
+		RouteIds.Add(Route.RouteSegmentId);
+	}
+	for (const FRealizedActorMappingRecord& Mapping : State.RealizedActorMappings)
+	{
+		if (!Mapping.ShipInstanceId.IsNone())
+		{
+			CombatantIds.Add(Mapping.ShipInstanceId);
+		}
+	}
+
+	TSet<FName> ThreatIds;
+	TSet<FName> ThreatIdempotencyKeys;
+	for (const FThreatRecord& Threat : State.ThreatRecords)
+	{
+		if (Threat.ThreatId.IsNone() || ThreatIds.Contains(Threat.ThreatId) ||
+			Threat.IdempotencyKey.IsNone() || ThreatIdempotencyKeys.Contains(Threat.IdempotencyKey) ||
+			!CombatantIds.Contains(Threat.AttackerId) || !CombatantIds.Contains(Threat.DefenderId) ||
+			Threat.LastKnownTarget.TargetType != FName(TEXT("route_sample")) ||
+			!RouteIds.Contains(Threat.LastKnownTarget.RouteSegmentId) ||
+			Threat.Severity <= 0.0 || Threat.Confidence <= 0.0 || Threat.ExpiresAtTimeSeconds <= 0.0)
+		{
+			return Fail(FString::Printf(TEXT("M10.5 threat '%s' must use stable combatant IDs, route-frame target, severity, confidence, expiry, and unique idempotency."), *Threat.ThreatId.ToString()));
+		}
+		ThreatIds.Add(Threat.ThreatId);
+		ThreatIdempotencyKeys.Add(Threat.IdempotencyKey);
+	}
+	if (ThreatIds.IsEmpty())
+	{
+		return Fail(TEXT("M10.5 requires at least one threat record."));
+	}
+
+	TSet<FName> DurabilityIds;
+	TSet<FName> DurabilityIdempotencyKeys;
+	TSet<FName> DurabilityCombatants;
+	for (const FShipDurabilityState& Durability : State.ShipDurabilityStates)
+	{
+		if (Durability.DurabilityId.IsNone() || DurabilityIds.Contains(Durability.DurabilityId) ||
+			Durability.IdempotencyKey.IsNone() || DurabilityIdempotencyKeys.Contains(Durability.IdempotencyKey) ||
+			!CombatantIds.Contains(Durability.CombatantId) || Durability.Shield < 0.0 || Durability.Hull < 0.0)
+		{
+			return Fail(FString::Printf(TEXT("M10.5 durability '%s' must resolve to a player, logical NPC, or realized combatant with shield/hull state."), *Durability.DurabilityId.ToString()));
+		}
+		DurabilityIds.Add(Durability.DurabilityId);
+		DurabilityIdempotencyKeys.Add(Durability.IdempotencyKey);
+		DurabilityCombatants.Add(Durability.CombatantId);
+	}
+	if (DurabilityCombatants.IsEmpty())
+	{
+		return Fail(TEXT("M10.5 requires durability state for damageable combatants."));
+	}
+
+	TSet<FName> DamageIds;
+	TSet<FName> DamageIdempotencyKeys;
+	for (const FDamageEventRecord& Damage : State.DamageEvents)
+	{
+		if (Damage.DamageEventId.IsNone() || DamageIds.Contains(Damage.DamageEventId) ||
+			Damage.IdempotencyKey.IsNone() || DamageIdempotencyKeys.Contains(Damage.IdempotencyKey) ||
+			!DurabilityCombatants.Contains(Damage.SourceCombatantId) ||
+			!DurabilityCombatants.Contains(Damage.TargetCombatantId) ||
+			Damage.DamageType.IsNone() || Damage.Amount <= 0.0 || Damage.AuthorityTimeSeconds < 0.0 ||
+			!ThreatIds.Contains(Damage.ThreatId))
+		{
+			return Fail(FString::Printf(TEXT("M10.5 damage event '%s' must include stable IDs, source/target durability, damage type, amount, authority time, threat, and unique idempotency."), *Damage.DamageEventId.ToString()));
+		}
+		DamageIds.Add(Damage.DamageEventId);
+		DamageIdempotencyKeys.Add(Damage.IdempotencyKey);
+	}
+	if (DamageIds.IsEmpty())
+	{
+		return Fail(TEXT("M10.5 requires at least one damage event record."));
+	}
+
+	TSet<FName> IntentIds;
+	TSet<FName> IntentIdempotencyKeys;
+	bool bHasAttackIntent = false;
+	for (const FRealizedAISteeringIntent& Intent : State.RealizedSteeringIntents)
+	{
+		if (Intent.IntentId.IsNone() || IntentIds.Contains(Intent.IntentId) ||
+			Intent.IdempotencyKey.IsNone() || IntentIdempotencyKeys.Contains(Intent.IdempotencyKey))
+		{
+			return Fail(FString::Printf(TEXT("M10.5 attack intent '%s' must have unique intent and idempotency IDs."), *Intent.IntentId.ToString()));
+		}
+		IntentIds.Add(Intent.IntentId);
+		IntentIdempotencyKeys.Add(Intent.IdempotencyKey);
+
+		if (Intent.IntentType != FName(TEXT("attack")))
+		{
+			continue;
+		}
+		if (!CombatantIds.Contains(Intent.ShipInstanceId) ||
+			(!Intent.TargetShipId.IsNone() && !CombatantIds.Contains(Intent.TargetShipId)) ||
+			(!Intent.TargetGroupId.IsNone() && !GroupIds.Contains(Intent.TargetGroupId)) ||
+			!ThreatIds.Contains(Intent.ThreatId) ||
+			Intent.TargetFrame.TargetType != FName(TEXT("route_sample")) ||
+			!RouteIds.Contains(Intent.TargetFrame.RouteSegmentId))
+		{
+			return Fail(FString::Printf(TEXT("M10.5 attack intent '%s' must bind combatant IDs, threat, and a route-frame target without static world-space coupling."), *Intent.IntentId.ToString()));
+		}
+		bHasAttackIntent = true;
+	}
+	if (!bHasAttackIntent)
+	{
+		return Fail(TEXT("M10.5 requires an abstract attack intent consumable by logical and realized combat."));
 	}
 
 	OutFailureReason.Reset();

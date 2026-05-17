@@ -1,8 +1,8 @@
 # Future Systems Support
 
-This document lists the major game systems the architecture must support later, even when they are not part of M0.
+This document lists the major game systems the architecture must support later, even when they are not part of the current playable foundation.
 
-The rule is: do not build these systems early, but do not make M0/M1 decisions that block them.
+The rule is: do not build these systems before they have a gameplay use, but do not make foundation decisions that block them.
 
 NPC traffic, distant sectors, and economy simulation are covered in more detail by `simulation-tiering-and-economy.md`. Space AI that operates over moving Kepler/orbital frames is covered by `space-ai-and-dynamic-orbits.md`. Legal, faction, market, inventory, comms, and mission foundation contracts are covered by `systemic-gameplay-foundations.md`.
 
@@ -22,7 +22,7 @@ Required architectural support:
 - docking state
 - current system and logical ship location
 
-M0 only proves basic flight input still works.
+The current foundation proves basic flight input still works.
 
 ### FPS Station Mode
 
@@ -496,7 +496,7 @@ Required architectural support:
 - route affordability checks
 - consumable degradation and replenishment
 
-Even if M0 ignores fuel, route and service architecture should not assume travel is always free.
+Even if the current foundation ignores fuel, route and service architecture should not assume travel is always free.
 
 ### Death, Failure, And Respawn
 
@@ -513,9 +513,9 @@ Required architectural support:
 
 This is a cross-system contract, not just a combat feature.
 
-## Post-M12 Playable Loop Support
+## Playable Loop Support
 
-After M12, the expected playable loop is not just realized ships. The architecture must support a route-to-service-to-encounter-to-resolution loop using systemic records:
+The expected playable loop is not just realized ships. The architecture must support a route-to-service-to-encounter-to-resolution loop using systemic records:
 
 1. generated or authored markets expose cargo opportunities through station service endpoints
 2. generated or authored routes connect stations with route value, travel windows, and security/risk state
@@ -546,7 +546,7 @@ These were not explicit in the list, but the architecture should leave room for 
 - **Time simulation/update cadence:** global economy and NPC jobs need updates without all actors loaded.
 - **Content validation:** all quests, stations, markets, factions, routes, and item references need validation.
 - **Station service endpoint contracts:** menus and FPS interiors need shared service transactions, not parallel implementations.
-- **Generated gameplay pass:** generated systems need systemic markets, routes, jurisdictions, patrols, ambushes, factions, services, and mission seeds before they support the post-M12 loop.
+- **Generated gameplay pass:** generated systems need systemic markets, routes, jurisdictions, patrols, ambushes, factions, services, and mission seeds before they support the playable loop.
 - **Gameplay transaction commit journal:** cross-system actions need prepare/commit/recovery phases, ordered side effects, and idempotent result records.
 - **Ship instance resources:** repair/refuel/rearm require saved durability, loadout resource, and service result records.
 - **Generated follow-up validation:** event-created missions, tips, bounties, and patrol requests need validation before they enter offer pools.
@@ -649,4 +649,4 @@ The early architecture must preserve these stable reference types:
 - message arbitration result ID
 - generated follow-up opportunity ID
 
-M0 does not implement these systems. M0 only proves the first thin path: start profile, non-Sol system ID, spawn zone, navigation targets, and save/reload. Later systems must build on the same stable-ID discipline.
+The foundation does not implement every future system. It proves the first thin path: start profile, non-Sol system ID, spawn zone, navigation targets, and save/reload. Later systems must build on the same stable-ID discipline.

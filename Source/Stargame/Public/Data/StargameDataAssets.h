@@ -47,10 +47,22 @@ struct STARGAME_API FRouteGraphEdge
 	GENERATED_BODY()
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Catalog")
+	FName RouteEdgeId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Catalog")
 	FName SourceSystemId;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Catalog")
 	FName DestinationSystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Catalog")
+	FName SourceGateId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Catalog")
+	FName DestinationGateId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Catalog")
+	FName DestinationArrivalId;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Catalog")
 	FName RouteType;

@@ -227,7 +227,7 @@ bool FM0SpawnAndFlightTest::RunTest(const FString& Parameters)
 
 	UStarSystemSubsystem* StarSystem = World->GetSubsystem<UStarSystemSubsystem>();
 	TestTrue(TEXT("BuildSystem succeeds"), StarSystem && StarSystem->BuildSystem(SystemDefinition));
-	TestTrue(TEXT("Spawn player succeeds without controller"), StarSystem && StarSystem->SpawnPlayerAtSpawnZone(FName(TEXT("spawn_deep_space")), nullptr));
+	TestTrue(TEXT("Spawn player succeeds without controller"), StarSystem && StarSystem->SpawnPlayerAtSpawnZone(FName(TEXT("spawn_deep_space")), nullptr, ASpaceFlightPawn::StaticClass()));
 
 	ASpaceFlightPawn* Pawn = nullptr;
 	for (TActorIterator<ASpaceFlightPawn> It(World); It; ++It)
@@ -287,6 +287,52 @@ bool FM0SavePayloadRoundTripTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Loaded selected target ID"), LoadedState.SelectedTargetId, State.SelectedTargetId);
 
 	UGameplayStatics::DeleteGameInSlot(UStargameSessionSubsystem::DevelopmentSlotName, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM0InvalidSystemBuildStopsBeforeSpawnTest,
+	"Stargame.M0.WorldBuild.InvalidDefinitionStopsBeforeSpawn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM0InvalidSystemBuildStopsBeforeSpawnTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = CreateM0TestWorld(TEXT("M0InvalidSystemBuildTest"));
+	TestNotNull(TEXT("World created"), World);
+	if (!World)
+	{
+		return false;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("fixture resolves"), FFrontierTestFixtureProvider::ResolveSystemDefinition(FName(TEXT("frontier_test_01")), SystemDefinition));
+	if (SystemDefinition.Bodies.IsEmpty())
+	{
+		AddError(TEXT("Fixture has no body to duplicate for invalid build test."));
+		return false;
+	}
+
+	FBodyDefinition DuplicateBody = SystemDefinition.Bodies[0];
+	DuplicateBody.DisplayName = FText::FromString(TEXT("Duplicate Ember"));
+	SystemDefinition.Bodies.Add(DuplicateBody);
+
+	UStarSystemSubsystem* StarSystem = World->GetSubsystem<UStarSystemSubsystem>();
+	TestNotNull(TEXT("Star system subsystem exists"), StarSystem);
+	TestFalse(TEXT("BuildSystem rejects duplicate entity IDs"), StarSystem && StarSystem->BuildSystem(SystemDefinition));
+	TestFalse(TEXT("Build is not complete"), StarSystem && StarSystem->IsSystemBuildComplete());
+	TestTrue(TEXT("Build error explains duplicate ID"), StarSystem && StarSystem->GetLastBuildError().Contains(TEXT("Duplicate active system entity ID")));
+
+	TArray<FName> EntityIds;
+	if (StarSystem)
+	{
+		StarSystem->GetRegisteredEntityIds(EntityIds);
+	}
+	TestEqual(TEXT("No active entities registered after invalid build"), EntityIds.Num(), 0);
+
+	const FStargameValidationReport Report = StarSystem ? StarSystem->GetLastBuildValidationReport() : FStargameValidationReport();
+	TestTrue(TEXT("Validation report has blocking issue"), Report.HasBlockingIssues());
+	TestEqual(TEXT("Validation report system"), Report.SystemId, FName(TEXT("frontier_test_01")));
+	TestEqual(TEXT("Validation report result"), Report.ComputeResultType(), EStargameValidationResultType::Invalid);
 	return true;
 }
 

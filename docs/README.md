@@ -1,68 +1,50 @@
 # Stargame Docs
 
-Architecture and build notes for Stargame.
+Architecture and game contracts for Stargame.
 
-## M0 Execution Path
+The current foundation is an authored frontier slice: a non-Sol start profile, one active source system, a destination arrival system reached by gate transition, deterministic frame/scale queries, normal flight, supercruise, docking, generated physical-system support, logical traffic, systemic gameplay records, logical encounters, combat/threat state, realized AI hooks, and a first service-level systemic progression loop. It is engineering-playable and validation-backed, but the player-facing mission, service, market, comms, ledger, and reputation surfaces are still thin.
 
-The current build target is M0: boot a non-Sol test system, spawn the ship, expose stable-ID targets, and prove save/reload.
+The docs are authoritative for gameplay and data contracts. Code should be brought up to the docs when a contract is already documented. When the docs still describe staging history, prefer migrating them toward what the game is instead of adding more chronology.
 
-Read and implement in this order:
+## Current Contract
 
-1. [Build Roadmap](build-roadmap.md) for scope and non-negotiable constraints.
-2. [M0 Implementation Plan](implementation-plan-m0.md) for the exact startup chain, structs, APIs, tests, and current code debt.
-3. [Runtime Architecture](runtime-architecture.md) for subsystem ownership, active system lifecycle, and registry rules.
-4. [C++ And Blueprint Ownership](cpp-blueprint-ownership.md) for what must remain authoritative in C++.
-5. [Frontier Test Fixture](frontier-test-fixture.md) for the literal `frontier_test_01` fixture values.
-6. [System Data Contracts](system-data-contracts.md) for the Unreal-native data shape.
-7. [Content Validation And Tooling](content-validation-and-tooling.md) for the build gate that keeps authored content, fixtures, and MCP-created assets usable by the game.
-8. [Save, Load, And Versioning](save-load-and-versioning.md) for the durable session boundary.
+- Startup resolves `frontier_test_start` into `frontier_test_01`; no runtime path may silently substitute `sol`.
+- Active systems are built from stable gameplay IDs, data assets, and native validation, not actor names or level-script ownership.
+- `frontier_gate_a` transitions to `frontier_arrival_test_01` through catalog data, route-edge data, a destination gate, and a gate-relative arrival marker.
+- Save/load stores logical session state, player ship location, clock state, traffic/systemic state, and pending arrival state through C++ owned structs.
+- Spaceflight is intentionally between Freelancer and KSP: approachable controls and combat, but believable scale, deterministic frames, and data-owned systems.
+- Sol is legacy reference content only. It is not a default, substitution path, required fixture, or foundation target.
 
-Expected first code touch points:
+## Read Order
 
-- `Source/Stargame/Public/Runtime/StargameSessionSubsystem.h`
-- `Source/Stargame/Private/Runtime/StargameSessionSubsystem.cpp`
-- `Source/Stargame/Public/Space/StarSystemSubsystem.h`
-- `Source/Stargame/Private/Space/StarSystemSubsystem.cpp`
-- `Source/Stargame/Private/Core/StargameGameModeBase.cpp`
-- `Source/Stargame/Private/Tests/M0StartupTests.cpp`
+Use these docs as the active architecture set:
 
-The immediate tests should prove `frontier_test_start -> frontier_test_01`, no fallback to `sol`, fixture target registration, and M0 save/reload.
+1. [Runtime Architecture](runtime-architecture.md) for subsystem ownership, active system lifecycle, and registry rules.
+2. [System Data Contracts](system-data-contracts.md) for the Unreal-native data shape.
+3. [Frontier Test Fixture](frontier-test-fixture.md) for literal fixture IDs and authored frontier-system values.
+4. [Content Validation And Tooling](content-validation-and-tooling.md) for the build gate that keeps authored content, fixtures, generated content, and MCP-created assets usable by the game.
+5. [Save, Load, And Versioning](save-load-and-versioning.md) for durable session boundaries.
+6. [Flight, Supercruise, And Docking](flight-supercruise-docking.md) for player flight, travel, docking, and gate-arrival behavior.
+7. [Space AI And Dynamic Orbits](space-ai-and-dynamic-orbits.md) for route prediction, traffic, groups, promotion/demotion, and realized AI.
+8. [Systemic Gameplay Foundations](systemic-gameplay-foundations.md) for legal, economy, mission, services, comms, faction, transaction, and encounter records.
 
-M0 validator scope is intentionally limited at the roadmap/index level: start-profile resolution, non-Sol boot, the M0 fixture slice, stable target IDs, and M0 save/reload. The full content validation program remains in [Content Validation And Tooling](content-validation-and-tooling.md).
-
-## Milestone Spine
-
-Milestone sequencing is owned by [Build Roadmap](build-roadmap.md). Current named gates include M1 System Data Schemas And Registries, M5.5 Gate Transition And Arrival, M10.5 Combat, Damage, And Threat Contract, M11 Realized Space AI Slice, and M12 Playable Systemic Progression. Validation profiles are mapped in [Content Validation And Tooling](content-validation-and-tooling.md), including M2-M8, M5.5, and M10.5.
-
-Milestone implementation should use this read order:
-
-| Milestone | Primary docs | Supporting docs |
-| --- | --- | --- |
-| M0 | Build Roadmap, M0 Implementation Plan, Frontier Test Fixture, System Data Contracts | Runtime Architecture, C++ And Blueprint Ownership, Save Load And Versioning |
-| M1 | Build Roadmap, System Data Contracts, Content Validation And Tooling | Runtime Architecture, Frontier Test Fixture |
-| M2-M5.5 | Build Roadmap, System Data Contracts, Flight Supercruise And Docking, Frontier Test Fixture | Save Load And Versioning, Content Validation And Tooling |
-| M6-M8 | Build Roadmap, Simulation Tiering And Economy, Space AI And Dynamic Orbits | System Data Contracts, Content Validation And Tooling |
-| M9-M10.5 | Systemic Gameplay Foundations, Legal And Crime System, Simulation Tiering And Economy, Space AI And Dynamic Orbits | Save Load And Versioning, Future Systems Support |
-| M11 | Space AI And Dynamic Orbits, Build Roadmap, Content Validation And Tooling | Systemic Gameplay Foundations, Flight Supercruise And Docking |
-| M12 | Build Roadmap, Systemic Gameplay Foundations, Save Load And Versioning, Content Validation And Tooling | Future Systems Support, Legal And Crime System, Simulation Tiering And Economy |
+The historical build sequence remains in [Build Roadmap](build-roadmap.md), but it should not be treated as the primary game design index. As contracts stabilize, move durable game rules into the domain docs above and leave the roadmap as implementation history.
 
 ## Canonical Docs
 
-- [Build Roadmap](build-roadmap.md)
-- [M0 Implementation Plan](implementation-plan-m0.md)
-- [Frontier Test Fixture](frontier-test-fixture.md)
+- [Runtime Architecture](runtime-architecture.md)
 - [System Data Contracts](system-data-contracts.md)
+- [Frontier Test Fixture](frontier-test-fixture.md)
 - [Content Validation And Tooling](content-validation-and-tooling.md)
 - [Save, Load, And Versioning](save-load-and-versioning.md)
 - [Flight, Supercruise, And Docking](flight-supercruise-docking.md)
+- [Space AI And Dynamic Orbits](space-ai-and-dynamic-orbits.md)
 - [Systemic Gameplay Foundations](systemic-gameplay-foundations.md)
-- [Runtime Architecture](runtime-architecture.md)
 - [C++ And Blueprint Ownership](cpp-blueprint-ownership.md)
 
 ## Supporting Architecture
 
 - [Simulation Tiering And Economy](simulation-tiering-and-economy.md)
-- [Space AI And Dynamic Orbits](space-ai-and-dynamic-orbits.md)
 - [Future Systems Support](future-systems-support.md)
 - [Legal And Crime System](legal-crime-system.md)
 - [Planet Rendering Direction](planet-rendering-direction.md)
@@ -70,6 +52,11 @@ Milestone implementation should use this read order:
 ## Tooling
 
 - [Unreal MCP Setup](unreal-mcp.md)
+
+## Historical Planning
+
+- [Build Roadmap](build-roadmap.md)
+- [Startup Implementation Plan](implementation-plan-m0.md)
 
 ## Archive
 
