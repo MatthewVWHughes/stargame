@@ -53,6 +53,12 @@ public:
 	FStargameValidationReport ValidateM8Fixture(FName SystemId) const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
+	FStargameValidationReport ValidateM9Fixture(FName SystemId) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
+	FStargameValidationReport ValidateM10Fixture(FName SystemId) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Catalog")
 	FStargameValidationReport ValidateM6GeneratedSystemDefinition(const FStarSystemDefinition& SystemDefinition) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Catalog")
@@ -76,6 +82,8 @@ private:
 	bool ValidateM6SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
 	bool ValidateM7SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
 	bool ValidateM8SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
+	bool ValidateM9SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
+	bool ValidateM10SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const;
 	bool ValidateShipArchetype(const FStartProfileDefinition& StartProfile, FStargameValidationReport& Report) const;
 	void ResetCatalogCache();
 

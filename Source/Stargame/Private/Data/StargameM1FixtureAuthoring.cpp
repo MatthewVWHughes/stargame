@@ -10,6 +10,7 @@
 #include "Misc/Parse.h"
 #include "Curves/CurveFloat.h"
 #include "Space/LogicalTrafficQueryService.h"
+#include "Space/SystemicGameplayQueryService.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 
@@ -224,6 +225,70 @@ namespace
 		SystemDefinition.LogicalTraffic = M8TrafficState.Ships;
 		SystemDefinition.ShipGroups = M8TrafficState.Groups;
 
+		FShipGoalState PirateGoal;
+		PirateGoal.GoalId = TEXT("m10_pirate_ambush_trade_lane");
+		PirateGoal.GoalKind = EShipGoalKind::Pirate;
+		PirateGoal.RouteSegmentId = TradeRoute.RouteSegmentId;
+		PirateGoal.RouteProgress01 = 0.55;
+		PirateGoal.TargetFrame.TargetId = TradeRoute.RouteSegmentId;
+		PirateGoal.TargetFrame.TargetType = TEXT("route_sample");
+		PirateGoal.TargetFrame.RouteSegmentId = TradeRoute.RouteSegmentId;
+		PirateGoal.TargetFrame.RouteProgress01 = 0.55;
+		PirateGoal.bAutonomousExecutionAllowed = false;
+		PirateGoal.DecisionReason = TEXT("m10_logical_pirate_ambush_policy");
+
+		FShipTrafficInstance PirateShip;
+		PirateShip.ShipInstanceId = TEXT("pirate_raider_01");
+		PirateShip.SystemId = SystemDefinition.SystemId;
+		PirateShip.ShipArchetypeId = TEXT("wayfarer_mk1");
+		PirateShip.CurrentGoal = PirateGoal;
+		PirateShip.GroupId = TEXT("pirate_group_01");
+		PirateShip.FormationSlotId = TEXT("slot_pirate_lead");
+		PirateShip.LogicalLocation = PirateGoal.TargetFrame;
+		PirateShip.LastDecisionReason = PirateGoal.DecisionReason;
+		PirateShip.TrafficTier = ELogicalTrafficTier::Tier2Logical;
+		SystemDefinition.LogicalTraffic.Add(PirateShip);
+
+		FShipGoalState PatrolGoal;
+		PatrolGoal.GoalId = TEXT("m10_patrol_cover_trade_lane");
+		PatrolGoal.GoalKind = EShipGoalKind::Patrol;
+		PatrolGoal.RouteSegmentId = TradeRoute.RouteSegmentId;
+		PatrolGoal.RouteProgress01 = 0.25;
+		PatrolGoal.TargetFrame.TargetId = TradeRoute.RouteSegmentId;
+		PatrolGoal.TargetFrame.TargetType = TEXT("route_sample");
+		PatrolGoal.TargetFrame.RouteSegmentId = TradeRoute.RouteSegmentId;
+		PatrolGoal.TargetFrame.RouteProgress01 = 0.25;
+		PatrolGoal.bAutonomousExecutionAllowed = false;
+		PatrolGoal.DecisionReason = TEXT("m10_logical_patrol_reservation_policy");
+
+		FShipTrafficInstance PatrolShip;
+		PatrolShip.ShipInstanceId = TEXT("patrol_frontier_local_01");
+		PatrolShip.SystemId = SystemDefinition.SystemId;
+		PatrolShip.ShipArchetypeId = TEXT("wayfarer_mk1");
+		PatrolShip.CurrentGoal = PatrolGoal;
+		PatrolShip.GroupId = TEXT("patrol_group_01");
+		PatrolShip.FormationSlotId = TEXT("slot_patrol_lead");
+		PatrolShip.LogicalLocation = PatrolGoal.TargetFrame;
+		PatrolShip.LastDecisionReason = PatrolGoal.DecisionReason;
+		PatrolShip.TrafficTier = ELogicalTrafficTier::Tier2Logical;
+		SystemDefinition.LogicalTraffic.Add(PatrolShip);
+
+		FShipGroupState PirateGroup;
+		PirateGroup.GroupId = TEXT("pirate_group_01");
+		PirateGroup.LeaderShipInstanceId = PirateShip.ShipInstanceId;
+		PirateGroup.GroupRole = TEXT("pirate");
+		PirateGroup.MemberShipInstanceIds = { PirateShip.ShipInstanceId };
+		SystemDefinition.ShipGroups.Add(PirateGroup);
+
+		FShipGroupState PatrolGroup;
+		PatrolGroup.GroupId = TEXT("patrol_group_01");
+		PatrolGroup.LeaderShipInstanceId = PatrolShip.ShipInstanceId;
+		PatrolGroup.GroupRole = TEXT("patrol");
+		PatrolGroup.MemberShipInstanceIds = { PatrolShip.ShipInstanceId };
+		SystemDefinition.ShipGroups.Add(PatrolGroup);
+
+		SystemDefinition.SystemicGameplay = USystemicGameplayQueryService::MakeM10FixtureState(SystemDefinition);
+
 		SystemDefinition.MapEntries.Reset();
 		const TArray<TPair<FName, FName>> MapSources = {
 			{ TEXT("frontier_primary"), TEXT("body") },
@@ -398,18 +463,20 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	const bool bValidateM5 = ProfileString.Equals(TEXT("M5"), ESearchCase::IgnoreCase);
 	const bool bValidateM6 = ProfileString.Equals(TEXT("M6"), ESearchCase::IgnoreCase);
 	const bool bValidateM7 = ProfileString.Equals(TEXT("M7"), ESearchCase::IgnoreCase);
+	const bool bValidateM10 = ProfileString.Equals(TEXT("M10"), ESearchCase::IgnoreCase);
 	const bool bBuildAlias = ProfileString.Equals(TEXT("Build"), ESearchCase::IgnoreCase) ||
 		ProfileString.Equals(TEXT("Cook"), ESearchCase::IgnoreCase) ||
 		ProfileString.Equals(TEXT("MCP"), ESearchCase::IgnoreCase) ||
 		ProfileString.Equals(TEXT("Editor"), ESearchCase::IgnoreCase);
-	const bool bValidateM8 = ProfileString.Equals(TEXT("M8"), ESearchCase::IgnoreCase) || bBuildAlias;
+	const bool bValidateM9 = ProfileString.Equals(TEXT("M9"), ESearchCase::IgnoreCase) || bBuildAlias;
+	const bool bValidateM8 = ProfileString.Equals(TEXT("M8"), ESearchCase::IgnoreCase);
 	const bool bValidateM0 = ProfileString.Equals(TEXT("M0"), ESearchCase::IgnoreCase);
 	if (ProfileString.Equals(TEXT("M5.5"), ESearchCase::IgnoreCase))
 	{
-		UE_LOG(LogTemp, Error, TEXT("Validation profile M5.5 is documented but not implemented in the current M0-M8 branch."));
+		UE_LOG(LogTemp, Error, TEXT("Validation profile M5.5 is documented but not implemented in the current M0-M10 branch."));
 		return 1;
 	}
-	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4 && !bValidateM5 && !bValidateM6 && !bValidateM7 && !bValidateM8)
+	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4 && !bValidateM5 && !bValidateM6 && !bValidateM7 && !bValidateM8 && !bValidateM9 && !bValidateM10)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Unsupported validation profile '%s'."), *ProfileString);
 		return 1;
@@ -438,7 +505,7 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 
 	if (!Catalog->BuildAssetCatalogCache(false))
 	{
-		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM8 ? TEXT("M8") : (bValidateM7 ? TEXT("M7") : (bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))))))));
+		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM10 ? TEXT("M10") : (bValidateM9 ? TEXT("M9") : (bValidateM8 ? TEXT("M8") : (bValidateM7 ? TEXT("M7") : (bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))))))))));
 		return 1;
 	}
 
@@ -457,13 +524,17 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	}
 	else
 	{
-		Report = bValidateM8
+		Report = bValidateM10
+			? Catalog->ValidateM10Fixture(SystemId)
+			: (bValidateM9
+			? Catalog->ValidateM9Fixture(SystemId)
+			: (bValidateM8
 			? Catalog->ValidateM8Fixture(SystemId)
 			: (bValidateM7
 			? Catalog->ValidateM7Fixture(SystemId)
 			: (bValidateM5
 			? Catalog->ValidateM5Fixture(SystemId)
-			: (bValidateM4 ? Catalog->ValidateM4Fixture(SystemId) : (bValidateM3 ? Catalog->ValidateM3Fixture(SystemId) : (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId))))));
+			: (bValidateM4 ? Catalog->ValidateM4Fixture(SystemId) : (bValidateM3 ? Catalog->ValidateM3Fixture(SystemId) : (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId))))))));
 	}
 	for (const FStargameValidationIssue& Issue : Report.Issues)
 	{
@@ -481,6 +552,6 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 		return 1;
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM8 ? TEXT("M8") : (bValidateM7 ? TEXT("M7") : (bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))))))), *Report.SystemId.ToString());
+	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM10 ? TEXT("M10") : (bValidateM9 ? TEXT("M9") : (bValidateM8 ? TEXT("M8") : (bValidateM7 ? TEXT("M7") : (bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))))))))), *Report.SystemId.ToString());
 	return 0;
 }

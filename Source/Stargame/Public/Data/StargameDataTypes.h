@@ -77,7 +77,9 @@ enum class EStargameValidationProfile : uint8
 	M5,
 	M6,
 	M7,
-	M8
+	M8,
+	M9,
+	M10
 };
 
 UENUM(BlueprintType)
@@ -147,6 +149,16 @@ enum class ELogicalTrafficTier : uint8
 {
 	Tier2Logical,
 	Tier1Realized
+};
+
+UENUM(BlueprintType)
+enum class ESystemicActionResult : uint8
+{
+	Accepted,
+	Rejected,
+	Partial,
+	Pending,
+	Duplicate
 };
 
 USTRUCT(BlueprintType)
@@ -1491,6 +1503,1446 @@ struct STARGAME_API FLogicalTrafficDebugView
 };
 
 USTRUCT(BlueprintType)
+struct STARGAME_API FSystemicTargetRef
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	FName TargetType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	FName TargetId;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSimulationEventRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName EventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName SystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName EventType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName SourceType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName SourceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName TargetType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName TargetId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FMovingFrameTarget LocationTarget;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	TArray<FName> ParticipantShipIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	TArray<FName> ParticipantGroupIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName PayloadRef;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	double CreatedTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	double ScheduledTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	double ExpiryTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName RngStreamId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	int64 RngCounter = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName IdempotencyKey;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	int64 ProcessedEventWatermark = 0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSimulationEventResultRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName EventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName ResultId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	double AppliedTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName OutcomeType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	TArray<FName> AffectedStateRefs;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FString DebugReason;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Event")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FGameplayTransactionRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName TransactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName TransactionType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName InitiatorType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName InitiatorId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName TargetType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName TargetId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName State = TEXT("preparing");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName IdempotencyKey;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	double CreatedTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	double LastChangedTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FString DebugReason;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FGameplayTransactionJournalEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName JournalEntryId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName TransactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	int32 Sequence = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName Phase;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName SideEffectType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName SideEffectRefId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName State = TEXT("pending");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FName IdempotencyKey;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	double AppliedTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Transaction")
+	FString DebugReason;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FCreditAccountRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName AccountId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName OwnerType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName OwnerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName CurrencyId = TEXT("credits");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	int64 AvailableBalance = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	int64 HeldBalance = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName AccountState = TEXT("active");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName LastLedgerEntryId;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FCreditLedgerEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName LedgerEntryId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName DebitAccountId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName CreditAccountId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	int64 Amount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName CurrencyId = TEXT("credits");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName Reason;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName SourceTransactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName IdempotencyKey;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	double AppliedTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName State = TEXT("pending");
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FEscrowHoldRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName EscrowId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName HoldingAccountId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName BeneficiaryAccountId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	int64 Amount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName CurrencyId = TEXT("credits");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName Reason;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName State = TEXT("held");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Credits")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FFactionDefinition
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	FName FactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	FName FactionType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	FName DefaultLawProfileId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	FName RelationshipGroupId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	bool bCanOwnStations = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	bool bCanOwnShips = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	bool bCanIssueMissions = false;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FFactionRelationshipRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	FName SourceFactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	FName TargetFactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	double Standing = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	FName HostilityState = TEXT("neutral");
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FFactionOperationalState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	FName FactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	FName SystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	FName ZoneId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	double Influence = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	double SecurityPressure = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	double CriminalPressure = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	TArray<FName> PatrolAssetIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	int32 AvailablePatrolBudget = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	int32 ReservedPatrolBudget = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Faction")
+	FName AlertLevel = TEXT("normal");
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FJurisdictionDefinition
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName JurisdictionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName AuthorityFactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName SystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName LawProfileId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	int32 Priority = 0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FOffenseEvent
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName OffenseId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName OffenderType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName OffenderId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName VictimType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName VictimId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName JurisdictionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName OffenseType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	double OccurredTimeSeconds = 0.0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FEvidenceRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName EvidenceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName OffenseId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName WitnessType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName WitnessId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName EvidenceState = TEXT("reported");
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FCriminalRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName CriminalRecordId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName SubjectType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName SubjectId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	FName JurisdictionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	int32 WantedLevel = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Legal")
+	TArray<FName> OffenseIds;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FItemDefinition
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName ItemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName ItemType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	int32 StackLimit = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	double MassPerUnitKg = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	double VolumePerUnitM3 = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	int64 BaseValue = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FGameplayTagContainer LegalityTags;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FItemStackState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName StackId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName ItemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	int32 Quantity = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FGameplayTagContainer Flags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName OwnerFactionId;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FContainerState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName ContainerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName OwnerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName LocationType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName LocationId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	double CapacityMassKg = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	double CapacityVolumeM3 = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	TArray<FItemStackState> Stacks;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FCargoTransferRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName RequestId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName SourceContainerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName DestinationContainerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName ExpectedSourceOwnerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName ExpectedDestinationOwnerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	TArray<FName> StackIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName ItemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	int32 Quantity = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName Reason;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName LegalContextId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FCargoTransferResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName TransferId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName RequestId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	ESystemicActionResult Result = ESystemicActionResult::Rejected;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	TArray<FName> MovedStackIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	TArray<FName> CreatedStackIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FString RejectedReason;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Inventory")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FCommodityDefinition
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName CommodityId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	int64 BasePrice = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	double MassPerUnitKg = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	double VolumePerUnitM3 = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName Category;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FGameplayTagContainer LegalityTags;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FCommodityItemBridge
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName CommodityItemBridgeId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName CommodityId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName ItemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName BridgePolicy = TEXT("carried_stack");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	bool bMarketTradable = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	bool bCargoHoldStorable = true;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FStationMarketState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName MarketId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName StationId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName MarketProfileId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	TMap<FName, int32> StockByCommodity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	TMap<FName, int32> ReservedStockByCommodity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	TArray<FName> LastTransactionIds;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FMarketTransactionRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName TransactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName MarketId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName BuyerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName SellerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName CommodityId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName CommodityItemBridgeId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	int32 Quantity = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	int64 QuotedUnitPrice = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName SourceContainerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName DestinationContainerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName DebitAccountId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName CreditAccountId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName LegalContextId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FMarketTransactionResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName TransactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	ESystemicActionResult Result = ESystemicActionResult::Rejected;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	int32 AppliedQuantity = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	int64 UnitPrice = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	int32 StockDelta = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	int64 DisplayCreditDelta = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	TArray<FName> LedgerEntryIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName CargoTransferResultId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FString RejectionReason;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Market")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FStationServiceEndpointDefinition
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Service")
+	FName ServiceEndpointId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Service")
+	FName StationId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Service")
+	FName ServiceType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Service")
+	FName ProviderFactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Service")
+	FName CommsEndpointId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Service")
+	FName MarketId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Service")
+	FName InventoryContainerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Service")
+	FName CreditAccountId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Service")
+	FName AccessPolicyId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Service")
+	FName LegalPolicyId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Service")
+	TArray<FName> PresentationModes;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FCommsEndpointDefinition
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName EndpointId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName OwnerType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName OwnerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	TArray<FName> AvailableChannels;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName AccessPolicyId;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FMessageDefinition
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName MessageId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName MessageType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName SpeakerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName TextKey;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	TArray<FName> GameplayEffectRefs;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FMessageLogEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName MessageInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName MessageId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName SourceEndpointId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName TargetId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName DeliveryChannel;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	double CreatedTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	double ExpiryTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Comms")
+	FName SourceEventId;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FMissionOfferRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName OfferId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName MissionDefinitionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName SourceStationId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName SourceServiceEndpointId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName IssuerFactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName State = TEXT("available");
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FMissionInstanceState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName MissionInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName MissionDefinitionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName OfferId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName OwnerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName IssuerFactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName CurrentState = TEXT("offered");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	TArray<FName> ObjectiveStateIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	TArray<FName> RewardEscrowIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FObjectiveState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName ObjectiveStateId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName MissionInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName ObjectiveType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName TargetType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName TargetId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	TArray<FName> RouteSegmentIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName RequiredCargoManifestId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName JurisdictionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Mission")
+	FName State = TEXT("inactive");
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSystemicDecisionInputSnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Decision")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Decision")
+	FName JurisdictionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Decision")
+	FName AuthorityFactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Decision")
+	FName MarketId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Decision")
+	FName CargoContainerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Decision")
+	FName LegalContextId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Decision")
+	bool bValid = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Decision")
+	FString DebugReason;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FLogicalContactTrack
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName ContactId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName SourceShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName TargetShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FMovingFrameTarget LastKnownTarget;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	double Confidence = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	double LastSeenTimeSeconds = 0.0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FRouteSecuritySnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName SnapshotId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	double WindowStartTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	double WindowEndTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName JurisdictionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	double SecurityRating = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	double PatrolCoverageScore = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	double PirateRiskScore = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	double RouteValue = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	int64 ProcessedWatermark = 0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FPatrolReservationRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName ReservationId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName PatrolAssetId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName FactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName JurisdictionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName State = TEXT("reserved");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	double ExpiresAtTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FInterdictionHazardRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName HazardId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName OwnerGroupId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName TargetShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FRouteSample RouteSample;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName State = TEXT("pending");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	double ExpiresAtTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName SaveLoadEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FDistressEventRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName DistressEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName SourceShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName ThreatId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FMovingFrameTarget LocationTarget;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	TArray<FName> RespondingPatrolReservationIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	TArray<FName> MessageInstanceIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName State = TEXT("open");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FLogicalEncounterRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName EncounterId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName EncounterType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	TArray<FName> ParticipantShipIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	TArray<FName> ParticipantGroupIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName InterdictionHazardId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName DistressEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName EngagementId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName State = TEXT("pending");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	int64 ProcessedWatermark = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	bool bRequiresActor = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FAbstractEngagementRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName EngagementId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName EncounterId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName AttackerId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName DefenderId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName OutcomeType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	TArray<FName> CargoTransferResultIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	TArray<FName> MarketTransactionResultIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	TArray<FName> GameplayTransactionIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	TArray<FName> CreditLedgerEntryIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	TArray<FName> OffenseIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	TArray<FName> EvidenceIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	TArray<FName> CriminalRecordIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	TArray<FName> MessageInstanceIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	bool bRequiresActor = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FLogicalActorPromotionRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName PromotionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName EncounterId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName SourceEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName ShipInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName RealizationToken;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	bool bCanResolveEncounter = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName IdempotencyKey;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FLogicalEncounterResolutionResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName EncounterId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName ResultEventId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FName OutcomeType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	bool bDuplicate = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Encounter")
+	FString DebugReason;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSystemicGameplayState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FSimulationEventRecord> Events;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FSimulationEventResultRecord> EventResults;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FGameplayTransactionRecord> Transactions;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FGameplayTransactionJournalEntry> TransactionJournal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FCreditAccountRecord> CreditAccounts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FCreditLedgerEntry> CreditLedger;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FEscrowHoldRecord> EscrowHolds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FFactionDefinition> Factions;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FFactionRelationshipRecord> FactionRelationships;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FFactionOperationalState> FactionOperations;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FJurisdictionDefinition> Jurisdictions;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FOffenseEvent> Offenses;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FEvidenceRecord> EvidenceRecords;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FCriminalRecord> CriminalRecords;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FItemDefinition> Items;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FContainerState> Containers;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FCargoTransferResult> CargoTransferResults;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FCommodityDefinition> Commodities;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FCommodityItemBridge> CommodityItemBridges;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FStationMarketState> Markets;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FMarketTransactionResult> MarketTransactionResults;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FStationServiceEndpointDefinition> StationServiceEndpoints;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FCommsEndpointDefinition> CommsEndpoints;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FMessageDefinition> MessageDefinitions;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FMessageLogEntry> MessageLog;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FMissionOfferRecord> MissionOffers;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FMissionInstanceState> MissionInstances;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FObjectiveState> ObjectiveStates;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FLogicalContactTrack> LogicalContactTracks;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FRouteSecuritySnapshot> RouteSecuritySnapshots;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FPatrolReservationRecord> PatrolReservations;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FInterdictionHazardRecord> InterdictionHazards;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FDistressEventRecord> DistressEvents;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FLogicalEncounterRecord> LogicalEncounters;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FAbstractEngagementRecord> AbstractEngagements;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FLogicalActorPromotionRecord> ActorPromotionAttachments;
+};
+
+USTRUCT(BlueprintType)
 struct STARGAME_API FSpawnZoneDefinition
 {
 	GENERATED_BODY()
@@ -1602,6 +3054,9 @@ struct STARGAME_API FStarSystemDefinition
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
 	TArray<FShipGroupState> ShipGroups;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+	FSystemicGameplayState SystemicGameplay;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
 	TArray<FMapEntryDefinition> MapEntries;
@@ -1785,6 +3240,9 @@ struct STARGAME_API FStargameM0SaveState
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
 	FActiveTrafficSimulationState ActiveTrafficState;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FSystemicGameplayState SystemicGameplayState;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
 	bool bSavedSystemIsGenerated = false;

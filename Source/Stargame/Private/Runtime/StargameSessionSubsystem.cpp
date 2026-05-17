@@ -10,6 +10,7 @@
 #include "Space/LogicalTrafficQueryService.h"
 #include "Space/OrbitRouteFrameQueryService.h"
 #include "Space/StarSystemSubsystem.h"
+#include "Space/SystemicGameplayQueryService.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogStargameStartup, Log, All);
 
@@ -123,6 +124,7 @@ void UStargameSessionSubsystem::ClearSessionState()
 	SelectedTargetId = NAME_None;
 	ClockSnapshot = FSimulationClockSnapshot();
 	ActiveTrafficState = FActiveTrafficSimulationState();
+	SystemicGameplayState = FSystemicGameplayState();
 }
 
 bool UStargameSessionSubsystem::SelectNavigationTargetById(FName TargetId)
@@ -231,7 +233,17 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 		RestoredTrafficState.Ships = SystemDefinition.LogicalTraffic;
 		RestoredTrafficState.Groups = SystemDefinition.ShipGroups;
 	}
+	FSystemicGameplayState RestoredSystemicState = LoadedState.SystemicGameplayState;
+	if (RestoredSystemicState.Factions.IsEmpty())
+	{
+		RestoredSystemicState = USystemicGameplayQueryService::MakeM9FixtureState(SystemDefinition);
+	}
 	ULogicalTrafficQueryService::RefreshTransientRouteSamples(SystemDefinition, RestoredClock, RestoredClock.AuthoritativeSimulationTimeSeconds, RestoredTrafficState);
+	if (!ValidateLoadedSystemicState(SystemDefinition, RestoredSystemicState, ValidationError))
+	{
+		ReportStartupError(ValidationError);
+		return false;
+	}
 	if (!ValidateLoadedTrafficState(SystemDefinition, RestoredTrafficState, ValidationError))
 	{
 		ReportStartupError(ValidationError);
@@ -285,6 +297,7 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 	SelectedTargetId = LoadedState.SelectedTargetId;
 	ClockSnapshot = RestoredClock;
 	ActiveTrafficState = RestoredTrafficState;
+	SystemicGameplayState = RestoredSystemicState;
 
 	FString RestoreError;
 	if (!RestoreSavedShipLocation(LoadedState.ShipLocation, PlayerController, RestoreError))
@@ -340,6 +353,7 @@ FStargameM0SaveState UStargameSessionSubsystem::MakeCurrentM0SaveState() const
 	State.SelectedTargetId = SelectedTargetId;
 	State.ClockSnapshot = ClockSnapshot;
 	State.ActiveTrafficState = ULogicalTrafficQueryService::SanitizeTrafficStateForSave(ActiveTrafficState);
+	State.SystemicGameplayState = SystemicGameplayState;
 	State.ShipLocation.SystemId = CurrentSystemId;
 	State.ShipLocation.CoordinateFrame.FrameType = TEXT("system_barycentric");
 	State.ShipLocation.CoordinateFrame.AnchorId = CurrentSystemId;
@@ -523,6 +537,16 @@ bool UStargameSessionSubsystem::ValidateLoadedTrafficState(const FStarSystemDefi
 	return true;
 }
 
+bool UStargameSessionSubsystem::ValidateLoadedSystemicState(const FStarSystemDefinition& SystemDefinition, const FSystemicGameplayState& LoadedSystemicState, FString& OutError) const
+{
+	if (!USystemicGameplayQueryService::ValidateSystemicGameplayState(SystemDefinition, LoadedSystemicState, OutError))
+	{
+		OutError = FString::Printf(TEXT("Saved systemic gameplay state is invalid: %s"), *OutError);
+		return false;
+	}
+	return true;
+}
+
 bool UStargameSessionSubsystem::RestoreSavedShipLocation(const FShipSaveLocation& ShipLocation, APlayerController* PlayerController, FString& OutError)
 {
 	if (ShipLocation.LocationMode == EShipLocationMode::Respawn)
@@ -663,6 +687,7 @@ bool UStargameSessionSubsystem::BuildAndSpawnFromStartProfile(const FStartProfil
 	ActiveTrafficState.Ships = SystemDefinition.LogicalTraffic;
 	ActiveTrafficState.Groups = SystemDefinition.ShipGroups;
 	ULogicalTrafficQueryService::RefreshTransientRouteSamples(SystemDefinition, ClockSnapshot, ClockSnapshot.AuthoritativeSimulationTimeSeconds, ActiveTrafficState);
+	SystemicGameplayState = USystemicGameplayQueryService::MakeM9FixtureState(SystemDefinition);
 
 	TSubclassOf<APawn> PawnClass = nullptr;
 	if (Catalog)

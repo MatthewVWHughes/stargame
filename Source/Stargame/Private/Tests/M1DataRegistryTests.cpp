@@ -14,6 +14,7 @@
 #include "Space/LogicalTrafficQueryService.h"
 #include "Space/OrbitRouteFrameQueryService.h"
 #include "Space/StarSystemSubsystem.h"
+#include "Space/SystemicGameplayQueryService.h"
 
 namespace
 {
@@ -1928,6 +1929,583 @@ bool FM8SessionLoadRejectsInvalidTrafficStateTest::RunTest(const FString& Parame
 	TestEqual(TEXT("Rejected load leaves selected target unchanged"), Session->GetSelectedTargetId(), TargetBeforeInvalidLoad);
 
 	UGameplayStatics::DeleteGameInSlot(UStargameSessionSubsystem::DevelopmentSlotName, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM9CatalogValidationTest,
+	"Stargame.M9.Catalog.ValidatesSystemicFixture",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM9CatalogValidationTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	const FStargameValidationReport Report = Catalog->ValidateM9Fixture(TEXT("frontier_test_01"));
+	TestFalse(TEXT("M9 validation report has no blocking issues"), Report.HasBlockingIssues());
+	if (Report.HasBlockingIssues())
+	{
+		for (const FStargameValidationIssue& Issue : Report.Issues)
+		{
+			AddError(Issue.Message);
+		}
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M9 frontier system resolves for strict validation"), Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FString SystemicValidationError;
+	TestTrue(TEXT("M9 authored systemic state validates directly"), USystemicGameplayQueryService::ValidateSystemicGameplayState(SystemDefinition, SystemDefinition.SystemicGameplay, SystemicValidationError));
+
+	FStarSystemDefinition MissingSystemic = SystemDefinition;
+	MissingSystemic.SystemicGameplay = FSystemicGameplayState();
+	TestFalse(TEXT("M9 validation rejects missing authored systemic state"), USystemicGameplayQueryService::ValidateSystemicGameplayState(MissingSystemic, MissingSystemic.SystemicGameplay, SystemicValidationError));
+	TestTrue(TEXT("M9 missing authored state explains missing records"), SystemicValidationError.Contains(TEXT("missing required")));
+
+	FSystemicGameplayState StaleState = SystemDefinition.SystemicGameplay;
+	StaleState.Jurisdictions[0].SystemId = TEXT("stale_system_id");
+	TestFalse(TEXT("M9 systemic validation rejects stale saved system IDs"), USystemicGameplayQueryService::ValidateSystemicGameplayState(SystemDefinition, StaleState, SystemicValidationError));
+	TestTrue(TEXT("M9 stale validation explains system mismatch"), SystemicValidationError.Contains(TEXT("expected")));
+
+	FSystemicGameplayState BrokenEndpointState = SystemDefinition.SystemicGameplay;
+	BrokenEndpointState.StationServiceEndpoints[0].MarketId = TEXT("missing_market_for_load_validation");
+	TestFalse(TEXT("M9 systemic validation rejects stale service endpoint refs"), USystemicGameplayQueryService::ValidateSystemicGameplayState(SystemDefinition, BrokenEndpointState, SystemicValidationError));
+	TestTrue(TEXT("M9 broken endpoint validation explains unresolved refs"), SystemicValidationError.Contains(TEXT("unresolved")));
+
+	FSystemicGameplayState BrokenMissionState = SystemDefinition.SystemicGameplay;
+	BrokenMissionState.ObjectiveStates[0].RouteSegmentIds[0] = TEXT("missing_route_for_mission_validation");
+	TestFalse(TEXT("M9 systemic validation rejects stale mission route refs"), USystemicGameplayQueryService::ValidateSystemicGameplayState(SystemDefinition, BrokenMissionState, SystemicValidationError));
+	TestTrue(TEXT("M9 broken mission validation explains missing route"), SystemicValidationError.Contains(TEXT("missing route")));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM9SimulationEventIdempotencyTest,
+	"Stargame.M9.Systemic.EventIdempotencySurvivesReload",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM9SimulationEventIdempotencyTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M9 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	FSystemicGameplayState State = USystemicGameplayQueryService::MakeM9FixtureState(SystemDefinition);
+	FSimulationEventRecord Event;
+	Event.EventId = TEXT("event_m9_test_trade_signal");
+	Event.SystemId = SystemDefinition.SystemId;
+	Event.EventType = TEXT("market_quote_requested");
+	Event.SourceType = TEXT("player");
+	Event.SourceId = TEXT("player");
+	Event.TargetType = TEXT("service_endpoint");
+	Event.TargetId = TEXT("service_brink_watch_market");
+	Event.IdempotencyKey = TEXT("idem_m9_test_trade_signal");
+
+	FSimulationEventResultRecord FirstResult;
+	TestTrue(TEXT("M9 canonical event applies"), USystemicGameplayQueryService::ApplySimulationEventOnce(State, Event, 10.0, FirstResult));
+	TestEqual(TEXT("M9 event result accepted"), FirstResult.OutcomeType, FName(TEXT("accepted")));
+	TestEqual(TEXT("M9 event result count after first apply"), State.EventResults.Num(), 1);
+
+	FStargameM0SaveState SaveState;
+	SaveState.SystemicGameplayState = State;
+	FSystemicGameplayState ReloadedState = SaveState.SystemicGameplayState;
+	FSimulationEventResultRecord DuplicateResult;
+	TestTrue(TEXT("M9 duplicate event is idempotent after reload"), USystemicGameplayQueryService::ApplySimulationEventOnce(ReloadedState, Event, 12.0, DuplicateResult));
+	TestEqual(TEXT("M9 duplicate event reports duplicate"), DuplicateResult.OutcomeType, FName(TEXT("duplicate")));
+	TestEqual(TEXT("M9 duplicate event does not append a result"), ReloadedState.EventResults.Num(), 1);
+	TestEqual(TEXT("M9 duplicate preserves result ID"), DuplicateResult.ResultId, FirstResult.ResultId);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM9LegalOffenseTest,
+	"Stargame.M9.Legal.NpcOffenseCreatesEvidenceAndWantedState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM9LegalOffenseTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M9 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = USystemicGameplayQueryService::MakeM9FixtureState(SystemDefinition);
+
+	FOffenseEvent Offense;
+	Offense.OffenseId = TEXT("offense_m9_pirate_scan");
+	Offense.OffenderType = TEXT("npc_ship");
+	Offense.OffenderId = TEXT("ember_raider_01");
+	Offense.VictimType = TEXT("ship");
+	Offense.VictimId = TEXT("trader_brink_01");
+	Offense.JurisdictionId = TEXT("frontier_local_authority");
+	Offense.OffenseType = TEXT("hostile_interdiction_attempt");
+	Offense.SourceEventId = TEXT("event_m9_pirate_scan");
+
+	FEvidenceRecord Evidence;
+	FCriminalRecord CriminalRecord;
+	FString FailureReason;
+	TestTrue(TEXT("M9 offense records legal state"), USystemicGameplayQueryService::RecordOffense(State, Offense, Evidence, CriminalRecord, FailureReason));
+	TestEqual(TEXT("M9 offense evidence links stable offense ID"), Evidence.OffenseId, Offense.OffenseId);
+	TestEqual(TEXT("M9 evidence witness is systemic sensor, not actor pointer"), Evidence.WitnessType, FName(TEXT("systemic_sensor")));
+	TestEqual(TEXT("M9 criminal record subject is stable NPC ID"), CriminalRecord.SubjectId, Offense.OffenderId);
+	TestEqual(TEXT("M9 wanted level increments"), CriminalRecord.WantedLevel, 1);
+
+	FEvidenceRecord DuplicateEvidence;
+	FCriminalRecord DuplicateRecord;
+	TestTrue(TEXT("M9 duplicate offense is stable"), USystemicGameplayQueryService::RecordOffense(State, Offense, DuplicateEvidence, DuplicateRecord, FailureReason));
+	TestEqual(TEXT("M9 duplicate offense does not duplicate evidence"), State.EvidenceRecords.Num(), 1);
+	TestEqual(TEXT("M9 duplicate offense does not inflate wanted level"), DuplicateRecord.WantedLevel, 1);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM9CargoTransferTest,
+	"Stargame.M9.Inventory.CargoTransferValidatesCapacityOwnershipAndLegality",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM9CargoTransferTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M9 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = USystemicGameplayQueryService::MakeM9FixtureState(SystemDefinition);
+
+	FCargoTransferRequest InvalidOwnership;
+	InvalidOwnership.RequestId = TEXT("m9_missing_source_container");
+	InvalidOwnership.SourceContainerId = TEXT("missing_container");
+	InvalidOwnership.DestinationContainerId = TEXT("player_ship_cargo");
+	InvalidOwnership.ItemId = TEXT("item_ember_ore");
+	InvalidOwnership.Quantity = 1;
+	InvalidOwnership.IdempotencyKey = TEXT("idem_m9_missing_source_container");
+	FCargoTransferResult InvalidResult;
+	TestFalse(TEXT("M9 cargo rejects unresolved ownership/container"), USystemicGameplayQueryService::TransferCargo(State, InvalidOwnership, InvalidResult));
+	TestFalse(TEXT("M9 cargo unresolved container explains rejection"), InvalidResult.RejectedReason.IsEmpty());
+
+	FCargoTransferRequest SameContainer = InvalidOwnership;
+	SameContainer.RequestId = TEXT("m9_same_container_transfer");
+	SameContainer.IdempotencyKey = TEXT("idem_m9_same_container_transfer");
+	SameContainer.SourceContainerId = TEXT("player_ship_cargo");
+	SameContainer.DestinationContainerId = TEXT("player_ship_cargo");
+	FCargoTransferResult SameContainerResult;
+	TestFalse(TEXT("M9 cargo rejects same-container mutation"), USystemicGameplayQueryService::TransferCargo(State, SameContainer, SameContainerResult));
+	TestTrue(TEXT("M9 cargo same-container rejection is explicit"), SameContainerResult.RejectedReason.Contains(TEXT("distinct")));
+
+	FContainerState* PlayerCargo = State.Containers.FindByPredicate([](const FContainerState& Candidate)
+	{
+		return Candidate.ContainerId == FName(TEXT("player_ship_cargo"));
+	});
+	TestNotNull(TEXT("M9 player cargo container resolves"), PlayerCargo);
+	if (!PlayerCargo)
+	{
+		return false;
+	}
+	PlayerCargo->CapacityVolumeM3 = 0.5;
+
+	FCargoTransferRequest OverCapacity;
+	OverCapacity.RequestId = TEXT("m9_over_capacity_transfer");
+	OverCapacity.SourceContainerId = TEXT("brink_watch_market_inventory");
+	OverCapacity.DestinationContainerId = TEXT("player_ship_cargo");
+	OverCapacity.ItemId = TEXT("item_ember_ore");
+	OverCapacity.Quantity = 1;
+	OverCapacity.IdempotencyKey = TEXT("idem_m9_over_capacity_transfer");
+	FCargoTransferResult OverCapacityResult;
+	TestFalse(TEXT("M9 cargo rejects capacity violation"), USystemicGameplayQueryService::TransferCargo(State, OverCapacity, OverCapacityResult));
+	TestTrue(TEXT("M9 cargo capacity rejection is explicit"), OverCapacityResult.RejectedReason.Contains(TEXT("capacity")));
+
+	PlayerCargo->CapacityVolumeM3 = 1000.0;
+	FCargoTransferRequest InvalidLegalContext = OverCapacity;
+	InvalidLegalContext.RequestId = TEXT("m9_invalid_legal_context_transfer");
+	InvalidLegalContext.IdempotencyKey = TEXT("idem_m9_invalid_legal_context_transfer");
+	InvalidLegalContext.LegalContextId = TEXT("missing_law_profile");
+	FCargoTransferResult InvalidLegalContextResult;
+	TestFalse(TEXT("M9 cargo rejects unresolved legal context"), USystemicGameplayQueryService::TransferCargo(State, InvalidLegalContext, InvalidLegalContextResult));
+	TestTrue(TEXT("M9 cargo legal-context rejection is explicit"), InvalidLegalContextResult.RejectedReason.Contains(TEXT("legal context")));
+
+	FCargoTransferRequest OwnerMismatch = OverCapacity;
+	OwnerMismatch.RequestId = TEXT("m9_owner_mismatch_transfer");
+	OwnerMismatch.IdempotencyKey = TEXT("idem_m9_owner_mismatch_transfer");
+	OwnerMismatch.ExpectedSourceOwnerId = TEXT("not_brink_watch");
+	OwnerMismatch.ExpectedDestinationOwnerId = TEXT("player");
+	FCargoTransferResult OwnerMismatchResult;
+	TestFalse(TEXT("M9 cargo rejects source owner mismatch"), USystemicGameplayQueryService::TransferCargo(State, OwnerMismatch, OwnerMismatchResult));
+	TestTrue(TEXT("M9 cargo owner rejection is explicit"), OwnerMismatchResult.RejectedReason.Contains(TEXT("owner")));
+
+	FCargoTransferRequest ValidTransfer = OverCapacity;
+	ValidTransfer.RequestId = TEXT("m9_valid_transfer");
+	ValidTransfer.IdempotencyKey = TEXT("idem_m9_valid_transfer");
+	ValidTransfer.ExpectedSourceOwnerId = TEXT("brink_watch");
+	ValidTransfer.ExpectedDestinationOwnerId = TEXT("player");
+	FCargoTransferResult ValidResult;
+	TestTrue(TEXT("M9 cargo accepts valid stable-ID transfer"), USystemicGameplayQueryService::TransferCargo(State, ValidTransfer, ValidResult));
+	TestEqual(TEXT("M9 cargo result accepted"), ValidResult.Result, ESystemicActionResult::Accepted);
+	TestFalse(TEXT("M9 cargo creates destination stack"), ValidResult.CreatedStackIds.IsEmpty());
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM9MarketTransactionTest,
+	"Stargame.M9.Market.BuySellNoUmgDependency",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM9MarketTransactionTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M9 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = USystemicGameplayQueryService::MakeM9FixtureState(SystemDefinition);
+
+	FMarketTransactionRequest Request;
+	Request.TransactionId = TEXT("tx_m9_buy_ore_01");
+	Request.MarketId = TEXT("brink_watch");
+	Request.BuyerId = TEXT("player");
+	Request.SellerId = TEXT("brink_watch");
+	Request.CommodityId = TEXT("commodity_ember_ore");
+	Request.CommodityItemBridgeId = TEXT("bridge_ember_ore");
+	Request.Quantity = 2;
+	Request.QuotedUnitPrice = 100;
+	Request.SourceContainerId = TEXT("brink_watch_market_inventory");
+	Request.DestinationContainerId = TEXT("player_ship_cargo");
+	Request.DebitAccountId = TEXT("account_player");
+	Request.CreditAccountId = TEXT("account_brink_watch_market");
+	Request.LegalContextId = TEXT("frontier_law_basic");
+	Request.SourceEventId = TEXT("event_m9_buy_ore_01");
+	Request.IdempotencyKey = TEXT("idem_m9_buy_ore_01");
+
+	FMarketTransactionRequest InvalidPriceRequest = Request;
+	InvalidPriceRequest.TransactionId = TEXT("tx_m9_negative_price");
+	InvalidPriceRequest.IdempotencyKey = TEXT("idem_m9_negative_price");
+	InvalidPriceRequest.QuotedUnitPrice = -100;
+	FMarketTransactionResult InvalidPriceResult;
+	TestFalse(TEXT("M9 market rejects negative quoted price"), USystemicGameplayQueryService::ExecuteMarketTransaction(State, InvalidPriceRequest, InvalidPriceResult));
+	TestTrue(TEXT("M9 market price rejection is explicit"), InvalidPriceResult.RejectionReason.Contains(TEXT("positive quoted unit price")));
+	TestEqual(TEXT("M9 invalid price does not write ledger"), State.CreditLedger.Num(), 0);
+
+	FMarketTransactionResult Result;
+	TestTrue(TEXT("M9 market transaction executes in C++ service"), USystemicGameplayQueryService::ExecuteMarketTransaction(State, Request, Result));
+	TestEqual(TEXT("M9 market result accepted"), Result.Result, ESystemicActionResult::Accepted);
+	TestEqual(TEXT("M9 market applies requested quantity"), Result.AppliedQuantity, 2);
+	TestEqual(TEXT("M9 market writes ledger entry"), Result.LedgerEntryIds.Num(), 1);
+	TestEqual(TEXT("M9 market writes transaction journal"), State.TransactionJournal.Num(), 3);
+	TestEqual(TEXT("M9 market stores cargo transfer result"), State.CargoTransferResults.Num(), 1);
+
+	const FStationMarketState* Market = State.Markets.FindByPredicate([](const FStationMarketState& Candidate) { return Candidate.MarketId == FName(TEXT("brink_watch")); });
+	TestNotNull(TEXT("M9 market state resolves after transaction"), Market);
+	if (Market)
+	{
+		const int32* Stock = Market->StockByCommodity.Find(TEXT("commodity_ember_ore"));
+		TestTrue(TEXT("M9 market stock decrements"), Stock && *Stock == 98);
+	}
+
+	FMarketTransactionResult DuplicateResult;
+	TestTrue(TEXT("M9 duplicate market transaction is idempotent"), USystemicGameplayQueryService::ExecuteMarketTransaction(State, Request, DuplicateResult));
+	TestEqual(TEXT("M9 duplicate market transaction does not add ledger"), State.CreditLedger.Num(), 1);
+	TestEqual(TEXT("M9 duplicate market transaction returns same cargo result"), DuplicateResult.CargoTransferResultId, Result.CargoTransferResultId);
+
+	FMarketTransactionRequest DuplicateKeyRequest = Request;
+	DuplicateKeyRequest.TransactionId = TEXT("tx_m9_buy_ore_01_retry_different_transaction");
+	FMarketTransactionResult DuplicateKeyResult;
+	TestTrue(TEXT("M9 market idempotency key survives changed transaction ID"), USystemicGameplayQueryService::ExecuteMarketTransaction(State, DuplicateKeyRequest, DuplicateKeyResult));
+	TestEqual(TEXT("M9 duplicate idempotency key does not add ledger"), State.CreditLedger.Num(), 1);
+	TestEqual(TEXT("M9 duplicate idempotency key returns original transaction result"), DuplicateKeyResult.TransactionId, Result.TransactionId);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM9ServiceEndpointAndDecisionInputsTest,
+	"Stargame.M9.Service.EndpointAndDecisionInputsResolve",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM9ServiceEndpointAndDecisionInputsTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M9 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = USystemicGameplayQueryService::MakeM9FixtureState(SystemDefinition);
+
+	FStationServiceEndpointDefinition Endpoint;
+	FString DebugReason;
+	TestTrue(TEXT("M9 station service endpoint resolves"), USystemicGameplayQueryService::ResolveStationServiceEndpoint(State, TEXT("service_brink_watch_market"), Endpoint, DebugReason));
+	TestEqual(TEXT("M9 service resolves MarketId as StationId"), Endpoint.MarketId, Endpoint.StationId);
+	TestTrue(TEXT("M9 service debug includes market/faction/legal/comms"), DebugReason.Contains(TEXT("Market=brink_watch")) && DebugReason.Contains(TEXT("Faction=frontier_local_authority")) && DebugReason.Contains(TEXT("LegalPolicy=frontier_law_basic")) && DebugReason.Contains(TEXT("Comms=comms_brink_watch")));
+
+	FSystemicDecisionInputSnapshot Snapshot;
+	TestTrue(TEXT("M9 decision inputs resolve for M7 route"), USystemicGameplayQueryService::BuildSystemicDecisionInputSnapshot(SystemDefinition, State, TEXT("m7_brink_watch_wayfarer_trade"), Snapshot));
+	TestTrue(TEXT("M9 decision snapshot is valid"), Snapshot.bValid);
+	TestEqual(TEXT("M9 decision snapshot has jurisdiction"), Snapshot.JurisdictionId, FName(TEXT("frontier_local_authority")));
+	TestEqual(TEXT("M9 decision snapshot has market"), Snapshot.MarketId, FName(TEXT("brink_watch")));
+	TestEqual(TEXT("M9 decision snapshot has cargo"), Snapshot.CargoContainerId, FName(TEXT("player_ship_cargo")));
+	TestTrue(TEXT("M9 decision debug defers encounter resolution"), Snapshot.DebugReason.Contains(TEXT("M10")));
+
+	for (EShipGoalKind ReservedKind : { EShipGoalKind::Patrol, EShipGoalKind::Pirate, EShipGoalKind::Flee, EShipGoalKind::Fight })
+	{
+		FShipGoalState Goal;
+		Goal.GoalKind = ReservedKind;
+		Goal.RouteSegmentId = Snapshot.RouteSegmentId;
+		Goal.TargetFrame.RouteSegmentId = Snapshot.RouteSegmentId;
+		Goal.DecisionReason = Snapshot.JurisdictionId;
+		TestEqual(TEXT("M9 reserved combat/security goal can carry systemic route input"), Goal.RouteSegmentId, FName(TEXT("m7_brink_watch_wayfarer_trade")));
+	}
+
+	const FString Summary = USystemicGameplayQueryService::BuildSystemicDebugSummary(State);
+	TestTrue(TEXT("M9 debug summary explains systemic counts"), Summary.Contains(TEXT("Factions=")) && Summary.Contains(TEXT("Jurisdictions=")) && Summary.Contains(TEXT("Markets=")) && Summary.Contains(TEXT("Services=")) && Summary.Contains(TEXT("Missions=")));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM9SessionSaveCarriesSystemicStateTest,
+	"Stargame.M9.SaveLoad.SessionCarriesSystemicState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM9SessionSaveCarriesSystemicStateTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M9 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UStargameSessionSubsystem* Session = NewObject<UStargameSessionSubsystem>(GameInstance);
+	TestNotNull(TEXT("Session subsystem object created"), Session);
+	if (!Session)
+	{
+		return false;
+	}
+
+	FSystemicGameplayState State = USystemicGameplayQueryService::MakeM9FixtureState(SystemDefinition);
+	FSimulationEventRecord Event;
+	Event.EventId = TEXT("event_m9_session_save");
+	Event.SystemId = SystemDefinition.SystemId;
+	Event.EventType = TEXT("service_ping");
+	Event.IdempotencyKey = TEXT("idem_m9_session_save");
+	FSimulationEventResultRecord FirstResult;
+	TestTrue(TEXT("M9 session state accepts event"), USystemicGameplayQueryService::ApplySimulationEventOnce(State, Event, 3.0, FirstResult));
+
+	Session->SetSystemicGameplayState(State);
+	const FStargameM0SaveState SaveState = Session->MakeCurrentM0SaveState();
+	TestEqual(TEXT("M9 save carries systemic results"), SaveState.SystemicGameplayState.EventResults.Num(), 1);
+
+	FSystemicGameplayState ReloadedState = SaveState.SystemicGameplayState;
+	FSimulationEventResultRecord DuplicateResult;
+	TestTrue(TEXT("M9 saved systemic state remains idempotent"), USystemicGameplayQueryService::ApplySimulationEventOnce(ReloadedState, Event, 4.0, DuplicateResult));
+	TestEqual(TEXT("M9 saved systemic duplicate reports duplicate"), DuplicateResult.OutcomeType, FName(TEXT("duplicate")));
+	TestEqual(TEXT("M9 saved systemic duplicate does not append"), ReloadedState.EventResults.Num(), 1);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM10CatalogValidationTest,
+	"Stargame.M10.Catalog.ValidatesLogicalEncounterFixture",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM10CatalogValidationTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	const FStargameValidationReport Report = Catalog->ValidateM10Fixture(TEXT("frontier_test_01"));
+	TestFalse(TEXT("M10 validation report has no blocking issues"), Report.HasBlockingIssues());
+	if (Report.HasBlockingIssues())
+	{
+		for (const FStargameValidationIssue& Issue : Report.Issues)
+		{
+			AddError(Issue.Message);
+		}
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M10 frontier system resolves for strict validation"), Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FString LogicalValidationError;
+	TestTrue(TEXT("M10 authored logical encounter state validates directly"), USystemicGameplayQueryService::ValidateLogicalEncounterState(SystemDefinition, SystemDefinition.SystemicGameplay, LogicalValidationError));
+	TestFalse(TEXT("M10 fixture has promotion metadata only"), SystemDefinition.SystemicGameplay.ActorPromotionAttachments.IsEmpty());
+	TestFalse(TEXT("M10 promotion metadata cannot resolve encounter"), SystemDefinition.SystemicGameplay.ActorPromotionAttachments[0].bCanResolveEncounter);
+
+	FSystemicGameplayState BrokenState = SystemDefinition.SystemicGameplay;
+	BrokenState.InterdictionHazards[0].RouteSample.RouteSegmentId = TEXT("missing_route_sample");
+	TestFalse(TEXT("M10 validation rejects stale hazard route samples"), USystemicGameplayQueryService::ValidateLogicalEncounterState(SystemDefinition, BrokenState, LogicalValidationError));
+	TestTrue(TEXT("M10 hazard validation explains route sample requirement"), LogicalValidationError.Contains(TEXT("route sample")));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM10PatrolReservationTest,
+	"Stargame.M10.Patrol.ReservesAssetsFromRouteSecurity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM10PatrolReservationTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M10 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+
+	const FFactionOperationalState* InitialOperation = State.FactionOperations.FindByPredicate([](const FFactionOperationalState& Candidate)
+	{
+		return Candidate.FactionId == FName(TEXT("frontier_local_authority"));
+	});
+	TestNotNull(TEXT("M10 patrol operation resolves"), InitialOperation);
+	State.PatrolReservations.Reset();
+	if (FFactionOperationalState* Operation = State.FactionOperations.FindByPredicate([](const FFactionOperationalState& Candidate)
+	{
+		return Candidate.FactionId == FName(TEXT("frontier_local_authority"));
+	}))
+	{
+		Operation->ReservedPatrolBudget = 0;
+	}
+	const int32 InitialReservedBudget = 0;
+
+	FPatrolReservationRecord Reservation;
+	FString FailureReason;
+	TestTrue(TEXT("M10 patrol reserves an available patrol asset"), USystemicGameplayQueryService::ReservePatrolForRoute(SystemDefinition, State, TEXT("m7_brink_watch_wayfarer_trade"), TEXT("event_m10_reserve_retry"), 900.0, Reservation, FailureReason));
+	TestEqual(TEXT("M10 patrol reservation routes to route security jurisdiction"), Reservation.JurisdictionId, FName(TEXT("frontier_local_authority")));
+	TestEqual(TEXT("M10 patrol reservation is actor-free logical asset"), Reservation.PatrolAssetId, FName(TEXT("patrol_frontier_local_01")));
+
+	const FFactionOperationalState* AfterOperation = State.FactionOperations.FindByPredicate([](const FFactionOperationalState& Candidate)
+	{
+		return Candidate.FactionId == FName(TEXT("frontier_local_authority"));
+	});
+	TestNotNull(TEXT("M10 patrol operation still resolves"), AfterOperation);
+	if (AfterOperation)
+	{
+		TestEqual(TEXT("M10 patrol reservation consumes exactly one budget slot"), AfterOperation->ReservedPatrolBudget, InitialReservedBudget + 1);
+	}
+
+	FPatrolReservationRecord DuplicateReservation;
+	TestTrue(TEXT("M10 patrol reservation is idempotent"), USystemicGameplayQueryService::ReservePatrolForRoute(SystemDefinition, State, TEXT("m7_brink_watch_wayfarer_trade"), TEXT("event_m10_reserve_retry"), 900.0, DuplicateReservation, FailureReason));
+	TestEqual(TEXT("M10 duplicate patrol reservation returns same ID"), DuplicateReservation.ReservationId, Reservation.ReservationId);
+	if (AfterOperation)
+	{
+		const FFactionOperationalState* FinalOperation = State.FactionOperations.FindByPredicate([](const FFactionOperationalState& Candidate)
+		{
+			return Candidate.FactionId == FName(TEXT("frontier_local_authority"));
+		});
+		TestEqual(TEXT("M10 duplicate patrol reservation does not consume another budget slot"), FinalOperation ? FinalOperation->ReservedPatrolBudget : -1, InitialReservedBudget + 1);
+	}
+	FPatrolReservationRecord BlockedReservation;
+	TestFalse(TEXT("M10 active patrol reservation blocks double-booking same asset"), USystemicGameplayQueryService::ReservePatrolForRoute(SystemDefinition, State, TEXT("m7_brink_watch_wayfarer_trade"), TEXT("event_m10_second_reservation"), 1200.0, BlockedReservation, FailureReason));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM10PirateFleePolicyTest,
+	"Stargame.M10.Policy.SelectsPirateInterdictionAndFleeDestination",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM10PirateFleePolicyTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M10 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	const FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+
+	const FSimulationClockSnapshot Clock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	FInterdictionHazardRecord Hazard;
+	FString FailureReason;
+	TestTrue(TEXT("M10 pirate policy selects a route-sampled interdiction hazard"), USystemicGameplayQueryService::SelectPirateInterdictionHazard(SystemDefinition, State, TEXT("m7_brink_watch_wayfarer_trade"), Clock, 30.0, Hazard, FailureReason));
+	TestEqual(TEXT("M10 pirate hazard is owned by pirate group"), Hazard.OwnerGroupId, FName(TEXT("pirate_group_01")));
+	TestEqual(TEXT("M10 pirate hazard targets durable trader ID"), Hazard.TargetShipId, FName(TEXT("trader_brink_01")));
+	TestEqual(TEXT("M10 pirate hazard has route sample"), Hazard.RouteSample.RouteSegmentId, FName(TEXT("m7_brink_watch_wayfarer_trade")));
+
+	FSystemicGameplayState NoCargoState = State;
+	NoCargoState.Containers.RemoveAll([](const FContainerState& Candidate)
+	{
+		return Candidate.ContainerId == FName(TEXT("trader_brink_cargo"));
+	});
+	FInterdictionHazardRecord RejectedHazard;
+	TestFalse(TEXT("M10 pirate policy rejects missing cargo value input"), USystemicGameplayQueryService::SelectPirateInterdictionHazard(SystemDefinition, NoCargoState, TEXT("m7_brink_watch_wayfarer_trade"), Clock, 30.0, RejectedHazard, FailureReason));
+
+	FMovingFrameTarget FleeDestination;
+	TestTrue(TEXT("M10 flee policy picks a safe moving destination"), USystemicGameplayQueryService::ChooseFleeDestination(SystemDefinition, State, TEXT("m7_brink_watch_wayfarer_trade"), FleeDestination, FailureReason));
+	TestEqual(TEXT("M10 flee destination uses route endpoint station"), FleeDestination.TargetId, FName(TEXT("wayfarer_depot")));
+	TestEqual(TEXT("M10 flee destination remains route-aware"), FleeDestination.RouteSegmentId, FName(TEXT("m7_brink_watch_wayfarer_trade")));
+
+	FName FightPolicyId;
+	TestTrue(TEXT("M10 fight policy resolves from logical encounter inputs"), USystemicGameplayQueryService::SelectLogicalFightPolicy(SystemDefinition, State, TEXT("encounter_pirate_trade_lane_01"), FightPolicyId, FailureReason));
+	TestEqual(TEXT("M10 fight policy remains abstract and actor-free"), FightPolicyId, FName(TEXT("m10_abstract_fight_distress_patrol_response")));
+
+	FShipTrafficInstance FleeShip = SystemDefinition.LogicalTraffic[0];
+	const FShipGoalState OriginalGoal = FleeShip.CurrentGoal;
+	FShipGoalState FleeGoal;
+	FleeGoal.GoalId = TEXT("m10_flee_restore_test");
+	FleeGoal.GoalKind = EShipGoalKind::Flee;
+	FleeGoal.TargetFrame = FleeDestination;
+	FleeGoal.InterruptPriority = 50;
+	FleeGoal.DecisionReason = TEXT("m10_flee_policy_test");
+	TestTrue(TEXT("M10 flee can save current goal as scripted interruption"), ULogicalTrafficQueryService::ApplyScriptedInterrupt(FleeShip, FleeGoal, FailureReason));
+	TestTrue(TEXT("M10 flee can restore saved route goal"), ULogicalTrafficQueryService::RestoreSavedGoal(FleeShip, FailureReason));
+	TestEqual(TEXT("M10 flee restore returns original goal kind"), FleeShip.CurrentGoal.GoalKind, OriginalGoal.GoalKind);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM10EncounterResolutionTest,
+	"Stargame.M10.Encounter.ResolvesPirateDistressPatrolOnce",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM10EncounterResolutionTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M10 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+
+	FLogicalEncounterResolutionResult FirstResult;
+	FString FailureReason;
+	if (!TestTrue(TEXT("M10 logical encounter resolves"), USystemicGameplayQueryService::ResolveLogicalEncounterOnce(State, TEXT("encounter_pirate_trade_lane_01"), 60.0, FirstResult, FailureReason)))
+	{
+		AddError(FString::Printf(TEXT("M10 logical encounter failed to resolve: %s"), *FailureReason));
+		return false;
+	}
+	TestEqual(TEXT("M10 encounter result resolves"), FirstResult.OutcomeType, FName(TEXT("resolved")));
+	TestEqual(TEXT("M10 encounter writes one abstract engagement"), State.AbstractEngagements.Num(), 1);
+	TestEqual(TEXT("M10 encounter writes one offense"), State.Offenses.Num(), 1);
+	TestEqual(TEXT("M10 encounter writes one evidence record"), State.EvidenceRecords.Num(), 1);
+	TestEqual(TEXT("M10 encounter writes one criminal record"), State.CriminalRecords.Num(), 1);
+	TestEqual(TEXT("M10 encounter writes one cargo outcome"), State.CargoTransferResults.Num(), 1);
+	TestEqual(TEXT("M10 encounter writes one economy transaction"), State.Transactions.Num(), 1);
+	TestEqual(TEXT("M10 encounter writes one economy ledger entry"), State.CreditLedger.Num(), 1);
+	if (!TestTrue(TEXT("M10 abstract engagement is available for outcome checks"), State.AbstractEngagements.Num() == 1))
+	{
+		return false;
+	}
+	TestFalse(TEXT("M10 abstract engagement references cargo outcome"), State.AbstractEngagements[0].CargoTransferResultIds.IsEmpty());
+	TestFalse(TEXT("M10 abstract engagement references economy transaction"), State.AbstractEngagements[0].GameplayTransactionIds.IsEmpty());
+	TestFalse(TEXT("M10 abstract engagement references ledger outcome"), State.AbstractEngagements[0].CreditLedgerEntryIds.IsEmpty());
+	if (!TestFalse(TEXT("M10 abstract engagement references distress message"), State.AbstractEngagements[0].MessageInstanceIds.IsEmpty()))
+	{
+		return false;
+	}
+	TestEqual(TEXT("M10 encounter keeps distress message durable"), State.AbstractEngagements[0].MessageInstanceIds[0], FName(TEXT("message_distress_trade_lane_01")));
+	TestFalse(TEXT("M10 abstract engagement has no actor dependency"), State.AbstractEngagements[0].bRequiresActor);
+
+	FString LogicalValidationError;
+	TestTrue(TEXT("M10 resolved encounter state remains valid"), USystemicGameplayQueryService::ValidateLogicalEncounterState(SystemDefinition, State, LogicalValidationError));
+
+	FStargameM0SaveState SaveState;
+	SaveState.SystemicGameplayState = State;
+	FSystemicGameplayState ReloadedState = SaveState.SystemicGameplayState;
+	FLogicalEncounterResolutionResult DuplicateResult;
+	TestTrue(TEXT("M10 duplicate logical encounter resolution survives reload"), USystemicGameplayQueryService::ResolveLogicalEncounterOnce(ReloadedState, TEXT("encounter_pirate_trade_lane_01"), 90.0, DuplicateResult, FailureReason));
+	TestTrue(TEXT("M10 duplicate resolution reports duplicate"), DuplicateResult.bDuplicate);
+	TestEqual(TEXT("M10 duplicate resolution does not duplicate abstract engagement"), ReloadedState.AbstractEngagements.Num(), 1);
+	TestEqual(TEXT("M10 duplicate resolution does not duplicate offense"), ReloadedState.Offenses.Num(), 1);
+	TestEqual(TEXT("M10 duplicate resolution does not duplicate cargo outcome"), ReloadedState.CargoTransferResults.Num(), 1);
+	TestEqual(TEXT("M10 duplicate resolution does not duplicate economy transaction"), ReloadedState.Transactions.Num(), 1);
+
 	return true;
 }
 

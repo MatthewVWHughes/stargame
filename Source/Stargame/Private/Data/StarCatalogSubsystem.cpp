@@ -6,6 +6,7 @@
 #include "Flight/SpaceFlightPawn.h"
 #include "Space/LogicalTrafficQueryService.h"
 #include "Space/OrbitRouteFrameQueryService.h"
+#include "Space/SystemicGameplayQueryService.h"
 
 namespace
 {
@@ -575,6 +576,46 @@ FStargameValidationReport UStarCatalogSubsystem::ValidateM8Fixture(FName SystemI
 	}
 
 	ValidateM8SystemDefinition(SystemDefinition, Report);
+	return Report;
+}
+
+FStargameValidationReport UStarCatalogSubsystem::ValidateM9Fixture(FName SystemId) const
+{
+	FStargameValidationReport Report = ValidateM8Fixture(SystemId);
+	Report.Profile = EStargameValidationProfile::M9;
+	if (Report.HasBlockingIssues())
+	{
+		return Report;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	if (!ResolveSystemDefinition(SystemId, SystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_system"), SystemId, TEXT("Required system definition could not be resolved."));
+		return Report;
+	}
+
+	ValidateM9SystemDefinition(SystemDefinition, Report);
+	return Report;
+}
+
+FStargameValidationReport UStarCatalogSubsystem::ValidateM10Fixture(FName SystemId) const
+{
+	FStargameValidationReport Report = ValidateM9Fixture(SystemId);
+	Report.Profile = EStargameValidationProfile::M10;
+	if (Report.HasBlockingIssues())
+	{
+		return Report;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	if (!ResolveSystemDefinition(SystemId, SystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_system"), SystemId, TEXT("Required system definition could not be resolved."));
+		return Report;
+	}
+
+	ValidateM10SystemDefinition(SystemDefinition, Report);
 	return Report;
 }
 
@@ -1804,10 +1845,14 @@ bool UStarCatalogSubsystem::ValidateM8SystemDefinition(const FStarSystemDefiniti
 
 	const double InitialProgress = Trader->CurrentGoal.RouteProgress01;
 	const EShipGoalExecutionResult UpdateResult = ULogicalTrafficQueryService::UpdateActiveTraffic(SystemDefinition, Clock0, 12.0, Budget, TrafficState);
-	if (UpdateResult != EShipGoalExecutionResult::Success ||
-		TrafficState.Ships.IsEmpty() ||
-		TrafficState.Ships[0].CurrentGoal.RouteProgress01 <= InitialProgress ||
-		TrafficState.Ships[0].LastRouteSample.RouteSegmentId != FName(TEXT("m7_brink_watch_wayfarer_trade")))
+	const FShipTrafficInstance* UpdatedTrader = TrafficState.Ships.FindByPredicate([](const FShipTrafficInstance& Candidate)
+	{
+		return Candidate.ShipInstanceId == FName(TEXT("trader_brink_01"));
+	});
+	if ((UpdateResult != EShipGoalExecutionResult::Success && UpdateResult != EShipGoalExecutionResult::BudgetExceeded) ||
+		!UpdatedTrader ||
+		UpdatedTrader->CurrentGoal.RouteProgress01 <= InitialProgress ||
+		UpdatedTrader->LastRouteSample.RouteSegmentId != FName(TEXT("m7_brink_watch_wayfarer_trade")))
 	{
 		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m8_trade_route_not_progressing"), Trader->ShipInstanceId, TEXT("M8 logical trader must progress along the moving route without spawning."));
 		bValid = false;
@@ -1891,6 +1936,185 @@ bool UStarCatalogSubsystem::ValidateM8SystemDefinition(const FStarSystemDefiniti
 		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m8_missing_debug_view"), Trader->ShipInstanceId, TEXT("M8 debug view must show goal, target frame, route progress, group, and decision reason."));
 		bValid = false;
 	}
+
+	return bValid && !Report.HasBlockingIssues();
+}
+
+bool UStarCatalogSubsystem::ValidateM9SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const
+{
+	bool bValid = true;
+	const FSystemicGameplayState& State = SystemDefinition.SystemicGameplay;
+
+	auto Require = [this, &Report, &bValid](bool bCondition, FName RuleId, FName ObjectId, const TCHAR* Message)
+	{
+		if (!bCondition)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, RuleId, ObjectId, Message);
+			bValid = false;
+		}
+	};
+
+	if (State.Factions.IsEmpty())
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m9_missing_authored_systemic_state"), SystemDefinition.SystemId, TEXT("M9 validation requires authored systemic gameplay state; fallback fixture generation is not accepted by the validation profile."));
+		bValid = false;
+	}
+
+	FString SystemicValidationError;
+	if (!USystemicGameplayQueryService::ValidateSystemicGameplayState(SystemDefinition, State, SystemicValidationError))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m9_invalid_systemic_state"), SystemDefinition.SystemId, SystemicValidationError);
+		bValid = false;
+	}
+
+	Require(!State.Factions.IsEmpty(), TEXT("m9_missing_factions"), SystemDefinition.SystemId, TEXT("M9 requires faction definitions."));
+	Require(!State.FactionRelationships.IsEmpty(), TEXT("m9_missing_faction_relationships"), SystemDefinition.SystemId, TEXT("M9 requires faction relationship records."));
+	Require(!State.FactionOperations.IsEmpty(), TEXT("m9_missing_faction_operations"), SystemDefinition.SystemId, TEXT("M9 requires faction operational state."));
+	Require(!State.Jurisdictions.IsEmpty(), TEXT("m9_missing_jurisdictions"), SystemDefinition.SystemId, TEXT("M9 requires jurisdiction definitions."));
+	Require(!State.Items.IsEmpty() && !State.Containers.IsEmpty(), TEXT("m9_missing_inventory"), SystemDefinition.SystemId, TEXT("M9 requires item and cargo container contracts."));
+	Require(!State.Commodities.IsEmpty() && !State.CommodityItemBridges.IsEmpty() && !State.Markets.IsEmpty(), TEXT("m9_missing_market"), SystemDefinition.SystemId, TEXT("M9 requires commodity, bridge, and market state."));
+	Require(!State.CreditAccounts.IsEmpty(), TEXT("m9_missing_credit_accounts"), SystemDefinition.SystemId, TEXT("M9 requires durable credit accounts."));
+	Require(!State.StationServiceEndpoints.IsEmpty(), TEXT("m9_missing_service_endpoints"), SystemDefinition.SystemId, TEXT("M9 requires station service endpoints."));
+	Require(!State.CommsEndpoints.IsEmpty() && !State.MessageDefinitions.IsEmpty(), TEXT("m9_missing_comms"), SystemDefinition.SystemId, TEXT("M9 requires comms endpoint and message contracts."));
+	Require(!State.MissionOffers.IsEmpty() && !State.MissionInstances.IsEmpty() && !State.ObjectiveStates.IsEmpty(), TEXT("m9_missing_missions"), SystemDefinition.SystemId, TEXT("M9 requires mission lifecycle hook records."));
+
+	TSet<FName> FactionIds;
+	for (const FFactionDefinition& Faction : State.Factions)
+	{
+		Require(!Faction.FactionId.IsNone(), TEXT("m9_empty_faction_id"), SystemDefinition.SystemId, TEXT("Faction IDs must be stable and non-empty."));
+		Require(!FactionIds.Contains(Faction.FactionId), TEXT("m9_duplicate_faction_id"), Faction.FactionId, TEXT("Faction IDs must be unique."));
+		FactionIds.Add(Faction.FactionId);
+	}
+
+	TSet<FName> JurisdictionIds;
+	for (const FJurisdictionDefinition& Jurisdiction : State.Jurisdictions)
+	{
+		Require(FactionIds.Contains(Jurisdiction.AuthorityFactionId), TEXT("m9_unresolved_jurisdiction_faction"), Jurisdiction.JurisdictionId, TEXT("Jurisdiction authority faction must resolve."));
+		JurisdictionIds.Add(Jurisdiction.JurisdictionId);
+	}
+	for (const FFactionOperationalState& Operation : State.FactionOperations)
+	{
+		Require(FactionIds.Contains(Operation.FactionId), TEXT("m9_unresolved_operation_faction"), Operation.FactionId, TEXT("Faction operational state must reference a valid faction."));
+		Require(!Operation.SystemId.IsNone() || !Operation.ZoneId.IsNone(), TEXT("m9_unscoped_operation"), Operation.FactionId, TEXT("Faction operational state must be scoped to a system or zone."));
+	}
+
+	TSet<FName> ItemIds;
+	for (const FItemDefinition& Item : State.Items)
+	{
+		ItemIds.Add(Item.ItemId);
+	}
+	TSet<FName> CommodityIds;
+	for (const FCommodityDefinition& Commodity : State.Commodities)
+	{
+		CommodityIds.Add(Commodity.CommodityId);
+	}
+	TSet<FName> BridgedCommodityIds;
+	for (const FCommodityItemBridge& Bridge : State.CommodityItemBridges)
+	{
+		Require(CommodityIds.Contains(Bridge.CommodityId), TEXT("m9_bridge_missing_commodity"), Bridge.CommodityItemBridgeId, TEXT("Commodity bridge must reference a valid commodity."));
+		Require(ItemIds.Contains(Bridge.ItemId), TEXT("m9_bridge_missing_item"), Bridge.CommodityItemBridgeId, TEXT("Commodity bridge must reference a valid item."));
+		Require(!BridgedCommodityIds.Contains(Bridge.CommodityId), TEXT("m9_duplicate_commodity_bridge"), Bridge.CommodityId, TEXT("Tradable commodity must have exactly one canonical item bridge."));
+		BridgedCommodityIds.Add(Bridge.CommodityId);
+	}
+
+	TSet<FName> ContainerIds;
+	for (const FContainerState& Container : State.Containers)
+	{
+		ContainerIds.Add(Container.ContainerId);
+		for (const FItemStackState& Stack : Container.Stacks)
+		{
+			Require(ItemIds.Contains(Stack.ItemId), TEXT("m9_stack_missing_item"), Stack.StackId, TEXT("Cargo stack item must resolve."));
+		}
+	}
+
+	TSet<FName> MarketIds;
+	for (const FStationMarketState& Market : State.Markets)
+	{
+		MarketIds.Add(Market.MarketId);
+		Require(Market.MarketId == Market.StationId, TEXT("m9_market_identity_rule"), Market.MarketId, TEXT("M9 fixture market must default MarketId to StationId."));
+		for (const TPair<FName, int32>& Stock : Market.StockByCommodity)
+		{
+			Require(CommodityIds.Contains(Stock.Key), TEXT("m9_market_stock_missing_commodity"), Market.MarketId, TEXT("Market stock commodity must resolve."));
+			Require(BridgedCommodityIds.Contains(Stock.Key), TEXT("m9_market_stock_missing_bridge"), Market.MarketId, TEXT("Carried market commodity must resolve one item bridge."));
+		}
+	}
+
+	TSet<FName> AccountIds;
+	for (const FCreditAccountRecord& Account : State.CreditAccounts)
+	{
+		AccountIds.Add(Account.AccountId);
+	}
+	TSet<FName> CommsIds;
+	for (const FCommsEndpointDefinition& Comms : State.CommsEndpoints)
+	{
+		CommsIds.Add(Comms.EndpointId);
+	}
+	for (const FStationServiceEndpointDefinition& Endpoint : State.StationServiceEndpoints)
+	{
+		Require(FactionIds.Contains(Endpoint.ProviderFactionId), TEXT("m9_endpoint_missing_faction"), Endpoint.ServiceEndpointId, TEXT("Station service endpoint provider faction must resolve."));
+		Require(Endpoint.MarketId.IsNone() || MarketIds.Contains(Endpoint.MarketId), TEXT("m9_endpoint_missing_market"), Endpoint.ServiceEndpointId, TEXT("Station service endpoint market must resolve."));
+		Require(Endpoint.InventoryContainerId.IsNone() || ContainerIds.Contains(Endpoint.InventoryContainerId), TEXT("m9_endpoint_missing_inventory"), Endpoint.ServiceEndpointId, TEXT("Station service endpoint inventory container must resolve."));
+		Require(Endpoint.CreditAccountId.IsNone() || AccountIds.Contains(Endpoint.CreditAccountId), TEXT("m9_endpoint_missing_account"), Endpoint.ServiceEndpointId, TEXT("Station service endpoint account must resolve."));
+		Require(Endpoint.CommsEndpointId.IsNone() || CommsIds.Contains(Endpoint.CommsEndpointId), TEXT("m9_endpoint_missing_comms"), Endpoint.ServiceEndpointId, TEXT("Station service endpoint comms endpoint must resolve."));
+	}
+
+	FSystemicDecisionInputSnapshot Snapshot;
+	Require(USystemicGameplayQueryService::BuildSystemicDecisionInputSnapshot(SystemDefinition, State, TEXT("m7_brink_watch_wayfarer_trade"), Snapshot) && Snapshot.bValid,
+		TEXT("m9_decision_inputs_unresolved"),
+		TEXT("m7_brink_watch_wayfarer_trade"),
+		TEXT("M9 route-security decision inputs must resolve faction, jurisdiction, legal, market, and cargo IDs."));
+
+	return bValid && !Report.HasBlockingIssues();
+}
+
+bool UStarCatalogSubsystem::ValidateM10SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const
+{
+	bool bValid = true;
+	const FSystemicGameplayState& State = SystemDefinition.SystemicGameplay;
+
+	auto Require = [this, &Report, &bValid](bool bCondition, FName RuleId, FName ObjectId, const TCHAR* Message)
+	{
+		if (!bCondition)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, RuleId, ObjectId, Message);
+			bValid = false;
+		}
+	};
+
+	FString LogicalValidationError;
+	if (!USystemicGameplayQueryService::ValidateLogicalEncounterState(SystemDefinition, State, LogicalValidationError))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m10_invalid_logical_encounter_state"), SystemDefinition.SystemId, LogicalValidationError);
+		bValid = false;
+	}
+
+	Require(SystemDefinition.LogicalTraffic.ContainsByPredicate([](const FShipTrafficInstance& Ship)
+	{
+		return Ship.ShipInstanceId == FName(TEXT("pirate_raider_01")) && Ship.TrafficTier == ELogicalTrafficTier::Tier2Logical && Ship.RealizationToken.IsNone();
+	}), TEXT("m10_missing_logical_pirate"), SystemDefinition.SystemId, TEXT("M10 requires a durable logical pirate ship with no actor realization token."));
+	Require(SystemDefinition.LogicalTraffic.ContainsByPredicate([](const FShipTrafficInstance& Ship)
+	{
+		return Ship.ShipInstanceId == FName(TEXT("patrol_frontier_local_01")) && Ship.TrafficTier == ELogicalTrafficTier::Tier2Logical && Ship.RealizationToken.IsNone();
+	}), TEXT("m10_missing_logical_patrol"), SystemDefinition.SystemId, TEXT("M10 requires a durable logical patrol ship with no actor realization token."));
+	Require(State.LogicalEncounters.ContainsByPredicate([](const FLogicalEncounterRecord& Encounter)
+	{
+		return Encounter.EncounterId == FName(TEXT("encounter_pirate_trade_lane_01")) && !Encounter.bRequiresActor && Encounter.State == FName(TEXT("pending"));
+	}), TEXT("m10_missing_actor_free_encounter"), SystemDefinition.SystemId, TEXT("M10 requires an actor-free pending logical pirate encounter."));
+	Require(State.InterdictionHazards.ContainsByPredicate([](const FInterdictionHazardRecord& Hazard)
+	{
+		return Hazard.HazardId == FName(TEXT("hazard_interdiction_trade_lane_01")) && Hazard.RouteSample.RouteSegmentId == FName(TEXT("m7_brink_watch_wayfarer_trade")) && !Hazard.SaveLoadEventId.IsNone();
+	}), TEXT("m10_missing_interdiction_hazard"), SystemDefinition.SystemId, TEXT("M10 requires interdiction hazard state with a route sample and save/load event."));
+	Require(State.DistressEvents.ContainsByPredicate([](const FDistressEventRecord& Distress)
+	{
+		return Distress.DistressEventId == FName(TEXT("event_distress_trade_lane_01")) && !Distress.RespondingPatrolReservationIds.IsEmpty() && !Distress.MessageInstanceIds.IsEmpty();
+	}), TEXT("m10_missing_distress"), SystemDefinition.SystemId, TEXT("M10 requires distress state linking source, threat, responding patrol, and message."));
+	Require(State.ActorPromotionAttachments.ContainsByPredicate([](const FLogicalActorPromotionRecord& Promotion)
+	{
+		return Promotion.EncounterId == FName(TEXT("encounter_pirate_trade_lane_01")) &&
+			Promotion.SourceEventId == FName(TEXT("event_m10_pirate_trade_lane_01")) &&
+			!Promotion.RealizationToken.IsNone() &&
+			!Promotion.bCanResolveEncounter;
+	}), TEXT("m10_missing_promotion_attachment"), SystemDefinition.SystemId, TEXT("M10 requires promotion metadata that attaches later actors to an existing logical encounter without allowing actors to resolve it."));
 
 	return bValid && !Report.HasBlockingIssues();
 }

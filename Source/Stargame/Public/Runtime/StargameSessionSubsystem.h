@@ -71,6 +71,12 @@ public:
 	void SetActiveTrafficState(const FActiveTrafficSimulationState& NewTrafficState) { ActiveTrafficState = NewTrafficState; }
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Session")
+	FSystemicGameplayState GetSystemicGameplayState() const { return SystemicGameplayState; }
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Session")
+	void SetSystemicGameplayState(const FSystemicGameplayState& NewSystemicState) { SystemicGameplayState = NewSystemicState; }
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Session")
 	FString GetM0DebugSummary() const;
 
 	static constexpr const TCHAR* DevelopmentSlotName = TEXT("m0_development");
@@ -80,6 +86,7 @@ private:
 	void ClearSessionState();
 	void ReportStartupError(const FString& Error);
 	bool ValidateLoadedTrafficState(const FStarSystemDefinition& SystemDefinition, const FActiveTrafficSimulationState& TrafficState, FString& OutError) const;
+	bool ValidateLoadedSystemicState(const FStarSystemDefinition& SystemDefinition, const FSystemicGameplayState& LoadedSystemicState, FString& OutError) const;
 	bool RestoreSavedShipLocation(const FShipSaveLocation& ShipLocation, APlayerController* PlayerController, FString& OutError);
 
 	UPROPERTY()
@@ -99,6 +106,9 @@ private:
 
 	UPROPERTY()
 	FActiveTrafficSimulationState ActiveTrafficState;
+
+	UPROPERTY()
+	FSystemicGameplayState SystemicGameplayState;
 
 	EStartSessionResult LastStartSessionResult = EStartSessionResult::ValidationFailed;
 	FString LastSessionError;
