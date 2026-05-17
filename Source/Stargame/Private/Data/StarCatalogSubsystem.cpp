@@ -4,6 +4,7 @@
 #include "Engine/AssetManager.h"
 #include "Engine/AssetManagerSettings.h"
 #include "Flight/SpaceFlightPawn.h"
+#include "Space/LogicalTrafficQueryService.h"
 #include "Space/OrbitRouteFrameQueryService.h"
 
 namespace
@@ -537,11 +538,50 @@ FStargameValidationReport UStarCatalogSubsystem::ValidateM5Fixture(FName SystemI
 	return Report;
 }
 
+FStargameValidationReport UStarCatalogSubsystem::ValidateM7Fixture(FName SystemId) const
+{
+	FStargameValidationReport Report = ValidateM5Fixture(SystemId);
+	Report.Profile = EStargameValidationProfile::M7;
+	if (Report.HasBlockingIssues())
+	{
+		return Report;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	if (!ResolveSystemDefinition(SystemId, SystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_system"), SystemId, TEXT("Required system definition could not be resolved."));
+		return Report;
+	}
+
+	ValidateM7SystemDefinition(SystemDefinition, Report);
+	return Report;
+}
+
+FStargameValidationReport UStarCatalogSubsystem::ValidateM8Fixture(FName SystemId) const
+{
+	FStargameValidationReport Report = ValidateM7Fixture(SystemId);
+	Report.Profile = EStargameValidationProfile::M8;
+	if (Report.HasBlockingIssues())
+	{
+		return Report;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	if (!ResolveSystemDefinition(SystemId, SystemDefinition))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Fatal, TEXT("missing_system"), SystemId, TEXT("Required system definition could not be resolved."));
+		return Report;
+	}
+
+	ValidateM8SystemDefinition(SystemDefinition, Report);
+	return Report;
+}
+
 bool UStarCatalogSubsystem::GenerateSeededPhysicalSystem(int32 Seed, FStarSystemDefinition& OutSystemDefinition) const
 {
 	FRandomStream Stream(Seed);
-	const int32 PositiveSeed = FMath::Abs(Seed);
-	const FString SeedSuffix = FString::Printf(TEXT("%08x"), static_cast<uint32>(PositiveSeed));
+	const FString SeedSuffix = FString::Printf(TEXT("%08x"), static_cast<uint32>(Seed));
 
 	FStarSystemDefinition SystemDefinition;
 	SystemDefinition.SystemId = FName(*FString::Printf(TEXT("generated_m6_%s"), *SeedSuffix));
@@ -1583,6 +1623,272 @@ bool UStarCatalogSubsystem::ValidateM6SystemDefinition(const FStarSystemDefiniti
 	if (MapView.Num() < SystemDefinition.MapEntries.Num())
 	{
 		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m6_map_view_incomplete"), SystemDefinition.SystemId, TEXT("M6 generated map metadata must resolve without actor state."));
+		bValid = false;
+	}
+
+	return bValid && !Report.HasBlockingIssues();
+}
+
+bool UStarCatalogSubsystem::ValidateM7SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const
+{
+	bool bValid = true;
+
+	const FTrafficRouteSegmentDefinition* Route = SystemDefinition.TrafficRoutes.FindByPredicate([](const FTrafficRouteSegmentDefinition& Candidate)
+	{
+		return Candidate.RouteSegmentId == FName(TEXT("m7_brink_watch_wayfarer_trade"));
+	});
+	if (!Route)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m7_missing_fixture_route"), SystemDefinition.SystemId, TEXT("M7 requires traffic route segment m7_brink_watch_wayfarer_trade."));
+		return false;
+	}
+
+	auto EntityExists = [&SystemDefinition](FName EntityId)
+	{
+		return SystemDefinition.Bodies.ContainsByPredicate([EntityId](const FBodyDefinition& Body) { return Body.BodyId == EntityId; }) ||
+			SystemDefinition.Stations.ContainsByPredicate([EntityId](const FStationDefinition& Station) { return Station.StationId == EntityId; }) ||
+			SystemDefinition.Gates.ContainsByPredicate([EntityId](const FGateDefinition& Gate) { return Gate.GateId == EntityId; }) ||
+			SystemDefinition.ResourceZones.ContainsByPredicate([EntityId](const FResourceZoneDefinition& Zone) { return Zone.ZoneId == EntityId; });
+	};
+
+	auto GravityWellExists = [&SystemDefinition](FName WellId)
+	{
+		return SystemDefinition.GravityWells.ContainsByPredicate([WellId](const FGravityWellDefinition& Well) { return Well.WellId == WellId; });
+	};
+
+	if (Route->SourceAnchorId != FName(TEXT("brink_watch")) ||
+		Route->DestinationAnchorId != FName(TEXT("wayfarer_depot")) ||
+		!EntityExists(Route->SourceAnchorId) ||
+		!EntityExists(Route->DestinationAnchorId))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m7_route_endpoint_unresolved"), Route->RouteSegmentId, TEXT("M7 fixture route endpoints must resolve by stable source and destination IDs."));
+		bValid = false;
+	}
+	if (Route->RouteGeometryPolicyId != FName(TEXT("fixture_dynamic_arc_v1")) ||
+		Route->TravelModelId != FName(TEXT("fixture_supercruise_lane_v1")) ||
+		Route->RouteProgressSemantic != FName(TEXT("time_fraction")) ||
+		Route->RouteFrameBasisPolicy != FName(TEXT("source_to_destination")) ||
+		Route->ControlData.ArcHeightCm != 600000.0)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m7_invalid_route_policy"), Route->RouteSegmentId, TEXT("M7 fixture route must use the documented deterministic arc and travel model policies."));
+		bValid = false;
+	}
+	if (!Route->AvoidanceAnchorIds.Contains(FName(TEXT("brink"))) ||
+		!Route->AvoidanceAnchorIds.Contains(FName(TEXT("brink_minor"))) ||
+		!Route->ExclusionZoneIds.Contains(FName(TEXT("brink_well"))) ||
+		!Route->ExclusionZoneIds.Contains(FName(TEXT("brink_minor_well"))))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m7_missing_lockout_route_metadata"), Route->RouteSegmentId, TEXT("M7 fixture route must declare avoidance anchors and gravity-well exclusion IDs."));
+		bValid = false;
+	}
+	for (const FName AvoidanceAnchorId : Route->AvoidanceAnchorIds)
+	{
+		if (!EntityExists(AvoidanceAnchorId))
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m7_avoidance_anchor_unresolved"), AvoidanceAnchorId, TEXT("M7 route avoidance anchor does not resolve."));
+			bValid = false;
+		}
+	}
+	for (const FName ExclusionZoneId : Route->ExclusionZoneIds)
+	{
+		if (!GravityWellExists(ExclusionZoneId))
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m7_exclusion_zone_unresolved"), ExclusionZoneId, TEXT("M7 route exclusion zone does not resolve to a gravity well."));
+			bValid = false;
+		}
+	}
+	if (Route->JurisdictionId.IsNone() ||
+		Route->RiskProfileId.IsNone() ||
+		Route->SecurityRating < 0.0 ||
+		Route->SecurityRating > 1.0 ||
+		Route->AllowedShipClassTags.IsEmpty())
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m7_missing_opaque_risk_stub"), Route->RouteSegmentId, TEXT("M7 route must carry opaque jurisdiction, security, risk profile, and allowed ship class metadata."));
+		bValid = false;
+	}
+
+	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	FRouteSample Sample0;
+	FRouteSample Sample60;
+	FRouteSample Sample0Again;
+	if (!UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, Route->RouteSegmentId, 0.5, Clock0, 0.0, Sample0) ||
+		!UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, Route->RouteSegmentId, 0.5, Clock0, 60.0, Sample60) ||
+		!UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, Route->RouteSegmentId, 0.5, Clock0, 0.0, Sample0Again))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m7_route_sample_unresolved"), Route->RouteSegmentId, TEXT("M7 fixture route must evaluate through the headless route sampler."));
+		bValid = false;
+	}
+	else
+	{
+		if (!Sample0.ResolvedTransform.PositionCm.Equals(Sample0Again.ResolvedTransform.PositionCm, 0.01))
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m7_route_sample_not_deterministic"), Route->RouteSegmentId, TEXT("M7 route samples must be deterministic at the same simulation time."));
+			bValid = false;
+		}
+		if (Sample0.ResolvedTransform.PositionCm.Equals(Sample60.ResolvedTransform.PositionCm, 0.01) ||
+			Sample0.SourceAnchorTransform.PositionCm.Equals(Sample60.SourceAnchorTransform.PositionCm, 0.01))
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m7_route_endpoint_not_moving"), Route->RouteSegmentId, TEXT("M7 route samples must update when moving endpoint anchors move."));
+			bValid = false;
+		}
+	}
+
+	double TravelTimeSeconds = 0.0;
+	if (!UOrbitRouteFrameQueryService::EstimateRouteTravelTime(SystemDefinition, Route->RouteSegmentId, Clock0, 0.0, TravelTimeSeconds) || TravelTimeSeconds <= 0.0)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m7_missing_travel_time_estimate"), Route->RouteSegmentId, TEXT("M7 route must provide a positive travel-time estimate to moving targets."));
+		bValid = false;
+	}
+
+	const FString DebugSummary = UOrbitRouteFrameQueryService::BuildRoutePredictionDebugSummary(SystemDefinition, Route->RouteSegmentId, Route->DestinationAnchorId, Clock0, 0.0);
+	if (!DebugSummary.Contains(TEXT("Now")) ||
+		!DebugSummary.Contains(TEXT("Now + 60s")) ||
+		!DebugSummary.Contains(TEXT("estimated-arrival")) ||
+		!DebugSummary.Contains(TEXT("ETA + 60s")))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m7_missing_debug_prediction_output"), Route->RouteSegmentId, TEXT("M7 debug output must include Now, Now + 60s, estimated-arrival, and ETA + 60s transforms."));
+		bValid = false;
+	}
+
+	return bValid && !Report.HasBlockingIssues();
+}
+
+bool UStarCatalogSubsystem::ValidateM8SystemDefinition(const FStarSystemDefinition& SystemDefinition, FStargameValidationReport& Report) const
+{
+	bool bValid = true;
+
+	const FShipTrafficInstance* Trader = SystemDefinition.LogicalTraffic.FindByPredicate([](const FShipTrafficInstance& Candidate)
+	{
+		return Candidate.ShipInstanceId == FName(TEXT("trader_brink_01"));
+	});
+	if (!Trader)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m8_missing_logical_trader"), SystemDefinition.SystemId, TEXT("M8 requires logical trader trader_brink_01 in the authored fixture."));
+		return false;
+	}
+
+	if (Trader->CurrentGoal.GoalKind != EShipGoalKind::TradeRoute ||
+		Trader->CurrentGoal.RouteSegmentId != FName(TEXT("m7_brink_watch_wayfarer_trade")) ||
+		Trader->CurrentGoal.TargetFrame.RouteSegmentId != Trader->CurrentGoal.RouteSegmentId)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m8_invalid_trade_goal"), Trader->ShipInstanceId, TEXT("M8 logical trader must use the shared trade route goal state and a route-frame target."));
+		bValid = false;
+	}
+
+	const FShipGroupState* Group = SystemDefinition.ShipGroups.FindByPredicate([Trader](const FShipGroupState& Candidate)
+	{
+		return Candidate.GroupId == Trader->GroupId;
+	});
+	if (!Group ||
+		Group->LeaderShipInstanceId != Trader->ShipInstanceId ||
+		!Group->MemberShipInstanceIds.Contains(Trader->ShipInstanceId) ||
+		!Group->FormationSlots.ContainsByPredicate([Trader](const FShipFormationSlot& Slot)
+		{
+			return Slot.ShipInstanceId == Trader->ShipInstanceId && Slot.SlotId == Trader->FormationSlotId && Slot.SlotFrame == FName(TEXT("leader_route_sample"));
+		}))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m8_invalid_group_state"), Trader->GroupId, TEXT("M8 fixture must include FShipGroupState with a leader and route-frame formation slot."));
+		bValid = false;
+	}
+
+	FActiveTrafficSimulationState TrafficState;
+	TrafficState.SystemId = SystemDefinition.SystemId;
+	TrafficState.Ships = SystemDefinition.LogicalTraffic;
+	TrafficState.Groups = SystemDefinition.ShipGroups;
+
+	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	ULogicalTrafficQueryService::RefreshTransientRouteSamples(SystemDefinition, Clock0, 0.0, TrafficState);
+	FActiveTrafficUpdateBudget Budget;
+	Budget.MaxShipsPerUpdate = 1;
+	Budget.MaxSimulationStepSeconds = 5.0;
+
+	const double InitialProgress = Trader->CurrentGoal.RouteProgress01;
+	const EShipGoalExecutionResult UpdateResult = ULogicalTrafficQueryService::UpdateActiveTraffic(SystemDefinition, Clock0, 12.0, Budget, TrafficState);
+	if (UpdateResult != EShipGoalExecutionResult::Success ||
+		TrafficState.Ships.IsEmpty() ||
+		TrafficState.Ships[0].CurrentGoal.RouteProgress01 <= InitialProgress ||
+		TrafficState.Ships[0].LastRouteSample.RouteSegmentId != FName(TEXT("m7_brink_watch_wayfarer_trade")))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m8_trade_route_not_progressing"), Trader->ShipInstanceId, TEXT("M8 logical trader must progress along the moving route without spawning."));
+		bValid = false;
+	}
+	if (TrafficState.LastUpdateStats.UpdatedShips > Budget.MaxShipsPerUpdate ||
+		TrafficState.LastUpdateStats.AppliedDeltaSeconds > Budget.MaxSimulationStepSeconds)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m8_update_budget_not_capped"), Trader->ShipInstanceId, TEXT("M8 Tier 2 active-system update loop must expose and obey count/time caps."));
+		bValid = false;
+	}
+
+	FShipTrafficInstance InterruptShip = *Trader;
+	FShipGoalState InterruptGoal;
+	InterruptGoal.GoalId = TEXT("m8_scripted_hold_position");
+	InterruptGoal.GoalKind = EShipGoalKind::None;
+	InterruptGoal.InterruptPriority = 99;
+	InterruptGoal.DecisionReason = TEXT("scripted_non_combat_interrupt");
+	FString FailureReason;
+	if (!ULogicalTrafficQueryService::ApplyScriptedInterrupt(InterruptShip, InterruptGoal, FailureReason) ||
+		!InterruptShip.bHasSavedGoal ||
+		!ULogicalTrafficQueryService::RestoreSavedGoal(InterruptShip, FailureReason) ||
+		InterruptShip.CurrentGoal.GoalKind != EShipGoalKind::TradeRoute)
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m8_interrupt_restore_failed"), Trader->ShipInstanceId, TEXT("M8 scripted interrupt must pause trade and restore the saved goal."));
+		bValid = false;
+	}
+
+	const EShipGoalKind ReservedKinds[] = {
+		EShipGoalKind::Patrol,
+		EShipGoalKind::Escort,
+		EShipGoalKind::Pirate,
+		EShipGoalKind::Flee,
+		EShipGoalKind::Fight
+	};
+	for (EShipGoalKind ReservedKind : ReservedKinds)
+	{
+		FShipGoalState ReservedGoal;
+		ReservedGoal.GoalId = FName(*FString::Printf(TEXT("m8_reserved_%d"), static_cast<int32>(ReservedKind)));
+		ReservedGoal.GoalKind = ReservedKind;
+		ReservedGoal.bAutonomousExecutionAllowed = false;
+		FString ReservedReason;
+		const EShipGoalExecutionResult ReservedResult = ULogicalTrafficQueryService::CanExecuteAutonomousGoal(ReservedGoal, ReservedReason);
+		const bool bExpectedRejection = ReservedKind == EShipGoalKind::Fight
+			? ReservedResult == EShipGoalExecutionResult::ReservedUntilM10
+			: ReservedResult == EShipGoalExecutionResult::ReservedUntilM9;
+		if (!bExpectedRejection)
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m8_reserved_goal_executes_too_early"), ReservedGoal.GoalId, TEXT("M8 reserved non-trade goal records must reject autonomous execution until their owning milestone."));
+			bValid = false;
+		}
+	}
+
+	FShipTrafficInstance RealizedShip = *Trader;
+	FRouteSample PromotedSample;
+	if (!ULogicalTrafficQueryService::PromoteLogicalTrader(SystemDefinition, RealizedShip, Clock0, 0.0, TEXT("m8_pooled_actor_01"), PromotedSample, FailureReason) ||
+		RealizedShip.TrafficTier != ELogicalTrafficTier::Tier1Realized ||
+		RealizedShip.RealizationToken.IsNone())
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m8_promotion_failed"), Trader->ShipInstanceId, TEXT("M8 logical trader must promote to the realization harness."));
+		bValid = false;
+	}
+	FRouteSample ActorSample;
+	if (!UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, RealizedShip.CurrentGoal.RouteSegmentId, 0.35, Clock0, 20.0, ActorSample) ||
+		!ULogicalTrafficQueryService::DemoteLogicalTrader(SystemDefinition, RealizedShip, ActorSample, Clock0, 20.0, TEXT("m8_pooled_actor_01"), FailureReason) ||
+		RealizedShip.TrafficTier != ELogicalTrafficTier::Tier2Logical ||
+		!RealizedShip.RealizationToken.IsNone() ||
+		!FMath::IsNearlyEqual(RealizedShip.CurrentGoal.RouteProgress01, 0.35, 0.05))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m8_demotion_failed"), Trader->ShipInstanceId, TEXT("M8 realization harness must demote to route progress and resume without actor references."));
+		bValid = false;
+	}
+
+	FLogicalTrafficDebugView DebugView;
+	if (!ULogicalTrafficQueryService::BuildLogicalTrafficDebugView(*Trader, DebugView) ||
+		!DebugView.DebugSummary.Contains(TEXT("Goal=")) ||
+		!DebugView.DebugSummary.Contains(TEXT("TargetFrame=")) ||
+		!DebugView.DebugSummary.Contains(TEXT("RouteProgress=")) ||
+		!DebugView.DebugSummary.Contains(TEXT("Group=")) ||
+		!DebugView.DebugSummary.Contains(TEXT("DecisionReason=")))
+	{
+		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("m8_missing_debug_view"), Trader->ShipInstanceId, TEXT("M8 debug view must show goal, target frame, route progress, group, and decision reason."));
 		bValid = false;
 	}
 

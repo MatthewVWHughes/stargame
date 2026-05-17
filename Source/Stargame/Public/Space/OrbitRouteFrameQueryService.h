@@ -44,6 +44,48 @@ public:
 		double RequestedSimulationTimeSeconds,
 		FFrameResolvedTransform& OutTransform);
 
+	UFUNCTION(BlueprintPure, Category = "Stargame|AI")
+	static bool PredictMovingFrameTarget(
+		const FStarSystemDefinition& SystemDefinition,
+		const FMovingFrameTarget& Target,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double RequestedSimulationTimeSeconds,
+		FAIPredictedTransform& OutPrediction);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|AI")
+	static bool EvaluateRoute(
+		const FStarSystemDefinition& SystemDefinition,
+		FName RouteSegmentId,
+		double RouteProgress01,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double RequestedSimulationTimeSeconds,
+		FRouteSample& OutSample);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|AI")
+	static bool EstimateRouteTravelTime(
+		const FStarSystemDefinition& SystemDefinition,
+		FName RouteSegmentId,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double RequestedSimulationTimeSeconds,
+		double& OutTravelTimeSeconds);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|AI")
+	static bool FindClosestRouteProgress(
+		const FStarSystemDefinition& SystemDefinition,
+		FName RouteSegmentId,
+		const FVector& SystemPositionCm,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double RequestedSimulationTimeSeconds,
+		FRouteClosestProgressResult& OutResult);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|AI")
+	static FString BuildRoutePredictionDebugSummary(
+		const FStarSystemDefinition& SystemDefinition,
+		FName RouteSegmentId,
+		FName TargetId,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double RequestedSimulationTimeSeconds);
+
 	UFUNCTION(BlueprintPure, Category = "Stargame|Map")
 	static void BuildSystemMapViewModel(
 		const FStarSystemDefinition& SystemDefinition,
@@ -93,6 +135,27 @@ private:
 		FTransform& OutTransform,
 		FOrbitDefinition& OutOrbit,
 		double& OutVisualRadiusCm);
+
+	static const FTrafficRouteSegmentDefinition* FindRouteDefinition(const FStarSystemDefinition& SystemDefinition, FName RouteSegmentId);
+	static bool ResolveRouteEndpoint(
+		const FStarSystemDefinition& SystemDefinition,
+		const FTrafficRouteSegmentDefinition& Route,
+		bool bSource,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double RequestedSimulationTimeSeconds,
+		FFrameResolvedTransform& OutTransform);
+	static bool BuildRouteArc(
+		const FTrafficRouteSegmentDefinition& Route,
+		const FFrameResolvedTransform& Source,
+		const FFrameResolvedTransform& Destination,
+		FVector& OutP0,
+		FVector& OutP1,
+		FVector& OutControlPoint,
+		FVector& OutArcNormal);
+	static double EstimateRouteLengthCm(
+		const FTrafficRouteSegmentDefinition& Route,
+		const FFrameResolvedTransform& Source,
+		const FFrameResolvedTransform& Destination);
 
 	static FVector EvaluateOrbitPosition(const FOrbitDefinition& Orbit, double RequestedSimulationTimeSeconds);
 	static FVector EvaluateOrbitVelocity(const FOrbitDefinition& Orbit, double RequestedSimulationTimeSeconds);

@@ -7,8 +7,11 @@
 #include "Engine/World.h"
 #include "Flight/ShipFlightModeComponent.h"
 #include "Flight/SpaceFlightPawn.h"
+#include "GameFramework/PlayerController.h"
+#include "Kismet/GameplayStatics.h"
 #include "Misc/AutomationTest.h"
 #include "Runtime/StargameSessionSubsystem.h"
+#include "Space/LogicalTrafficQueryService.h"
 #include "Space/OrbitRouteFrameQueryService.h"
 #include "Space/StarSystemSubsystem.h"
 
@@ -519,6 +522,56 @@ bool FM2ClockAndSaveLocationTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Save location stores logical frame, not actor path"), SaveState.ShipLocation.CoordinateFrame.FrameType, FName(TEXT("local_free_flight")));
 	TestEqual(TEXT("Save location mode is explicit"), SaveState.ShipLocation.LocationMode, EShipLocationMode::Respawn);
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM2SessionSaveLoadRestoresFreeFlightLocationTest,
+	"Stargame.M2.SaveLoad.RestoresFreeFlightLogicalLocation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM2SessionSaveLoadRestoresFreeFlightLocationTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FindM1AutomationWorld();
+	TestNotNull(TEXT("Automation world exists"), World);
+	UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!World || !Session)
+	{
+		AddInfo(TEXT("Skipping full session save/load restore test: automation world has no game instance/session subsystem."));
+		return true;
+	}
+
+	TestEqual(TEXT("Session starts"), Session->StartNewSession(FName(TEXT("frontier_test_start"))), EStartSessionResult::Success);
+	APlayerController* PlayerController = World->GetFirstPlayerController();
+	ASpaceFlightPawn* Pawn = PlayerController ? Cast<ASpaceFlightPawn>(PlayerController->GetPawn()) : nullptr;
+	TestNotNull(TEXT("Space flight pawn exists"), Pawn);
+	if (!Pawn)
+	{
+		return false;
+	}
+
+	const FVector SavedPosition(123456.0, -654321.0, 20000.0);
+	const FRotator SavedRotation(0.0, 45.0, 0.0);
+	const FVector SavedVelocity(1200.0, -300.0, 50.0);
+	Pawn->SetFlightTestTransformAndVelocity(FTransform(SavedRotation, SavedPosition), SavedVelocity);
+
+	const FStargameM0SaveState SavedState = Session->MakeCurrentM0SaveState();
+	TestEqual(TEXT("Free-flight save mode is explicit"), SavedState.ShipLocation.LocationMode, EShipLocationMode::FreeFlight);
+	TestTrue(TEXT("Save development slot"), Session->SaveDevelopmentSlot(SavedState));
+
+	Pawn->SetFlightTestTransformAndVelocity(FTransform(FRotator::ZeroRotator, FVector::ZeroVector), FVector::ZeroVector);
+	TestTrue(TEXT("Load development slot"), Session->LoadDevelopmentSlot());
+
+	ASpaceFlightPawn* RestoredPawn = PlayerController ? Cast<ASpaceFlightPawn>(PlayerController->GetPawn()) : nullptr;
+	TestNotNull(TEXT("Restored pawn exists"), RestoredPawn);
+	if (RestoredPawn)
+	{
+		TestTrue(TEXT("Free-flight logical position restored"), RestoredPawn->GetLogicalSystemPositionCm().Equals(SavedPosition, 0.01));
+		TestTrue(TEXT("Free-flight velocity restored"), RestoredPawn->GetLinearVelocityCmPerSec().Equals(SavedVelocity, 0.01));
+	}
+
+	UGameplayStatics::DeleteGameInSlot(UStargameSessionSubsystem::DevelopmentSlotName, 0);
 	return true;
 }
 
@@ -1131,6 +1184,14 @@ bool FM5DockingEligibilityAndAssistTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("M5 docked pawn matches moving live port"), DockingPawn->GetActorLocation().Equals(LiveDockedFrame.PositionCm, 1.0));
 
 	DockingPawn->Destroy();
+	TestTrue(TEXT("M5 test releases occupied port"), StarSystem->ReleaseDockingPort(TEXT("brink_watch"), TEXT("brink_watch_port_a"), TEXT("player_ship")));
+	FDockingPortRuntimeState ReservedRuntimeState;
+	FString ReservationFailure;
+	TestTrue(TEXT("M5 reservation owner can reserve port"), StarSystem->TryReserveDockingPort(TEXT("brink_watch"), TEXT("brink_watch_port_a"), TEXT("ship_a"), LiveTime, ReservedRuntimeState, ReservationFailure));
+	TestFalse(TEXT("M5 reserved port rejects different occupying ship"), StarSystem->OccupyDockingPort(TEXT("brink_watch"), TEXT("brink_watch_port_a"), TEXT("ship_b"), ReservedRuntimeState, ReservationFailure));
+	TestTrue(TEXT("M5 reservation rejection explains owner conflict"), ReservationFailure.Contains(TEXT("reserved")));
+	TestTrue(TEXT("M5 reservation owner can occupy port"), StarSystem->OccupyDockingPort(TEXT("brink_watch"), TEXT("brink_watch_port_a"), TEXT("ship_a"), ReservedRuntimeState, ReservationFailure));
+
 	StarSystem->TearDownActiveSystem();
 	return true;
 }
@@ -1193,11 +1254,24 @@ bool FM5DockedSaveReloadUndockLoopTest::RunTest(const FString& Parameters)
 		SaveLocation.LocationMode = EShipLocationMode::StationDocked;
 		SaveLocation.DockedStationId = TEXT("brink_watch");
 		SaveLocation.DockingPortId = TEXT("brink_watch_port_a");
+		const FDockingOperationState SavedDocking = Pawn->GetDockingOperationState();
+		FDockingPortRuntimeState SavedRuntimeState;
+		TestTrue(TEXT("M5 save resolves occupied port runtime"), StarSystem->FindDockingPortRuntimeState(SaveLocation.DockedStationId, SaveLocation.DockingPortId, SavedRuntimeState));
+		SaveLocation.DockedShipInstanceId = SavedDocking.ShipInstanceId;
+		SaveLocation.DockingClearanceId = SavedDocking.ClearanceId;
 		SaveLocation.DockingState = EDockingState::Docked;
+		SaveLocation.DockingReservedShipId = SavedRuntimeState.ReservedShipId;
+		SaveLocation.DockingOccupyingShipId = SavedRuntimeState.OccupyingShipId;
+		SaveLocation.DockingReservationExpiryTimeSeconds = SavedRuntimeState.ReservationExpiryTimeSeconds;
+		SaveLocation.DockingPortRuntimeState = SavedRuntimeState.DockingState;
 		SaveLocation.AuthoritativeSimulationTimeSeconds = Session ? Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds : 0.0;
 		TestEqual(TEXT("M5 save captures docked mode"), SaveLocation.LocationMode, EShipLocationMode::StationDocked);
 		TestEqual(TEXT("M5 save captures docked station"), SaveLocation.DockedStationId, FName(TEXT("brink_watch")));
 		TestEqual(TEXT("M5 save captures docked port"), SaveLocation.DockingPortId, FName(TEXT("brink_watch_port_a")));
+		TestEqual(TEXT("M5 save captures docked ship instance"), SaveLocation.DockedShipInstanceId, FName(TEXT("player_ship")));
+		TestFalse(TEXT("M5 save captures docking clearance"), SaveLocation.DockingClearanceId.IsNone());
+		TestEqual(TEXT("M5 save captures port occupancy"), SaveLocation.DockingOccupyingShipId, FName(TEXT("player_ship")));
+		TestEqual(TEXT("M5 save captures port runtime state"), SaveLocation.DockingPortRuntimeState, EDockingState::Docked);
 
 		if (Session)
 		{
@@ -1206,8 +1280,12 @@ bool FM5DockedSaveReloadUndockLoopTest::RunTest(const FString& Parameters)
 		const double ReloadTimeSeconds = Session ? Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds : SaveLocation.AuthoritativeSimulationTimeSeconds + 5.0;
 		FFrameResolvedTransform ExpectedReloadDockedFrame;
 		TestTrue(TEXT("M5 reload expected frame resolves"), UOrbitRouteFrameQueryService::ResolveDockingPortFrame(SystemDefinition, SaveLocation.DockedStationId, SaveLocation.DockingPortId, UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, ReloadTimeSeconds), ReloadTimeSeconds, ExpectedReloadDockedFrame));
-		TestTrue(TEXT("M5 restore while docked succeeds after time advance"), Pawn->RestoreDockedAt(SaveLocation.DockedStationId, SaveLocation.DockingPortId, ReloadTimeSeconds));
+		TestTrue(TEXT("M5 restore while docked succeeds after time advance"), Pawn->RestoreDockedAt(SaveLocation.DockedStationId, SaveLocation.DockingPortId, SaveLocation.DockedShipInstanceId, SaveLocation.DockingClearanceId, ReloadTimeSeconds));
 		TestTrue(TEXT("M5 restored pawn matches live port"), Pawn->GetActorLocation().Equals(ExpectedReloadDockedFrame.PositionCm, 1.0));
+		FDockingPortRuntimeState RestoredRuntimeState;
+		TestTrue(TEXT("M5 restore resolves occupied port runtime"), StarSystem->FindDockingPortRuntimeState(SaveLocation.DockedStationId, SaveLocation.DockingPortId, RestoredRuntimeState));
+		TestEqual(TEXT("M5 restore preserves occupying ship"), RestoredRuntimeState.OccupyingShipId, SaveLocation.DockingOccupyingShipId);
+		TestEqual(TEXT("M5 restore preserves clearance"), RestoredRuntimeState.ClearanceId, SaveLocation.DockingClearanceId);
 
 		TestTrue(TEXT("M5 undock succeeds"), Pawn->Undock());
 		TestEqual(TEXT("M5 undock returns to normal mode"), Pawn->GetFlightMode(), EShipFlightMode::Normal);
@@ -1324,12 +1402,16 @@ bool FM6SeededGenerationDeterminismTest::RunTest(const FString& Parameters)
 	FStarSystemDefinition First;
 	FStarSystemDefinition Second;
 	FStarSystemDefinition Different;
+	FStarSystemDefinition NegativeSeed;
 	TestTrue(TEXT("M6 first system generates"), Catalog->GenerateSeededPhysicalSystem(6001, First));
 	TestTrue(TEXT("M6 second system generates"), Catalog->GenerateSeededPhysicalSystem(6001, Second));
 	TestTrue(TEXT("M6 different seed system generates"), Catalog->GenerateSeededPhysicalSystem(6002, Different));
+	TestTrue(TEXT("M6 negative seed system generates"), Catalog->GenerateSeededPhysicalSystem(-6001, NegativeSeed));
 
 	TestEqual(TEXT("M6 same seed signature matches"), BuildM6SystemSignature(First), BuildM6SystemSignature(Second));
 	TestNotEqual(TEXT("M6 different seed signature differs"), BuildM6SystemSignature(First), BuildM6SystemSignature(Different));
+	TestNotEqual(TEXT("M6 positive and negative seeds use unique system IDs"), First.SystemId, NegativeSeed.SystemId);
+	TestNotEqual(TEXT("M6 positive and negative seeds have distinct signatures"), BuildM6SystemSignature(First), BuildM6SystemSignature(NegativeSeed));
 
 	return true;
 }
@@ -1393,6 +1475,459 @@ bool FM6GeneratedRegistryCompatibilityTest::RunTest(const FString& Parameters)
 	}
 
 	StarSystem->TearDownActiveSystem();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM7FixtureRouteValidationTest,
+	"Stargame.M7.Route.ValidatesFixtureRoute",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM7FixtureRouteValidationTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M7 frontier system resolves"), Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	const FTrafficRouteSegmentDefinition* Route = SystemDefinition.TrafficRoutes.FindByPredicate([](const FTrafficRouteSegmentDefinition& Candidate)
+	{
+		return Candidate.RouteSegmentId == FName(TEXT("m7_brink_watch_wayfarer_trade"));
+	});
+	TestNotNull(TEXT("M7 fixture route loads by stable ID"), Route);
+	if (!Route)
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("M7 source anchor"), Route->SourceAnchorId, FName(TEXT("brink_watch")));
+	TestEqual(TEXT("M7 destination anchor"), Route->DestinationAnchorId, FName(TEXT("wayfarer_depot")));
+	TestEqual(TEXT("M7 jurisdiction is opaque fixture metadata"), Route->JurisdictionId, FName(TEXT("frontier_local_authority")));
+	TestEqual(TEXT("M7 risk profile is opaque fixture metadata"), Route->RiskProfileId, FName(TEXT("fixture_mixed_patrol_pirate_risk")));
+	TestEqual(TEXT("M7 security rating"), Route->SecurityRating, 0.45);
+	TestTrue(TEXT("M7 route declares lockout exclusion"), Route->ExclusionZoneIds.Contains(FName(TEXT("brink_well"))) && Route->ExclusionZoneIds.Contains(FName(TEXT("brink_minor_well"))));
+
+	FRouteRiskStub RiskStub;
+	RiskStub.RouteSegmentId = Route->RouteSegmentId;
+	RiskStub.JurisdictionId = Route->JurisdictionId;
+	RiskStub.SecurityRating = Route->SecurityRating;
+	RiskStub.RiskProfileId = Route->RiskProfileId;
+	TestTrue(TEXT("M7 risk stub remains opaque until M9"), RiskStub.bOpaqueUntilM9);
+
+	const FStargameValidationReport Report = Catalog->ValidateM7Fixture(TEXT("frontier_test_01"));
+	TestFalse(TEXT("M7 validation report has no blocking issues"), Report.HasBlockingIssues());
+	if (Report.HasBlockingIssues())
+	{
+		for (const FStargameValidationIssue& Issue : Report.Issues)
+		{
+			AddError(Issue.Message);
+		}
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM7MovingTargetPredictionTest,
+	"Stargame.M7.Prediction.MovingStationDeterministic",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM7MovingTargetPredictionTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M7 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	FMovingFrameTarget Target;
+	Target.TargetId = TEXT("brink_watch");
+	Target.TargetType = TEXT("station");
+	Target.AnchorId = TEXT("brink_watch");
+	Target.CoordinateFrame.FrameType = TEXT("station_relative");
+	Target.CoordinateFrame.AnchorId = TEXT("brink_watch");
+
+	FAIPredictedTransform Prediction0;
+	FAIPredictedTransform Prediction0Again;
+	FAIPredictedTransform Prediction60;
+	TestTrue(TEXT("M7 predicts station at t0"), UOrbitRouteFrameQueryService::PredictMovingFrameTarget(SystemDefinition, Target, Clock0, 0.0, Prediction0));
+	TestTrue(TEXT("M7 predicts station deterministically at t0"), UOrbitRouteFrameQueryService::PredictMovingFrameTarget(SystemDefinition, Target, Clock0, 0.0, Prediction0Again));
+	TestTrue(TEXT("M7 predicts station at t60"), UOrbitRouteFrameQueryService::PredictMovingFrameTarget(SystemDefinition, Target, Clock0, 60.0, Prediction60));
+	TestTrue(TEXT("M7 prediction uses stable target ID"), Prediction0.Target.TargetId == FName(TEXT("brink_watch")) && Prediction0.Target.AnchorId == FName(TEXT("brink_watch")));
+	TestTrue(TEXT("M7 same-time prediction matches"), Prediction0.ResolvedTransform.PositionCm.Equals(Prediction0Again.ResolvedTransform.PositionCm, 0.01));
+	TestFalse(TEXT("M7 orbiting station prediction changes over time"), Prediction0.ResolvedTransform.PositionCm.Equals(Prediction60.ResolvedTransform.PositionCm, 0.01));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM7RouteSamplingMovingEndpointTest,
+	"Stargame.M7.Route.SamplesMovingEndpoints",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM7RouteSamplingMovingEndpointTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M7 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	FRouteSample Sample0;
+	FRouteSample Sample0Again;
+	FRouteSample Sample60;
+	TestTrue(TEXT("M7 route sample at t0"), UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, TEXT("m7_brink_watch_wayfarer_trade"), 0.5, Clock0, 0.0, Sample0));
+	TestTrue(TEXT("M7 route sample deterministic at t0"), UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, TEXT("m7_brink_watch_wayfarer_trade"), 0.5, Clock0, 0.0, Sample0Again));
+	TestTrue(TEXT("M7 route sample at t60"), UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, TEXT("m7_brink_watch_wayfarer_trade"), 0.5, Clock0, 60.0, Sample60));
+
+	TestTrue(TEXT("M7 same-time route sample matches"), Sample0.ResolvedTransform.PositionCm.Equals(Sample0Again.ResolvedTransform.PositionCm, 0.01));
+	TestFalse(TEXT("M7 route sample updates as endpoints move"), Sample0.ResolvedTransform.PositionCm.Equals(Sample60.ResolvedTransform.PositionCm, 0.01));
+	TestFalse(TEXT("M7 route source endpoint moves"), Sample0.SourceAnchorTransform.PositionCm.Equals(Sample60.SourceAnchorTransform.PositionCm, 0.01));
+	TestFalse(TEXT("M7 route has nonzero tangent"), Sample0.Tangent.IsNearlyZero());
+	TestFalse(TEXT("M7 route has estimated velocity"), Sample0.EstimatedVelocityCmPerSec.IsNearlyZero());
+
+	double TravelTimeSeconds = 0.0;
+	TestTrue(TEXT("M7 route travel time estimates"), UOrbitRouteFrameQueryService::EstimateRouteTravelTime(SystemDefinition, TEXT("m7_brink_watch_wayfarer_trade"), Clock0, 0.0, TravelTimeSeconds));
+	TestTrue(TEXT("M7 route travel time positive"), TravelTimeSeconds > 0.0);
+
+	FRouteClosestProgressResult ClosestProgress;
+	TestTrue(TEXT("M7 closest progress resolves"), UOrbitRouteFrameQueryService::FindClosestRouteProgress(SystemDefinition, TEXT("m7_brink_watch_wayfarer_trade"), Sample0.ResolvedTransform.PositionCm, Clock0, 0.0, ClosestProgress));
+	TestTrue(TEXT("M7 closest progress near requested sample"), FMath::IsNearlyEqual(ClosestProgress.RouteProgress01, 0.5, 0.05));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM7RouteSaveReloadAndDebugTest,
+	"Stargame.M7.Route.SaveReloadAndDebugSummary",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM7RouteSaveReloadAndDebugTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M7 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	const FStarSystemDefinition ReloadedDefinition = SystemDefinition;
+	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(ReloadedDefinition.SystemId, 0.0);
+	FRouteSample ReloadedSample;
+	TestTrue(TEXT("M7 route sampling survives reload without actors"), UOrbitRouteFrameQueryService::EvaluateRoute(ReloadedDefinition, TEXT("m7_brink_watch_wayfarer_trade"), 0.25, Clock0, 30.0, ReloadedSample));
+	TestEqual(TEXT("M7 reloaded sample route ID stable"), ReloadedSample.RouteSegmentId, FName(TEXT("m7_brink_watch_wayfarer_trade")));
+	TestEqual(TEXT("M7 reloaded sample geometry policy stable"), ReloadedSample.RouteGeometryPolicyId, FName(TEXT("fixture_dynamic_arc_v1")));
+	TestEqual(TEXT("M7 reloaded sample travel model stable"), ReloadedSample.TravelModelId, FName(TEXT("fixture_supercruise_lane_v1")));
+	TestEqual(TEXT("M7 reloaded sample security metadata stable"), ReloadedSample.SecurityRating, 0.45);
+
+	const FString DebugSummary = UOrbitRouteFrameQueryService::BuildRoutePredictionDebugSummary(ReloadedDefinition, TEXT("m7_brink_watch_wayfarer_trade"), TEXT("wayfarer_depot"), Clock0, 0.0);
+	TestTrue(TEXT("M7 debug shows Now"), DebugSummary.Contains(TEXT("Now:")));
+	TestTrue(TEXT("M7 debug shows Now + 60s"), DebugSummary.Contains(TEXT("Now + 60s:")));
+	TestTrue(TEXT("M7 debug shows estimated arrival"), DebugSummary.Contains(TEXT("estimated-arrival")));
+	TestTrue(TEXT("M7 debug shows ETA + 60s"), DebugSummary.Contains(TEXT("ETA + 60s:")));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM8LogicalTraderProgressTest,
+	"Stargame.M8.Traffic.LogicalTraderProgressesWithoutSpawn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM8LogicalTraderProgressTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M8 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	const FStargameValidationReport Report = Catalog->ValidateM8Fixture(TEXT("frontier_test_01"));
+	TestFalse(TEXT("M8 validation report has no blocking issues"), Report.HasBlockingIssues());
+	if (Report.HasBlockingIssues())
+	{
+		for (const FStargameValidationIssue& Issue : Report.Issues)
+		{
+			AddError(Issue.Message);
+		}
+	}
+
+	FActiveTrafficSimulationState TrafficState;
+	TrafficState.SystemId = SystemDefinition.SystemId;
+	TrafficState.Ships = SystemDefinition.LogicalTraffic;
+	TrafficState.Groups = SystemDefinition.ShipGroups;
+	TestEqual(TEXT("M8 authored fixture has one logical trader"), TrafficState.Ships.Num(), 1);
+
+	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	ULogicalTrafficQueryService::RefreshTransientRouteSamples(SystemDefinition, Clock0, 0.0, TrafficState);
+	const double InitialProgress = TrafficState.Ships[0].CurrentGoal.RouteProgress01;
+	const FVector InitialRoutePosition = TrafficState.Ships[0].LastRouteSample.ResolvedTransform.PositionCm;
+	FActiveTrafficUpdateBudget Budget;
+	Budget.MaxShipsPerUpdate = 4;
+	Budget.MaxSimulationStepSeconds = 5.0;
+	TestEqual(TEXT("M8 trade update succeeds"), ULogicalTrafficQueryService::UpdateActiveTraffic(SystemDefinition, Clock0, 5.0, Budget, TrafficState), EShipGoalExecutionResult::Success);
+
+	TestTrue(TEXT("M8 trader progresses route fraction"), TrafficState.Ships[0].CurrentGoal.RouteProgress01 > InitialProgress);
+	TestEqual(TEXT("M8 trader remains logical"), TrafficState.Ships[0].TrafficTier, ELogicalTrafficTier::Tier2Logical);
+	TestTrue(TEXT("M8 route target has stable ID"), TrafficState.Ships[0].CurrentGoal.TargetFrame.RouteSegmentId == FName(TEXT("m7_brink_watch_wayfarer_trade")));
+	TestEqual(TEXT("M8 durable logical location is route sample"), TrafficState.Ships[0].LogicalLocation.TargetType, FName(TEXT("route_sample")));
+	TestEqual(TEXT("M8 durable logical location keeps route ID"), TrafficState.Ships[0].LogicalLocation.RouteSegmentId, FName(TEXT("m7_brink_watch_wayfarer_trade")));
+	TestTrue(TEXT("M8 durable logical velocity is populated"), TrafficState.Ships[0].LogicalVelocityCmPerSec.SizeSquared() > 1.0);
+	TestFalse(TEXT("M8 logical position follows moving route sample"), TrafficState.Ships[0].LastRouteSample.ResolvedTransform.PositionCm.Equals(InitialRoutePosition, 0.01));
+
+	FLogicalTrafficDebugView DebugView;
+	TestTrue(TEXT("M8 debug view builds"), ULogicalTrafficQueryService::BuildLogicalTrafficDebugView(TrafficState.Ships[0], DebugView));
+	TestTrue(TEXT("M8 debug includes goal"), DebugView.DebugSummary.Contains(TEXT("Goal=")));
+	TestTrue(TEXT("M8 debug includes target frame"), DebugView.DebugSummary.Contains(TEXT("TargetFrame=")));
+	TestTrue(TEXT("M8 debug includes route progress"), DebugView.DebugSummary.Contains(TEXT("RouteProgress=")));
+	TestTrue(TEXT("M8 debug includes group"), DebugView.DebugSummary.Contains(TEXT("Group=")));
+	TestTrue(TEXT("M8 debug includes decision reason"), DebugView.DebugSummary.Contains(TEXT("DecisionReason=")));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM8DemotionFallbacksToOffRouteLocationTest,
+	"Stargame.M8.Traffic.DemotionFallbacksToOffRouteLocation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM8DemotionFallbacksToOffRouteLocationTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M8 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	TestFalse(TEXT("M8 logical traffic exists"), SystemDefinition.LogicalTraffic.IsEmpty());
+
+	FShipTrafficInstance Ship = SystemDefinition.LogicalTraffic[0];
+	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	FString FailureReason;
+	FRouteSample PromotionTarget;
+	TestTrue(TEXT("M8 trader promotes for off-route fallback"), ULogicalTrafficQueryService::PromoteLogicalTrader(SystemDefinition, Ship, Clock0, 0.0, TEXT("m8_pooled_actor_01"), PromotionTarget, FailureReason));
+
+	FRouteSample DivergedActorSample = PromotionTarget;
+	DivergedActorSample.ResolvedTransform.PositionCm += FVector(100000000.0, 0.0, 0.0);
+	DivergedActorSample.EstimatedVelocityCmPerSec += FVector(0.0, 10000000.0, 0.0);
+	DivergedActorSample.SimulationTimeSeconds = 20.0;
+
+	TestTrue(TEXT("M8 demotion falls back instead of failing"), ULogicalTrafficQueryService::DemoteLogicalTrader(SystemDefinition, Ship, DivergedActorSample, Clock0, 20.0, TEXT("m8_pooled_actor_01"), FailureReason));
+	TestEqual(TEXT("M8 off-route fallback returns to logical tier"), Ship.TrafficTier, ELogicalTrafficTier::Tier2Logical);
+	TestTrue(TEXT("M8 off-route fallback clears realization token"), Ship.RealizationToken.IsNone());
+	TestFalse(TEXT("M8 off-route fallback disables route recovery"), Ship.bRouteRecoverable);
+	TestEqual(TEXT("M8 off-route fallback stores durable logical location"), Ship.LogicalLocation.TargetType, FName(TEXT("off_route_free_flight")));
+	TestEqual(TEXT("M8 off-route fallback stores logical frame"), Ship.LogicalLocation.CoordinateFrame.FrameType, FName(TEXT("system_barycentric")));
+	TestEqual(TEXT("M8 off-route fallback stores logical anchor"), Ship.LogicalLocation.AnchorId, SystemDefinition.SystemId);
+	TestTrue(TEXT("M8 off-route fallback stores logical offset"), Ship.LogicalLocation.LocalOffsetCm.SizeSquared() > 1.0);
+	TestTrue(TEXT("M8 off-route fallback stores logical velocity"), Ship.LogicalVelocityCmPerSec.SizeSquared() > 1.0);
+	TestEqual(TEXT("M8 off-route fallback decision reason"), Ship.LastDecisionReason, FName(TEXT("demoted_off_route_tolerance_failed")));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM8ScriptedInterruptTest,
+	"Stargame.M8.Traffic.ScriptedInterruptRestoresTradeGoal",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM8ScriptedInterruptTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M8 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	TestFalse(TEXT("M8 logical traffic exists"), SystemDefinition.LogicalTraffic.IsEmpty());
+
+	FShipTrafficInstance Ship = SystemDefinition.LogicalTraffic[0];
+	FShipGoalState InterruptGoal;
+	InterruptGoal.GoalId = TEXT("m8_scripted_hold_position");
+	InterruptGoal.GoalKind = EShipGoalKind::None;
+	InterruptGoal.InterruptPriority = Ship.CurrentGoal.InterruptPriority + 10;
+	InterruptGoal.DecisionReason = TEXT("scripted_non_combat_interrupt");
+
+	FString FailureReason;
+	TestTrue(TEXT("M8 scripted interrupt applies"), ULogicalTrafficQueryService::ApplyScriptedInterrupt(Ship, InterruptGoal, FailureReason));
+	TestTrue(TEXT("M8 saved goal stored"), Ship.bHasSavedGoal);
+	TestEqual(TEXT("M8 interrupt goal active"), Ship.CurrentGoal.GoalId, FName(TEXT("m8_scripted_hold_position")));
+	TestTrue(TEXT("M8 restore saved goal"), ULogicalTrafficQueryService::RestoreSavedGoal(Ship, FailureReason));
+	TestFalse(TEXT("M8 saved goal cleared"), Ship.bHasSavedGoal);
+	TestEqual(TEXT("M8 trade goal restored"), Ship.CurrentGoal.GoalKind, EShipGoalKind::TradeRoute);
+	TestEqual(TEXT("M8 restored route stable"), Ship.CurrentGoal.RouteSegmentId, FName(TEXT("m7_brink_watch_wayfarer_trade")));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM8ReservedGoalSerializationTest,
+	"Stargame.M8.Traffic.ReservedGoalsRejectAutonomy",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM8ReservedGoalSerializationTest::RunTest(const FString& Parameters)
+{
+	const EShipGoalKind ReservedKinds[] = {
+		EShipGoalKind::Patrol,
+		EShipGoalKind::Escort,
+		EShipGoalKind::Pirate,
+		EShipGoalKind::Flee,
+		EShipGoalKind::Fight
+	};
+
+	for (EShipGoalKind ReservedKind : ReservedKinds)
+	{
+		FShipGoalState Goal;
+		Goal.GoalId = FName(*FString::Printf(TEXT("m8_reserved_%d"), static_cast<int32>(ReservedKind)));
+		Goal.GoalKind = ReservedKind;
+		Goal.bAutonomousExecutionAllowed = false;
+		Goal.TargetFrame.TargetId = Goal.GoalId;
+		Goal.TargetFrame.TargetType = TEXT("reserved_goal");
+
+		const FShipGoalState ReloadedGoal = Goal;
+		FString Reason;
+		const EShipGoalExecutionResult Result = ULogicalTrafficQueryService::CanExecuteAutonomousGoal(ReloadedGoal, Reason);
+		if (ReservedKind == EShipGoalKind::Fight)
+		{
+			TestEqual(TEXT("M8 fight is reserved until M10"), Result, EShipGoalExecutionResult::ReservedUntilM10);
+		}
+		else
+		{
+			TestEqual(TEXT("M8 non-combat reserved goal is reserved until M9"), Result, EShipGoalExecutionResult::ReservedUntilM9);
+		}
+		TestFalse(TEXT("M8 reserved rejection explains reason"), Reason.IsEmpty());
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM8Tier2BudgetTest,
+	"Stargame.M8.Traffic.Tier2BudgetIsVisibleAndCapped",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM8Tier2BudgetTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M8 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	FActiveTrafficSimulationState TrafficState = ULogicalTrafficQueryService::MakeM8FixtureTrafficState(SystemDefinition, 0.0);
+	FShipTrafficInstance SecondTrader = TrafficState.Ships[0];
+	SecondTrader.ShipInstanceId = TEXT("trader_brink_02");
+	TrafficState.Ships.Add(SecondTrader);
+
+	FActiveTrafficUpdateBudget Budget;
+	Budget.MaxShipsPerUpdate = 1;
+	Budget.MaxSimulationStepSeconds = 2.0;
+	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	const EShipGoalExecutionResult Result = ULogicalTrafficQueryService::UpdateActiveTraffic(SystemDefinition, Clock0, 10.0, Budget, TrafficState);
+	TestEqual(TEXT("M8 budget reports exceeded when ships are skipped"), Result, EShipGoalExecutionResult::BudgetExceeded);
+	TestEqual(TEXT("M8 update considered both ships"), TrafficState.LastUpdateStats.ConsideredShips, 2);
+	TestEqual(TEXT("M8 update capped ship count"), TrafficState.LastUpdateStats.UpdatedShips, 1);
+	TestEqual(TEXT("M8 update skipped one ship"), TrafficState.LastUpdateStats.SkippedShips, 1);
+	TestTrue(TEXT("M8 update capped time budget"), TrafficState.LastUpdateStats.AppliedDeltaSeconds <= Budget.MaxSimulationStepSeconds);
+	TestFalse(TEXT("M8 debug summary exposes cap"), ULogicalTrafficQueryService::BuildActiveTrafficDebugSummary(TrafficState).IsEmpty());
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM8PromotionDemotionHarnessTest,
+	"Stargame.M8.Traffic.PromoteDemoteResumesWithoutActorReferences",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM8PromotionDemotionHarnessTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M8 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+	TestFalse(TEXT("M8 logical traffic exists"), SystemDefinition.LogicalTraffic.IsEmpty());
+
+	FShipTrafficInstance Ship = SystemDefinition.LogicalTraffic[0];
+	const FSimulationClockSnapshot Clock0 = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	FString FailureReason;
+	FRouteSample PromotionTarget;
+	TestTrue(TEXT("M8 trader promotes to realization harness"), ULogicalTrafficQueryService::PromoteLogicalTrader(SystemDefinition, Ship, Clock0, 0.0, TEXT("m8_pooled_actor_01"), PromotionTarget, FailureReason));
+	TestEqual(TEXT("M8 promoted tier"), Ship.TrafficTier, ELogicalTrafficTier::Tier1Realized);
+	TestEqual(TEXT("M8 realization token is stable non-actor ID"), Ship.RealizationToken, FName(TEXT("m8_pooled_actor_01")));
+
+	FRouteSample ActorSample;
+	TestTrue(TEXT("M8 realized actor target follows moving route"), UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, Ship.CurrentGoal.RouteSegmentId, 0.42, Clock0, 20.0, ActorSample));
+	TestTrue(TEXT("M8 trader demotes from realization harness"), ULogicalTrafficQueryService::DemoteLogicalTrader(SystemDefinition, Ship, ActorSample, Clock0, 20.0, TEXT("m8_pooled_actor_01"), FailureReason));
+	TestEqual(TEXT("M8 demoted tier"), Ship.TrafficTier, ELogicalTrafficTier::Tier2Logical);
+	TestTrue(TEXT("M8 realization token cleared from saved logical state"), Ship.RealizationToken.IsNone());
+	TestTrue(TEXT("M8 demotion restores route progress"), FMath::IsNearlyEqual(Ship.CurrentGoal.RouteProgress01, 0.42, 0.05));
+	TestEqual(TEXT("M8 logical state still has stable route ID"), Ship.CurrentGoal.RouteSegmentId, FName(TEXT("m7_brink_watch_wayfarer_trade")));
+
+	const FShipTrafficInstance ReloadedShip = Ship;
+	TestTrue(TEXT("M8 reloaded logical state has no actor token"), ReloadedShip.RealizationToken.IsNone());
+	TestEqual(TEXT("M8 reloaded logical state can resume route"), ReloadedShip.CurrentGoal.GoalKind, EShipGoalKind::TradeRoute);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM8LogicalTrafficSaveSanitizesTransientStateTest,
+	"Stargame.M8.Traffic.SaveSanitizesTransientRealizationState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM8LogicalTrafficSaveSanitizesTransientStateTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M8 frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(TEXT("frontier_test_01"), SystemDefinition));
+
+	FActiveTrafficSimulationState TrafficState = ULogicalTrafficQueryService::MakeM8FixtureTrafficState(SystemDefinition, 0.0);
+	TestFalse(TEXT("M8 save sanitize has logical traffic input"), TrafficState.Ships.IsEmpty());
+	TrafficState.Ships[0].TrafficTier = ELogicalTrafficTier::Tier1Realized;
+	TrafficState.Ships[0].RealizationToken = TEXT("m8_pooled_actor_01");
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UStargameSessionSubsystem* Session = NewObject<UStargameSessionSubsystem>(GameInstance);
+	TestNotNull(TEXT("Session subsystem object created"), Session);
+	Session->SetActiveTrafficState(TrafficState);
+
+	const FStargameM0SaveState SaveState = Session->MakeCurrentM0SaveState();
+	TestEqual(TEXT("M8 save carries traffic state"), SaveState.ActiveTrafficState.Ships.Num(), 1);
+	TestEqual(TEXT("M8 save demotes realized traffic to logical"), SaveState.ActiveTrafficState.Ships[0].TrafficTier, ELogicalTrafficTier::Tier2Logical);
+	TestTrue(TEXT("M8 save strips realization token"), SaveState.ActiveTrafficState.Ships[0].RealizationToken.IsNone());
+	TestTrue(TEXT("M8 save strips transient route sample"), SaveState.ActiveTrafficState.Ships[0].LastRouteSample.RouteSegmentId.IsNone());
+	TestEqual(TEXT("M8 save preserves route progress"), SaveState.ActiveTrafficState.Ships[0].CurrentGoal.RouteProgress01, TrafficState.Ships[0].CurrentGoal.RouteProgress01);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM8SessionLoadRejectsInvalidTrafficStateTest,
+	"Stargame.M8.Traffic.LoadRejectsInvalidTrafficState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM8SessionLoadRejectsInvalidTrafficStateTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FindM1AutomationWorld();
+	TestNotNull(TEXT("Automation world exists"), World);
+	UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!Session)
+	{
+		AddInfo(TEXT("Skipping full session invalid traffic load test: automation world has no game instance/session subsystem."));
+		return true;
+	}
+
+	TestEqual(TEXT("Session starts"), Session->StartNewSession(FName(TEXT("frontier_test_start"))), EStartSessionResult::Success);
+	TestTrue(TEXT("Can select stable target before invalid load"), Session->SelectNavigationTargetById(FName(TEXT("ember"))));
+	const FName TargetBeforeInvalidLoad = Session->GetSelectedTargetId();
+
+	UStarCatalogSubsystem* Catalog = GameInstance ? GameInstance->GetSubsystem<UStarCatalogSubsystem>() : nullptr;
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("Frontier system resolves"), Catalog && Catalog->ResolveSystemDefinition(FName(TEXT("frontier_test_01")), SystemDefinition));
+	if (!Catalog || SystemDefinition.LogicalTraffic.IsEmpty())
+	{
+		return false;
+	}
+
+	FStargameM0SaveState InvalidState = Session->MakeCurrentM0SaveState();
+	InvalidState.SelectedTargetId = FName(TEXT("brink_watch"));
+	InvalidState.ActiveTrafficState = ULogicalTrafficQueryService::MakeM8FixtureTrafficState(SystemDefinition, 0.0);
+	InvalidState.ActiveTrafficState.Ships[0].CurrentGoal.RouteSegmentId = FName(TEXT("missing_route_for_load_rejection"));
+
+	TestTrue(TEXT("Invalid save payload writes"), Session->SaveDevelopmentSlot(InvalidState));
+	TestFalse(TEXT("Invalid traffic load is rejected"), Session->LoadDevelopmentSlot());
+	TestEqual(TEXT("Rejected load leaves selected target unchanged"), Session->GetSelectedTargetId(), TargetBeforeInvalidLoad);
+
+	UGameplayStatics::DeleteGameInSlot(UStargameSessionSubsystem::DevelopmentSlotName, 0);
 	return true;
 }
 

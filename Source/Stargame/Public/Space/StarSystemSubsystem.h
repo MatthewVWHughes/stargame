@@ -56,7 +56,7 @@ public:
 	virtual void Deinitialize() override;
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
-	bool BuildSystem(const FStarSystemDefinition& SystemDefinition);
+	bool BuildSystem(const FStarSystemDefinition& SystemDefinition, double InitialSimulationTimeSeconds = 0.0);
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
 	void TearDownActiveSystem();
@@ -131,6 +131,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
 	bool OccupyDockingPort(FName StationId, FName PortId, FName ShipInstanceId, FDockingPortRuntimeState& OutRuntimeState, FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
+	bool RestoreDockingPortRuntimeState(const FDockingPortRuntimeState& SavedRuntimeState, FDockingPortRuntimeState& OutRuntimeState, FString& OutFailureReason);
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
 	bool ReleaseDockingPort(FName StationId, FName PortId, FName ShipInstanceId);

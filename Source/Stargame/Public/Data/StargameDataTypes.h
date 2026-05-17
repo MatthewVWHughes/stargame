@@ -75,7 +75,9 @@ enum class EStargameValidationProfile : uint8
 	M3,
 	M4,
 	M5,
-	M6
+	M6,
+	M7,
+	M8
 };
 
 UENUM(BlueprintType)
@@ -114,6 +116,37 @@ enum class ESystemSourceType : uint8
 	Authored,
 	Generated,
 	Imported
+};
+
+UENUM(BlueprintType)
+enum class EShipGoalKind : uint8
+{
+	None,
+	TradeRoute,
+	Patrol,
+	Escort,
+	Pirate,
+	Flee,
+	Fight
+};
+
+UENUM(BlueprintType)
+enum class EShipGoalExecutionResult : uint8
+{
+	Success,
+	NoWork,
+	InvalidGoal,
+	ReservedUntilM9,
+	ReservedUntilM10,
+	Interrupted,
+	BudgetExceeded
+};
+
+UENUM(BlueprintType)
+enum class ELogicalTrafficTier : uint8
+{
+	Tier2Logical,
+	Tier1Realized
 };
 
 USTRUCT(BlueprintType)
@@ -321,6 +354,60 @@ struct STARGAME_API FFrameResolvedTransform
 };
 
 USTRUCT(BlueprintType)
+struct STARGAME_API FMovingFrameTarget
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Target")
+	FName TargetId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Target")
+	FName TargetType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Target")
+	FStargameCoordinateFrame CoordinateFrame;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Target")
+	FName AnchorId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Target", meta = (Units = "cm"))
+	FVector LocalOffsetCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Target")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Target")
+	double RouteProgress01 = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Target")
+	FName ShipInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Target")
+	FName GroupId;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FAIPredictedTransform
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Prediction")
+	FMovingFrameTarget Target;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Prediction")
+	double SimulationTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Prediction")
+	FFrameResolvedTransform ResolvedTransform;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Prediction")
+	bool bValid = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI Prediction")
+	FString InvalidReason;
+};
+
+USTRUCT(BlueprintType)
 struct STARGAME_API FLocalBubbleState
 {
 	GENERATED_BODY()
@@ -383,10 +470,28 @@ struct STARGAME_API FShipSaveLocation
 	FName DockingPortId;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FName DockedShipInstanceId = TEXT("player_ship");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FName DockingClearanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
 	EDockingState DockingState = EDockingState::None;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
 	FTransform PortRelativeTransform = FTransform::Identity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FName DockingReservedShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FName DockingOccupyingShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	double DockingReservationExpiryTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	EDockingState DockingPortRuntimeState = EDockingState::None;
 };
 
 USTRUCT(BlueprintType)
@@ -993,6 +1098,399 @@ struct STARGAME_API FResourceZoneDefinition
 };
 
 USTRUCT(BlueprintType)
+struct STARGAME_API FRouteControlData
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route", meta = (Units = "cm"))
+	double ArcHeightCm = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FVector ArcNormalHint = FVector::UpVector;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FRouteRiskStub
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName JurisdictionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	double SecurityRating = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName RiskProfileId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	bool bOpaqueUntilM9 = true;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FTrafficRouteSegmentDefinition
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName SourceAnchorId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName DestinationAnchorId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route", meta = (Units = "cm"))
+	FVector SourceLocalOffsetCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route", meta = (Units = "cm"))
+	FVector DestinationLocalOffsetCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName RoutePolicyId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName RouteGeometryPolicyId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName TravelModelId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName RouteProgressSemantic = TEXT("time_fraction");
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	TArray<FName> AvoidanceAnchorIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	TArray<FName> ExclusionZoneIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName RouteFrameBasisPolicy = TEXT("source_to_destination");
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FRouteControlData ControlData;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName JurisdictionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	double SecurityRating = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	double RouteValue = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FGameplayTagContainer AllowedShipClassTags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	FName RiskProfileId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	bool bSupportsPatrolCoverage = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traffic Route")
+	bool bSupportsPirateAmbush = false;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FRouteSample
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	double SimulationTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	double RouteProgress01 = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route", meta = (Units = "cm"))
+	double RouteDistanceCm = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	FName RouteProgressSemantic = TEXT("time_fraction");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	FFrameResolvedTransform ResolvedTransform;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	FVector Tangent = FVector::ForwardVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route", meta = (Units = "cm/s"))
+	FVector EstimatedVelocityCmPerSec = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	FFrameResolvedTransform SourceAnchorTransform;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	FFrameResolvedTransform DestinationAnchorTransform;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	FName RouteGeometryPolicyId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	FName TravelModelId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	double SecurityRating = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	double RiskScore = 0.0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FRouteClosestProgressResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	double RouteProgress01 = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route", meta = (Units = "cm"))
+	double DistanceErrorCm = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	double BasisErrorDegrees = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route", meta = (Units = "cm/s"))
+	double VelocityErrorCmPerSec = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic Route")
+	bool bValid = false;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FShipGoalState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName GoalId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	EShipGoalKind GoalKind = EShipGoalKind::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FMovingFrameTarget TargetFrame;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	double RouteProgress01 = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	double DesiredRouteSpeedFractionPerSecond = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	int32 InterruptPriority = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	bool bAutonomousExecutionAllowed = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName DecisionReason;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FShipFormationSlot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName SlotId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName ShipInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName SlotFrame = TEXT("leader_route_sample");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI", meta = (Units = "cm"))
+	FVector LocalOffsetCm = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	double RouteProgressOffset = 0.0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FShipGroupState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName GroupId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName LeaderShipInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName GroupRole = TEXT("trade");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	TArray<FName> MemberShipInstanceIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	TArray<FShipFormationSlot> FormationSlots;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FShipTrafficInstance
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName ShipInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName SystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName ShipArchetypeId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FShipGoalState CurrentGoal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FShipGoalState SavedGoal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	bool bHasSavedGoal = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName GroupId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName FormationSlotId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FMovingFrameTarget LogicalLocation;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FRotator LogicalRotation = FRotator::ZeroRotator;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FStargameCoordinateFrame VelocityFrame;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI", meta = (Units = "cm/s"))
+	FVector LogicalVelocityCmPerSec = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	bool bInheritsFrameVelocity = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI", meta = (Units = "cm/s"))
+	FVector FrameVelocityCmPerSec = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	ELogicalTrafficTier TrafficTier = ELogicalTrafficTier::Tier2Logical;
+
+	UPROPERTY(Transient, EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName RealizationToken;
+
+	UPROPERTY(Transient, EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FRouteSample LastRouteSample;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	double LastUpdateTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName LastDecisionReason;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	bool bRouteRecoverable = true;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FActiveTrafficUpdateBudget
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	int32 MaxShipsPerUpdate = 16;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI", meta = (Units = "s"))
+	double MaxSimulationStepSeconds = 5.0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FActiveTrafficUpdateStats
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	int32 ConsideredShips = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	int32 UpdatedShips = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	int32 SkippedShips = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI", meta = (Units = "s"))
+	double RequestedDeltaSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI", meta = (Units = "s"))
+	double AppliedDeltaSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName CapReason;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FActiveTrafficSimulationState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName SystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	TArray<FShipTrafficInstance> Ships;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	TArray<FShipGroupState> Groups;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FActiveTrafficUpdateStats LastUpdateStats;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FLogicalTrafficDebugView
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName ShipInstanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName Goal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FMovingFrameTarget TargetFrame;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	double RouteProgress01 = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName GroupId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FName DecisionReason;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Traffic AI")
+	FString DebugSummary;
+};
+
+USTRUCT(BlueprintType)
 struct STARGAME_API FSpawnZoneDefinition
 {
 	GENERATED_BODY()
@@ -1095,6 +1593,15 @@ struct STARGAME_API FStarSystemDefinition
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
 	TArray<FResourceZoneDefinition> ResourceZones;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+	TArray<FTrafficRouteSegmentDefinition> TrafficRoutes;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+	TArray<FShipTrafficInstance> LogicalTraffic;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+	TArray<FShipGroupState> ShipGroups;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
 	TArray<FMapEntryDefinition> MapEntries;
@@ -1275,6 +1782,15 @@ struct STARGAME_API FStargameM0SaveState
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
 	FShipSaveLocation ShipLocation;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FActiveTrafficSimulationState ActiveTrafficState;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	bool bSavedSystemIsGenerated = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FGeneratedSystemSourceMetadata GeneratedSystemSourceMetadata;
 };
 
 USTRUCT(BlueprintType)

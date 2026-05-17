@@ -63,6 +63,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Flight|Docking")
 	bool RestoreDockedAt(FName StationId, FName PortId, double SimulationTimeSeconds);
 
+	bool RestoreDockedAt(FName StationId, FName PortId, FName ShipInstanceId, FName ClearanceId, double SimulationTimeSeconds);
+
 	UFUNCTION(BlueprintCallable, Category = "Flight|Docking")
 	bool Undock();
 

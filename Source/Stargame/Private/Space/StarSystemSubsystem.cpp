@@ -16,7 +16,7 @@ void UStarSystemSubsystem::Deinitialize()
 	Super::Deinitialize();
 }
 
-bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefinition)
+bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefinition, double InitialSimulationTimeSeconds)
 {
 	TearDownActiveSystem();
 	++ActiveBuildGeneration;
@@ -28,7 +28,7 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 	}
 
 	ActiveSystemDefinition = SystemDefinition;
-	const FSimulationClockSnapshot BuildClock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	const FSimulationClockSnapshot BuildClock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, InitialSimulationTimeSeconds);
 	for (const FBodyDefinition& Body : SystemDefinition.Bodies)
 	{
 		FFrameResolvedTransform ResolvedTransform;
@@ -516,11 +516,47 @@ bool UStarSystemSubsystem::OccupyDockingPort(FName StationId, FName PortId, FNam
 		OutRuntimeState = *RuntimeState;
 		return false;
 	}
+	if (!RuntimeState->ReservedShipId.IsNone() && RuntimeState->ReservedShipId != ShipInstanceId)
+	{
+		RuntimeState->LastFailureReason = TEXT("Docking port is reserved by another ship.");
+		OutFailureReason = RuntimeState->LastFailureReason;
+		OutRuntimeState = *RuntimeState;
+		return false;
+	}
 
 	RuntimeState->OccupyingShipId = ShipInstanceId;
 	RuntimeState->ReservedShipId = NAME_None;
 	RuntimeState->ReservationExpiryTimeSeconds = 0.0;
 	RuntimeState->DockingState = EDockingState::Docked;
+	RuntimeState->LastFailureReason.Reset();
+	OutRuntimeState = *RuntimeState;
+	return true;
+}
+
+bool UStarSystemSubsystem::RestoreDockingPortRuntimeState(const FDockingPortRuntimeState& SavedRuntimeState, FDockingPortRuntimeState& OutRuntimeState, FString& OutFailureReason)
+{
+	OutRuntimeState = FDockingPortRuntimeState();
+	OutFailureReason.Reset();
+
+	FDockingPortRuntimeState* RuntimeState = DockingPortRuntimeStatesById.Find(MakeDockingPortRegistryId(SavedRuntimeState.StationId, SavedRuntimeState.PortId));
+	if (!RuntimeState)
+	{
+		OutFailureReason = TEXT("Docking port is not registered.");
+		return false;
+	}
+	if (!RuntimeState->OccupyingShipId.IsNone() && RuntimeState->OccupyingShipId != SavedRuntimeState.OccupyingShipId)
+	{
+		RuntimeState->LastFailureReason = TEXT("Docking port is occupied by another ship.");
+		OutFailureReason = RuntimeState->LastFailureReason;
+		OutRuntimeState = *RuntimeState;
+		return false;
+	}
+
+	RuntimeState->ReservedShipId = SavedRuntimeState.ReservedShipId;
+	RuntimeState->OccupyingShipId = SavedRuntimeState.OccupyingShipId;
+	RuntimeState->ClearanceId = SavedRuntimeState.ClearanceId;
+	RuntimeState->ReservationExpiryTimeSeconds = SavedRuntimeState.ReservationExpiryTimeSeconds;
+	RuntimeState->DockingState = SavedRuntimeState.DockingState;
 	RuntimeState->LastFailureReason.Reset();
 	OutRuntimeState = *RuntimeState;
 	return true;
@@ -871,6 +907,121 @@ bool UStarSystemSubsystem::ValidateSystemForBuild(const FStarSystemDefinition& S
 			return false;
 		}
 		MapEntryIds.Add(MapEntry.MapEntryId);
+	}
+
+	TSet<FName> TrafficRouteIds;
+	const FSimulationClockSnapshot ValidationClock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 0.0);
+	for (const FTrafficRouteSegmentDefinition& Route : SystemDefinition.TrafficRoutes)
+	{
+		if (Route.RouteSegmentId.IsNone())
+		{
+			OutError = TEXT("Traffic route contains an empty route segment ID.");
+			return false;
+		}
+		if (TrafficRouteIds.Contains(Route.RouteSegmentId))
+		{
+			OutError = FString::Printf(TEXT("Duplicate traffic route segment ID '%s'."), *Route.RouteSegmentId.ToString());
+			return false;
+		}
+		if (Route.SourceAnchorId.IsNone() || Route.DestinationAnchorId.IsNone())
+		{
+			OutError = FString::Printf(TEXT("Traffic route '%s' contains an empty endpoint anchor."), *Route.RouteSegmentId.ToString());
+			return false;
+		}
+		FRouteSample RouteSample;
+		if (!UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, Route.RouteSegmentId, 0.0, ValidationClock, 0.0, RouteSample) ||
+			!UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, Route.RouteSegmentId, 1.0, ValidationClock, 0.0, RouteSample))
+		{
+			OutError = FString::Printf(TEXT("Traffic route '%s' could not resolve its endpoint frames."), *Route.RouteSegmentId.ToString());
+			return false;
+		}
+		TrafficRouteIds.Add(Route.RouteSegmentId);
+	}
+
+	TSet<FName> LogicalShipIds;
+	for (const FShipTrafficInstance& Ship : SystemDefinition.LogicalTraffic)
+	{
+		if (Ship.ShipInstanceId.IsNone())
+		{
+			OutError = TEXT("Logical traffic contains an empty ship instance ID.");
+			return false;
+		}
+		if (LogicalShipIds.Contains(Ship.ShipInstanceId))
+		{
+			OutError = FString::Printf(TEXT("Duplicate logical traffic ship instance ID '%s'."), *Ship.ShipInstanceId.ToString());
+			return false;
+		}
+		if (Ship.CurrentGoal.GoalKind == EShipGoalKind::TradeRoute &&
+			(Ship.CurrentGoal.RouteSegmentId.IsNone() || !TrafficRouteIds.Contains(Ship.CurrentGoal.RouteSegmentId)))
+		{
+			OutError = FString::Printf(TEXT("Logical traffic ship '%s' references missing trade route '%s'."),
+				*Ship.ShipInstanceId.ToString(),
+				*Ship.CurrentGoal.RouteSegmentId.ToString());
+			return false;
+		}
+		if (Ship.bHasSavedGoal && Ship.SavedGoal.GoalKind == EShipGoalKind::TradeRoute &&
+			(Ship.SavedGoal.RouteSegmentId.IsNone() || !TrafficRouteIds.Contains(Ship.SavedGoal.RouteSegmentId)))
+		{
+			OutError = FString::Printf(TEXT("Logical traffic ship '%s' has a saved goal referencing missing trade route '%s'."),
+				*Ship.ShipInstanceId.ToString(),
+				*Ship.SavedGoal.RouteSegmentId.ToString());
+			return false;
+		}
+		LogicalShipIds.Add(Ship.ShipInstanceId);
+	}
+
+	TSet<FName> ShipGroupIds;
+	for (const FShipGroupState& Group : SystemDefinition.ShipGroups)
+	{
+		if (Group.GroupId.IsNone())
+		{
+			OutError = TEXT("Ship group contains an empty group ID.");
+			return false;
+		}
+		if (ShipGroupIds.Contains(Group.GroupId))
+		{
+			OutError = FString::Printf(TEXT("Duplicate ship group ID '%s'."), *Group.GroupId.ToString());
+			return false;
+		}
+		if (!Group.LeaderShipInstanceId.IsNone() && !LogicalShipIds.Contains(Group.LeaderShipInstanceId))
+		{
+			OutError = FString::Printf(TEXT("Ship group '%s' references missing leader ship '%s'."),
+				*Group.GroupId.ToString(),
+				*Group.LeaderShipInstanceId.ToString());
+			return false;
+		}
+		for (const FName MemberShipInstanceId : Group.MemberShipInstanceIds)
+		{
+			if (MemberShipInstanceId.IsNone() || !LogicalShipIds.Contains(MemberShipInstanceId))
+			{
+				OutError = FString::Printf(TEXT("Ship group '%s' references missing member ship '%s'."),
+					*Group.GroupId.ToString(),
+					*MemberShipInstanceId.ToString());
+				return false;
+			}
+		}
+		for (const FShipFormationSlot& Slot : Group.FormationSlots)
+		{
+			if (Slot.SlotId.IsNone() || Slot.ShipInstanceId.IsNone() || !LogicalShipIds.Contains(Slot.ShipInstanceId))
+			{
+				OutError = FString::Printf(TEXT("Ship group '%s' has an invalid formation slot for ship '%s'."),
+					*Group.GroupId.ToString(),
+					*Slot.ShipInstanceId.ToString());
+				return false;
+			}
+		}
+		ShipGroupIds.Add(Group.GroupId);
+	}
+
+	for (const FShipTrafficInstance& Ship : SystemDefinition.LogicalTraffic)
+	{
+		if (!Ship.GroupId.IsNone() && !ShipGroupIds.Contains(Ship.GroupId))
+		{
+			OutError = FString::Printf(TEXT("Logical traffic ship '%s' references missing group '%s'."),
+				*Ship.ShipInstanceId.ToString(),
+				*Ship.GroupId.ToString());
+			return false;
+		}
 	}
 
 	return true;

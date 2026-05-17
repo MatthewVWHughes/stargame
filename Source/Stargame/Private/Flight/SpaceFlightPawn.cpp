@@ -337,7 +337,8 @@ bool ASpaceFlightPawn::RequestDocking(FName StationId, FName PortId)
 	}
 
 	const FTransform LivePortTransform(DockedFrame.Rotation, DockedFrame.PositionCm);
-	DockingAssistStartLocalTransform = GetActorTransform().GetRelativeTransform(LivePortTransform);
+	const FTransform LogicalShipTransform(GetActorRotation(), LogicalSystemPositionCm);
+	DockingAssistStartLocalTransform = LogicalShipTransform.GetRelativeTransform(LivePortTransform);
 	DockingAssistTargetLocalTransform = Port.Definition.DockedTransform.GetRelativeTransform(Port.Definition.DockedTransform);
 	DockingOperation.CapturedPortRelativeTransform = DockingAssistStartLocalTransform;
 	DockingOperation.CapturedPortRelativeVelocityCmPerSec = LivePortTransform.InverseTransformVectorNoScale(LinearVelocity);
@@ -356,6 +357,11 @@ bool ASpaceFlightPawn::RequestDocking(FName StationId, FName PortId)
 }
 
 bool ASpaceFlightPawn::RestoreDockedAt(FName StationId, FName PortId, double SimulationTimeSeconds)
+{
+	return RestoreDockedAt(StationId, PortId, TEXT("player_ship"), NAME_None, SimulationTimeSeconds);
+}
+
+bool ASpaceFlightPawn::RestoreDockedAt(FName StationId, FName PortId, FName ShipInstanceId, FName ClearanceId, double SimulationTimeSeconds)
 {
 	UWorld* World = GetWorld();
 	UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
@@ -377,7 +383,20 @@ bool ASpaceFlightPawn::RestoreDockedAt(FName StationId, FName PortId, double Sim
 
 	FDockingPortRuntimeState RuntimeState;
 	FString FailureReason;
-	if (!StarSystem->OccupyDockingPort(StationId, PortId, DockingOperation.ShipInstanceId, RuntimeState, FailureReason))
+	if (!ClearanceId.IsNone())
+	{
+		FDockingPortRuntimeState SavedRuntimeState;
+		SavedRuntimeState.StationId = StationId;
+		SavedRuntimeState.PortId = PortId;
+		SavedRuntimeState.OccupyingShipId = ShipInstanceId;
+		SavedRuntimeState.ClearanceId = ClearanceId;
+		SavedRuntimeState.DockingState = EDockingState::Docked;
+		if (!StarSystem->RestoreDockingPortRuntimeState(SavedRuntimeState, RuntimeState, FailureReason))
+		{
+			return false;
+		}
+	}
+	else if (!StarSystem->OccupyDockingPort(StationId, PortId, ShipInstanceId, RuntimeState, FailureReason))
 	{
 		return false;
 	}
@@ -386,6 +405,7 @@ bool ASpaceFlightPawn::RestoreDockedAt(FName StationId, FName PortId, double Sim
 	LogicalSystemPositionCm = DockedFrame.PositionCm;
 	LinearVelocity = DockedFrame.LinearVelocityCmPerSec;
 	LastAcceleration = FVector::ZeroVector;
+	DockingOperation.ShipInstanceId = ShipInstanceId;
 	DockingOperation.StationId = StationId;
 	DockingOperation.PortId = PortId;
 	DockingOperation.DockingState = EDockingState::Docked;
@@ -578,9 +598,12 @@ void ASpaceFlightPawn::UpdateNormalFlight(float DeltaSeconds)
 
 	LinearVelocity = LinearVelocity.GetClampedToMaxSize(NormalMaxSpeed);
 
+	const FVector RequestedDeltaCm = LinearVelocity * DeltaSeconds;
+	const FVector PreviousActorLocation = GetActorLocation();
 	FHitResult Hit;
-	AddActorWorldOffset(LinearVelocity * DeltaSeconds, true, &Hit);
-	LogicalSystemPositionCm = GetActorLocation();
+	AddActorWorldOffset(RequestedDeltaCm, true, &Hit);
+	const FVector AppliedActorDeltaCm = GetActorLocation() - PreviousActorLocation;
+	LogicalSystemPositionCm += AppliedActorDeltaCm;
 	if (Hit.bBlockingHit)
 	{
 		const FVector IncomingVelocity = LinearVelocity;
@@ -667,6 +690,7 @@ void ASpaceFlightPawn::UpdateDocking(float DeltaSeconds)
 		: UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(StarSystem->GetActiveSystemId(), SimulationTimeSeconds);
 	if (!UOrbitRouteFrameQueryService::ResolveDockingPortFrame(StarSystem->GetActiveSystemDefinition(), DockingOperation.StationId, DockingOperation.PortId, Clock, SimulationTimeSeconds, DockedFrame))
 	{
+		StarSystem->ReleaseDockingPort(DockingOperation.StationId, DockingOperation.PortId, DockingOperation.ShipInstanceId);
 		DockingOperation.DockingState = EDockingState::Aborted;
 		DockingOperation.LastFailureReason = TEXT("Docking frame could not be resolved during update.");
 		return;
@@ -714,6 +738,7 @@ void ASpaceFlightPawn::UpdateDocking(float DeltaSeconds)
 		}
 		else
 		{
+			StarSystem->ReleaseDockingPort(DockingOperation.StationId, DockingOperation.PortId, DockingOperation.ShipInstanceId);
 			DockingOperation.DockingState = EDockingState::Aborted;
 			DockingOperation.LastFailureReason = FailureReason;
 			if (FlightModeComponent)

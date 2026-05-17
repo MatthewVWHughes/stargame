@@ -9,6 +9,7 @@
 #include "Flight/SpaceFlightPawn.h"
 #include "Misc/Parse.h"
 #include "Curves/CurveFloat.h"
+#include "Space/LogicalTrafficQueryService.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 
@@ -194,6 +195,35 @@ namespace
 		BrinkMinorWell.Strength = 0.35;
 		SystemDefinition.GravityWells = { EmberWell, BrinkWell, BrinkMinorWell };
 
+		FTrafficRouteSegmentDefinition TradeRoute;
+		TradeRoute.RouteSegmentId = TEXT("m7_brink_watch_wayfarer_trade");
+		TradeRoute.SourceAnchorId = TEXT("brink_watch");
+		TradeRoute.DestinationAnchorId = TEXT("wayfarer_depot");
+		TradeRoute.SourceLocalOffsetCm = FVector(0.0, -6000.0, 0.0);
+		TradeRoute.DestinationLocalOffsetCm = FVector(0.0, 8000.0, 0.0);
+		TradeRoute.RoutePolicyId = TEXT("fixture_trade_lane_basic");
+		TradeRoute.RouteGeometryPolicyId = TEXT("fixture_dynamic_arc_v1");
+		TradeRoute.TravelModelId = TEXT("fixture_supercruise_lane_v1");
+		TradeRoute.RouteProgressSemantic = TEXT("time_fraction");
+		TradeRoute.AvoidanceAnchorIds = { TEXT("brink"), TEXT("brink_minor") };
+		TradeRoute.ExclusionZoneIds = { TEXT("brink_well"), TEXT("brink_minor_well") };
+		TradeRoute.RouteFrameBasisPolicy = TEXT("source_to_destination");
+		TradeRoute.ControlData.ArcHeightCm = 600000.0;
+		TradeRoute.ControlData.ArcNormalHint = FVector::UpVector;
+		TradeRoute.JurisdictionId = TEXT("frontier_local_authority");
+		TradeRoute.SecurityRating = 0.45;
+		TradeRoute.RouteValue = 0.65;
+		TradeRoute.AllowedShipClassTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Stargame.ShipClass.Small"), false));
+		TradeRoute.AllowedShipClassTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Stargame.ShipClass.Medium"), false));
+		TradeRoute.RiskProfileId = TEXT("fixture_mixed_patrol_pirate_risk");
+		TradeRoute.bSupportsPatrolCoverage = true;
+		TradeRoute.bSupportsPirateAmbush = true;
+		SystemDefinition.TrafficRoutes = { TradeRoute };
+
+		const FActiveTrafficSimulationState M8TrafficState = ULogicalTrafficQueryService::MakeM8FixtureTrafficState(SystemDefinition, 0.0);
+		SystemDefinition.LogicalTraffic = M8TrafficState.Ships;
+		SystemDefinition.ShipGroups = M8TrafficState.Groups;
+
 		SystemDefinition.MapEntries.Reset();
 		const TArray<TPair<FName, FName>> MapSources = {
 			{ TEXT("frontier_primary"), TEXT("body") },
@@ -367,8 +397,19 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	const bool bValidateM4 = ProfileString.Equals(TEXT("M4"), ESearchCase::IgnoreCase);
 	const bool bValidateM5 = ProfileString.Equals(TEXT("M5"), ESearchCase::IgnoreCase);
 	const bool bValidateM6 = ProfileString.Equals(TEXT("M6"), ESearchCase::IgnoreCase);
+	const bool bValidateM7 = ProfileString.Equals(TEXT("M7"), ESearchCase::IgnoreCase);
+	const bool bBuildAlias = ProfileString.Equals(TEXT("Build"), ESearchCase::IgnoreCase) ||
+		ProfileString.Equals(TEXT("Cook"), ESearchCase::IgnoreCase) ||
+		ProfileString.Equals(TEXT("MCP"), ESearchCase::IgnoreCase) ||
+		ProfileString.Equals(TEXT("Editor"), ESearchCase::IgnoreCase);
+	const bool bValidateM8 = ProfileString.Equals(TEXT("M8"), ESearchCase::IgnoreCase) || bBuildAlias;
 	const bool bValidateM0 = ProfileString.Equals(TEXT("M0"), ESearchCase::IgnoreCase);
-	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4 && !bValidateM5 && !bValidateM6)
+	if (ProfileString.Equals(TEXT("M5.5"), ESearchCase::IgnoreCase))
+	{
+		UE_LOG(LogTemp, Error, TEXT("Validation profile M5.5 is documented but not implemented in the current M0-M8 branch."));
+		return 1;
+	}
+	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4 && !bValidateM5 && !bValidateM6 && !bValidateM7 && !bValidateM8)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Unsupported validation profile '%s'."), *ProfileString);
 		return 1;
@@ -397,7 +438,7 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 
 	if (!Catalog->BuildAssetCatalogCache(false))
 	{
-		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))))));
+		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM8 ? TEXT("M8") : (bValidateM7 ? TEXT("M7") : (bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))))))));
 		return 1;
 	}
 
@@ -416,9 +457,13 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	}
 	else
 	{
-		Report = bValidateM5
+		Report = bValidateM8
+			? Catalog->ValidateM8Fixture(SystemId)
+			: (bValidateM7
+			? Catalog->ValidateM7Fixture(SystemId)
+			: (bValidateM5
 			? Catalog->ValidateM5Fixture(SystemId)
-			: (bValidateM4 ? Catalog->ValidateM4Fixture(SystemId) : (bValidateM3 ? Catalog->ValidateM3Fixture(SystemId) : (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId))));
+			: (bValidateM4 ? Catalog->ValidateM4Fixture(SystemId) : (bValidateM3 ? Catalog->ValidateM3Fixture(SystemId) : (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId))))));
 	}
 	for (const FStargameValidationIssue& Issue : Report.Issues)
 	{
@@ -436,6 +481,6 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 		return 1;
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))))), *Report.SystemId.ToString());
+	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM8 ? TEXT("M8") : (bValidateM7 ? TEXT("M7") : (bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))))))), *Report.SystemId.ToString());
 	return 0;
 }

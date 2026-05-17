@@ -1,5 +1,31 @@
 #include "Space/OrbitRouteFrameQueryService.h"
 
+namespace
+{
+	constexpr double FixtureRouteTravelSpeedCmPerSec = 5000000.0;
+	constexpr int32 RouteLengthSegments = 24;
+
+	FVector EvaluateQuadraticBezier(const FVector& P0, const FVector& Pc, const FVector& P1, double Progress)
+	{
+		const double T = FMath::Clamp(Progress, 0.0, 1.0);
+		const double InvT = 1.0 - T;
+		return (InvT * InvT * P0) + (2.0 * InvT * T * Pc) + (T * T * P1);
+	}
+
+	FVector EvaluateQuadraticBezierDerivative(const FVector& P0, const FVector& Pc, const FVector& P1, double Progress)
+	{
+		const double T = FMath::Clamp(Progress, 0.0, 1.0);
+		return 2.0 * ((1.0 - T) * (Pc - P0) + T * (P1 - Pc));
+	}
+
+	FRotator MakeRouteRotation(const FVector& Tangent, const FVector& ArcNormal)
+	{
+		const FVector Forward = Tangent.GetSafeNormal(UE_SMALL_NUMBER, FVector::ForwardVector);
+		const FVector Up = (ArcNormal - Forward * FVector::DotProduct(ArcNormal, Forward)).GetSafeNormal(UE_SMALL_NUMBER, FVector::UpVector);
+		return FRotationMatrix::MakeFromXZ(Forward, Up).Rotator();
+	}
+}
+
 FSimulationClockSnapshot UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(FName SystemId, double SimulationTimeSeconds)
 {
 	FSimulationClockSnapshot Snapshot;
@@ -97,6 +123,263 @@ bool UOrbitRouteFrameQueryService::ResolveDockingPortTransform(
 	OutTransform.bActorSpaceValid = true;
 	OutTransform.ActorSpaceTransform = FTransform(OutTransform.Rotation, OutTransform.PositionCm);
 	return true;
+}
+
+bool UOrbitRouteFrameQueryService::PredictMovingFrameTarget(
+	const FStarSystemDefinition& SystemDefinition,
+	const FMovingFrameTarget& Target,
+	const FSimulationClockSnapshot& ClockSnapshot,
+	double RequestedSimulationTimeSeconds,
+	FAIPredictedTransform& OutPrediction)
+{
+	OutPrediction = FAIPredictedTransform();
+	OutPrediction.Target = Target;
+	OutPrediction.SimulationTimeSeconds = RequestedSimulationTimeSeconds;
+
+	if (Target.TargetType == FName(TEXT("route_sample")))
+	{
+		FRouteSample RouteSample;
+		if (!EvaluateRoute(SystemDefinition, Target.RouteSegmentId, Target.RouteProgress01, ClockSnapshot, RequestedSimulationTimeSeconds, RouteSample))
+		{
+			OutPrediction.InvalidReason = TEXT("route_sample_unresolved");
+			return false;
+		}
+
+		OutPrediction.ResolvedTransform = RouteSample.ResolvedTransform;
+		OutPrediction.bValid = true;
+		return true;
+	}
+
+	const FName EntityId = !Target.AnchorId.IsNone() ? Target.AnchorId : Target.TargetId;
+	FFrameResolvedTransform AnchorTransform;
+	if (!ResolveEntityFrame(SystemDefinition, EntityId, ClockSnapshot, RequestedSimulationTimeSeconds, AnchorTransform))
+	{
+		OutPrediction.InvalidReason = TEXT("anchor_unresolved");
+		return false;
+	}
+
+	const FTransform ResolvedTransform(FQuat(AnchorTransform.Rotation), AnchorTransform.PositionCm);
+	const FVector PredictedPosition = ResolvedTransform.TransformPosition(Target.LocalOffsetCm);
+	OutPrediction.ResolvedTransform = AnchorTransform;
+	OutPrediction.ResolvedTransform.CoordinateFrame = Target.CoordinateFrame;
+	OutPrediction.ResolvedTransform.AnchorId = EntityId;
+	OutPrediction.ResolvedTransform.PositionCm = PredictedPosition;
+	OutPrediction.ResolvedTransform.ActorSpaceTransform = FTransform(OutPrediction.ResolvedTransform.Rotation, PredictedPosition);
+	OutPrediction.bValid = true;
+	return true;
+}
+
+bool UOrbitRouteFrameQueryService::EvaluateRoute(
+	const FStarSystemDefinition& SystemDefinition,
+	FName RouteSegmentId,
+	double RouteProgress01,
+	const FSimulationClockSnapshot& ClockSnapshot,
+	double RequestedSimulationTimeSeconds,
+	FRouteSample& OutSample)
+{
+	const FTrafficRouteSegmentDefinition* Route = FindRouteDefinition(SystemDefinition, RouteSegmentId);
+	if (!Route || Route->RouteGeometryPolicyId != FName(TEXT("fixture_dynamic_arc_v1")))
+	{
+		return false;
+	}
+
+	FFrameResolvedTransform SourceTransform;
+	FFrameResolvedTransform DestinationTransform;
+	if (!ResolveRouteEndpoint(SystemDefinition, *Route, true, ClockSnapshot, RequestedSimulationTimeSeconds, SourceTransform) ||
+		!ResolveRouteEndpoint(SystemDefinition, *Route, false, ClockSnapshot, RequestedSimulationTimeSeconds, DestinationTransform))
+	{
+		return false;
+	}
+
+	FVector P0;
+	FVector P1;
+	FVector ControlPoint;
+	FVector ArcNormal;
+	if (!BuildRouteArc(*Route, SourceTransform, DestinationTransform, P0, P1, ControlPoint, ArcNormal))
+	{
+		return false;
+	}
+
+	const double Progress = FMath::Clamp(RouteProgress01, 0.0, 1.0);
+	const FVector Position = EvaluateQuadraticBezier(P0, ControlPoint, P1, Progress);
+	const FVector Derivative = EvaluateQuadraticBezierDerivative(P0, ControlPoint, P1, Progress);
+	const FVector Tangent = Derivative.GetSafeNormal(UE_SMALL_NUMBER, (P1 - P0).GetSafeNormal(UE_SMALL_NUMBER, FVector::ForwardVector));
+	const double TravelTimeSeconds = FMath::Max(EstimateRouteLengthCm(*Route, SourceTransform, DestinationTransform) / FixtureRouteTravelSpeedCmPerSec, SMALL_NUMBER);
+	const FVector TravelVelocity = Derivative / TravelTimeSeconds;
+	FVector MovingRouteVelocity = FVector::ZeroVector;
+	constexpr double RouteVelocityDeltaSeconds = 0.1;
+	FFrameResolvedTransform FutureSourceTransform;
+	FFrameResolvedTransform FutureDestinationTransform;
+	FVector FutureP0;
+	FVector FutureP1;
+	FVector FutureControlPoint;
+	FVector FutureArcNormal;
+	if (ResolveRouteEndpoint(SystemDefinition, *Route, true, ClockSnapshot, RequestedSimulationTimeSeconds + RouteVelocityDeltaSeconds, FutureSourceTransform) &&
+		ResolveRouteEndpoint(SystemDefinition, *Route, false, ClockSnapshot, RequestedSimulationTimeSeconds + RouteVelocityDeltaSeconds, FutureDestinationTransform) &&
+		BuildRouteArc(*Route, FutureSourceTransform, FutureDestinationTransform, FutureP0, FutureP1, FutureControlPoint, FutureArcNormal))
+	{
+		MovingRouteVelocity = (EvaluateQuadraticBezier(FutureP0, FutureControlPoint, FutureP1, Progress) - Position) / RouteVelocityDeltaSeconds;
+	}
+
+	OutSample = FRouteSample();
+	OutSample.RouteSegmentId = Route->RouteSegmentId;
+	OutSample.SimulationTimeSeconds = RequestedSimulationTimeSeconds;
+	OutSample.RouteProgress01 = Progress;
+	OutSample.RouteDistanceCm = EstimateRouteLengthCm(*Route, SourceTransform, DestinationTransform) * Progress;
+	OutSample.RouteProgressSemantic = Route->RouteProgressSemantic;
+	OutSample.ResolvedTransform.CoordinateFrame.FrameType = TEXT("route_sample");
+	OutSample.ResolvedTransform.CoordinateFrame.AnchorId = Route->RouteSegmentId;
+	OutSample.ResolvedTransform.AnchorId = Route->RouteSegmentId;
+	OutSample.ResolvedTransform.SimulationTimeSeconds = RequestedSimulationTimeSeconds;
+	OutSample.ResolvedTransform.PositionCm = Position;
+	OutSample.ResolvedTransform.Rotation = MakeRouteRotation(Tangent, ArcNormal);
+	OutSample.ResolvedTransform.LinearVelocityCmPerSec = MovingRouteVelocity + TravelVelocity;
+	OutSample.ResolvedTransform.bActorSpaceValid = true;
+	OutSample.ResolvedTransform.ActorSpaceTransform = FTransform(OutSample.ResolvedTransform.Rotation, Position);
+	OutSample.Tangent = Tangent;
+	OutSample.EstimatedVelocityCmPerSec = OutSample.ResolvedTransform.LinearVelocityCmPerSec;
+	OutSample.SourceAnchorTransform = SourceTransform;
+	OutSample.DestinationAnchorTransform = DestinationTransform;
+	OutSample.RouteGeometryPolicyId = Route->RouteGeometryPolicyId;
+	OutSample.TravelModelId = Route->TravelModelId;
+	OutSample.SecurityRating = Route->SecurityRating;
+	OutSample.RiskScore = 0.0;
+	return true;
+}
+
+bool UOrbitRouteFrameQueryService::EstimateRouteTravelTime(
+	const FStarSystemDefinition& SystemDefinition,
+	FName RouteSegmentId,
+	const FSimulationClockSnapshot& ClockSnapshot,
+	double RequestedSimulationTimeSeconds,
+	double& OutTravelTimeSeconds)
+{
+	const FTrafficRouteSegmentDefinition* Route = FindRouteDefinition(SystemDefinition, RouteSegmentId);
+	if (!Route)
+	{
+		return false;
+	}
+
+	FFrameResolvedTransform SourceTransform;
+	FFrameResolvedTransform DestinationTransform;
+	if (!ResolveRouteEndpoint(SystemDefinition, *Route, true, ClockSnapshot, RequestedSimulationTimeSeconds, SourceTransform) ||
+		!ResolveRouteEndpoint(SystemDefinition, *Route, false, ClockSnapshot, RequestedSimulationTimeSeconds, DestinationTransform))
+	{
+		return false;
+	}
+
+	OutTravelTimeSeconds = EstimateRouteLengthCm(*Route, SourceTransform, DestinationTransform) / FixtureRouteTravelSpeedCmPerSec;
+	return OutTravelTimeSeconds > 0.0;
+}
+
+bool UOrbitRouteFrameQueryService::FindClosestRouteProgress(
+	const FStarSystemDefinition& SystemDefinition,
+	FName RouteSegmentId,
+	const FVector& SystemPositionCm,
+	const FSimulationClockSnapshot& ClockSnapshot,
+	double RequestedSimulationTimeSeconds,
+	FRouteClosestProgressResult& OutResult)
+{
+	OutResult = FRouteClosestProgressResult();
+	OutResult.RouteSegmentId = RouteSegmentId;
+
+	auto DistanceSquaredAtProgress = [&SystemDefinition, RouteSegmentId, &ClockSnapshot, RequestedSimulationTimeSeconds, &SystemPositionCm](double Progress, bool& bOutValid)
+	{
+		FRouteSample Sample;
+		if (!EvaluateRoute(SystemDefinition, RouteSegmentId, Progress, ClockSnapshot, RequestedSimulationTimeSeconds, Sample))
+		{
+			bOutValid = false;
+			return TNumericLimits<double>::Max();
+		}
+
+		bOutValid = true;
+		return FVector::DistSquared(SystemPositionCm, Sample.ResolvedTransform.PositionCm);
+	};
+
+	bool bValid = true;
+	double Low = 0.0;
+	double High = 1.0;
+	for (int32 Iteration = 0; Iteration < 48; ++Iteration)
+	{
+		const double Left = Low + (High - Low) / 3.0;
+		const double Right = High - (High - Low) / 3.0;
+		bool bLeftValid = false;
+		bool bRightValid = false;
+		const double LeftDistance = DistanceSquaredAtProgress(Left, bLeftValid);
+		const double RightDistance = DistanceSquaredAtProgress(Right, bRightValid);
+		if (!bLeftValid || !bRightValid)
+		{
+			return false;
+		}
+
+		if (LeftDistance < RightDistance)
+		{
+			High = Right;
+		}
+		else
+		{
+			Low = Left;
+		}
+	}
+	const double BestProgress = FMath::Clamp((Low + High) * 0.5, 0.0, 1.0);
+	const double BestDistanceSquared = DistanceSquaredAtProgress(BestProgress, bValid);
+	if (!bValid)
+	{
+		return false;
+	}
+
+	FRouteSample BestSample;
+	if (!EvaluateRoute(SystemDefinition, RouteSegmentId, BestProgress, ClockSnapshot, RequestedSimulationTimeSeconds, BestSample))
+	{
+		return false;
+	}
+
+	OutResult.RouteProgress01 = BestProgress;
+	OutResult.DistanceErrorCm = FMath::Sqrt(BestDistanceSquared);
+	OutResult.BasisErrorDegrees = 0.0;
+	OutResult.VelocityErrorCmPerSec = 0.0;
+	OutResult.bValid = true;
+	return true;
+}
+
+FString UOrbitRouteFrameQueryService::BuildRoutePredictionDebugSummary(
+	const FStarSystemDefinition& SystemDefinition,
+	FName RouteSegmentId,
+	FName TargetId,
+	const FSimulationClockSnapshot& ClockSnapshot,
+	double RequestedSimulationTimeSeconds)
+{
+	double TravelTimeSeconds = 0.0;
+	EstimateRouteTravelTime(SystemDefinition, RouteSegmentId, ClockSnapshot, RequestedSimulationTimeSeconds, TravelTimeSeconds);
+
+	auto FormatTargetAt = [&SystemDefinition, &ClockSnapshot, TargetId](double TimeSeconds)
+	{
+		FFrameResolvedTransform Transform;
+		if (!ResolveEntityFrame(SystemDefinition, TargetId, ClockSnapshot, TimeSeconds, Transform))
+		{
+			return FString::Printf(TEXT("unresolved target=%s"), *TargetId.ToString());
+		}
+		return FString::Printf(TEXT("target=%s t=%.1f pos=(%.1f,%.1f,%.1f)"),
+			*TargetId.ToString(),
+			TimeSeconds,
+			Transform.PositionCm.X,
+			Transform.PositionCm.Y,
+			Transform.PositionCm.Z);
+	};
+
+	FRouteSample NowSample;
+	EvaluateRoute(SystemDefinition, RouteSegmentId, 0.5, ClockSnapshot, RequestedSimulationTimeSeconds, NowSample);
+
+	return FString::Printf(
+		TEXT("Now: %s\nNow + 60s: %s\nestimated-arrival: %.1fs route=%s sample=(%.1f,%.1f,%.1f)\nETA + 60s: %s"),
+		*FormatTargetAt(RequestedSimulationTimeSeconds),
+		*FormatTargetAt(RequestedSimulationTimeSeconds + 60.0),
+		RequestedSimulationTimeSeconds + TravelTimeSeconds,
+		*RouteSegmentId.ToString(),
+		NowSample.ResolvedTransform.PositionCm.X,
+		NowSample.ResolvedTransform.PositionCm.Y,
+		NowSample.ResolvedTransform.PositionCm.Z,
+		*FormatTargetAt(RequestedSimulationTimeSeconds + TravelTimeSeconds + 60.0));
 }
 
 void UOrbitRouteFrameQueryService::BuildSystemMapViewModel(
@@ -389,6 +672,103 @@ bool UOrbitRouteFrameQueryService::FindEntityDefinition(
 	}
 
 	return false;
+}
+
+const FTrafficRouteSegmentDefinition* UOrbitRouteFrameQueryService::FindRouteDefinition(const FStarSystemDefinition& SystemDefinition, FName RouteSegmentId)
+{
+	return SystemDefinition.TrafficRoutes.FindByPredicate([RouteSegmentId](const FTrafficRouteSegmentDefinition& Candidate)
+	{
+		return Candidate.RouteSegmentId == RouteSegmentId;
+	});
+}
+
+bool UOrbitRouteFrameQueryService::ResolveRouteEndpoint(
+	const FStarSystemDefinition& SystemDefinition,
+	const FTrafficRouteSegmentDefinition& Route,
+	bool bSource,
+	const FSimulationClockSnapshot& ClockSnapshot,
+	double RequestedSimulationTimeSeconds,
+	FFrameResolvedTransform& OutTransform)
+{
+	const FName AnchorId = bSource ? Route.SourceAnchorId : Route.DestinationAnchorId;
+	const FVector LocalOffsetCm = bSource ? Route.SourceLocalOffsetCm : Route.DestinationLocalOffsetCm;
+	if (!ResolveEntityFrame(SystemDefinition, AnchorId, ClockSnapshot, RequestedSimulationTimeSeconds, OutTransform))
+	{
+		return false;
+	}
+
+	const FTransform AnchorTransform(FQuat(OutTransform.Rotation), OutTransform.PositionCm);
+	OutTransform.PositionCm = AnchorTransform.TransformPosition(LocalOffsetCm);
+	OutTransform.ActorSpaceTransform = FTransform(OutTransform.Rotation, OutTransform.PositionCm);
+	return true;
+}
+
+bool UOrbitRouteFrameQueryService::BuildRouteArc(
+	const FTrafficRouteSegmentDefinition& Route,
+	const FFrameResolvedTransform& Source,
+	const FFrameResolvedTransform& Destination,
+	FVector& OutP0,
+	FVector& OutP1,
+	FVector& OutControlPoint,
+	FVector& OutArcNormal)
+{
+	OutP0 = Source.PositionCm;
+	OutP1 = Destination.PositionCm;
+	const FVector Chord = OutP1 - OutP0;
+	const double ChordLength = Chord.Size();
+	if (ChordLength <= SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	const FVector ChordDirection = Chord / ChordLength;
+	FVector ArcNormal = Route.ControlData.ArcNormalHint - ChordDirection * FVector::DotProduct(Route.ControlData.ArcNormalHint, ChordDirection);
+	if (!ArcNormal.Normalize())
+	{
+		ArcNormal = Source.Rotation.RotateVector(FVector::UpVector);
+		ArcNormal = ArcNormal - ChordDirection * FVector::DotProduct(ArcNormal, ChordDirection);
+	}
+	if (!ArcNormal.Normalize())
+	{
+		ArcNormal = (GetTypeHash(Route.RouteSegmentId) & 1) == 0 ? FVector::UpVector : FVector::RightVector;
+		ArcNormal = ArcNormal - ChordDirection * FVector::DotProduct(ArcNormal, ChordDirection);
+	}
+	if (!ArcNormal.Normalize())
+	{
+		ArcNormal = FVector::ForwardVector ^ ChordDirection;
+		ArcNormal.Normalize();
+	}
+
+	const double ArcHeightCm = Route.ControlData.ArcHeightCm > 0.0 ? Route.ControlData.ArcHeightCm : 0.15 * ChordLength;
+	OutArcNormal = ArcNormal;
+	OutControlPoint = FMath::Lerp(OutP0, OutP1, 0.5) + OutArcNormal * ArcHeightCm;
+	return true;
+}
+
+double UOrbitRouteFrameQueryService::EstimateRouteLengthCm(
+	const FTrafficRouteSegmentDefinition& Route,
+	const FFrameResolvedTransform& Source,
+	const FFrameResolvedTransform& Destination)
+{
+	FVector P0;
+	FVector P1;
+	FVector ControlPoint;
+	FVector ArcNormal;
+	if (!BuildRouteArc(Route, Source, Destination, P0, P1, ControlPoint, ArcNormal))
+	{
+		return 0.0;
+	}
+
+	double LengthCm = 0.0;
+	FVector Previous = P0;
+	for (int32 Index = 1; Index <= RouteLengthSegments; ++Index)
+	{
+		const double Progress = static_cast<double>(Index) / static_cast<double>(RouteLengthSegments);
+		const FVector Current = EvaluateQuadraticBezier(P0, ControlPoint, P1, Progress);
+		LengthCm += FVector::Distance(Previous, Current);
+		Previous = Current;
+	}
+	return LengthCm;
 }
 
 FVector UOrbitRouteFrameQueryService::EvaluateOrbitPosition(const FOrbitDefinition& Orbit, double RequestedSimulationTimeSeconds)

@@ -3,14 +3,19 @@
 #include "CoreMinimal.h"
 #include "Data/StargameDataTypes.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "Tickable.h"
 #include "StargameSessionSubsystem.generated.h"
 
 UCLASS()
-class STARGAME_API UStargameSessionSubsystem : public UGameInstanceSubsystem
+class STARGAME_API UStargameSessionSubsystem : public UGameInstanceSubsystem, public FTickableGameObject
 {
 	GENERATED_BODY()
 
 public:
+	virtual void Tick(float DeltaTime) override;
+	virtual TStatId GetStatId() const override;
+	virtual bool IsTickable() const override;
+
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Session")
 	EStartSessionResult StartNewSession(FName InStartProfileId = NAME_None);
 
@@ -60,13 +65,22 @@ public:
 	FStargameM0SaveState MakeCurrentM0SaveState() const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Session")
+	FActiveTrafficSimulationState GetActiveTrafficState() const { return ActiveTrafficState; }
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Session")
+	void SetActiveTrafficState(const FActiveTrafficSimulationState& NewTrafficState) { ActiveTrafficState = NewTrafficState; }
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Session")
 	FString GetM0DebugSummary() const;
 
 	static constexpr const TCHAR* DevelopmentSlotName = TEXT("m0_development");
 
 private:
 	bool BuildAndSpawnFromStartProfile(const FStartProfileDefinition& StartProfile);
+	void ClearSessionState();
 	void ReportStartupError(const FString& Error);
+	bool ValidateLoadedTrafficState(const FStarSystemDefinition& SystemDefinition, const FActiveTrafficSimulationState& TrafficState, FString& OutError) const;
+	bool RestoreSavedShipLocation(const FShipSaveLocation& ShipLocation, APlayerController* PlayerController, FString& OutError);
 
 	UPROPERTY()
 	FName StartProfileId = TEXT("frontier_test_start");
@@ -82,6 +96,9 @@ private:
 
 	UPROPERTY()
 	FSimulationClockSnapshot ClockSnapshot;
+
+	UPROPERTY()
+	FActiveTrafficSimulationState ActiveTrafficState;
 
 	EStartSessionResult LastStartSessionResult = EStartSessionResult::ValidationFailed;
 	FString LastSessionError;
