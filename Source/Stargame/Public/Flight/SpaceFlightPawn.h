@@ -48,6 +48,33 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
 	FSupercruiseTelemetry GetSupercruiseTelemetry() const;
 
+	UFUNCTION(BlueprintPure, Category = "Flight|Docking")
+	EDockingState GetDockingState() const { return DockingOperation.DockingState; }
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Docking")
+	FDockingOperationState GetDockingOperationState() const { return DockingOperation; }
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Docking")
+	FString GetDockingDebugSummary() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Flight|Docking")
+	bool RequestDocking(FName StationId, FName PortId);
+
+	UFUNCTION(BlueprintCallable, Category = "Flight|Docking")
+	bool RestoreDockedAt(FName StationId, FName PortId, double SimulationTimeSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "Flight|Docking")
+	bool Undock();
+
+	UFUNCTION(BlueprintCallable, Category = "Flight|Testing")
+	void SetFlightTestVelocity(FVector NewVelocityCmPerSec);
+
+	UFUNCTION(BlueprintCallable, Category = "Flight|Testing")
+	void SetFlightTestTransformAndVelocity(const FTransform& NewTransform, FVector NewVelocityCmPerSec);
+
+	UFUNCTION(BlueprintCallable, Category = "Flight|Testing")
+	void TickDockingForTest(float DeltaSeconds);
+
 	UFUNCTION(Exec)
 	void CycleNavigationTarget();
 
@@ -74,6 +101,7 @@ private:
 	void UpdateSteering(float DeltaSeconds);
 	void UpdateNormalFlight(float DeltaSeconds);
 	void UpdateSupercruise(float DeltaSeconds);
+	void UpdateDocking(float DeltaSeconds);
 	void UpdateShipVisuals(float DeltaSeconds);
 	void UpdateCameraResponse(float DeltaSeconds, const FVector& PreviousVelocity);
 	void InitializeAtmosphericDust();
@@ -210,6 +238,18 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
 	FRotator AngularVelocityDegrees = FRotator::ZeroRotator;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|Docking")
+	FDockingOperationState DockingOperation;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|Docking")
+	FTransform DockingAssistStartLocalTransform = FTransform::Identity;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|Docking")
+	FTransform DockingAssistTargetLocalTransform = FTransform::Identity;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Docking", meta = (ClampMin = "0.1", Units = "s"))
+	float DockingFinalAssistSeconds = 2.0f;
 
 	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
 	float ThrottleInput = 0.0f;

@@ -6,6 +6,7 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "Flight/ShipFlightModeComponent.h"
+#include "Flight/SpaceFlightPawn.h"
 #include "Misc/AutomationTest.h"
 #include "Runtime/StargameSessionSubsystem.h"
 #include "Space/OrbitRouteFrameQueryService.h"
@@ -43,6 +44,40 @@ namespace
 		return nullptr;
 	}
 
+	ASpaceFlightPawn* SpawnM5PawnAt(UWorld* World, const FFrameResolvedTransform& Transform, const FVector& VelocityCmPerSec)
+	{
+		if (!World)
+		{
+			return nullptr;
+		}
+
+		FActorSpawnParameters SpawnParameters;
+		SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		ASpaceFlightPawn* Pawn = World->SpawnActor<ASpaceFlightPawn>(ASpaceFlightPawn::StaticClass(), FTransform(Transform.Rotation, Transform.PositionCm), SpawnParameters);
+		if (Pawn)
+		{
+			Pawn->SetFlightTestTransformAndVelocity(FTransform(Transform.Rotation, Transform.PositionCm), VelocityCmPerSec);
+		}
+		return Pawn;
+	}
+
+	void AdvanceM5Docking(UStargameSessionSubsystem* Session, ASpaceFlightPawn* Pawn, double TotalSeconds, double StepSeconds)
+	{
+		if (!Pawn)
+		{
+			return;
+		}
+		const int32 Steps = FMath::CeilToInt(TotalSeconds / FMath::Max(StepSeconds, SMALL_NUMBER));
+		for (int32 StepIndex = 0; StepIndex < Steps; ++StepIndex)
+		{
+			if (Session)
+			{
+				Session->AdvanceSimulationClock(StepSeconds);
+			}
+			Pawn->TickDockingForTest(static_cast<float>(StepSeconds));
+		}
+	}
+
 	bool AssetManagerScansRoot(FPrimaryAssetType AssetType, const FString& RequiredRoot)
 	{
 		const UAssetManagerSettings* Settings = GetDefault<UAssetManagerSettings>();
@@ -68,6 +103,77 @@ namespace
 		}
 
 		return false;
+	}
+
+	FString BuildM6SystemSignature(const FStarSystemDefinition& SystemDefinition)
+	{
+		TArray<FString> Parts;
+		Parts.Add(SystemDefinition.SystemId.ToString());
+		Parts.Add(FString::FromInt(SystemDefinition.Seed));
+		Parts.Add(SystemDefinition.GeneratedSourceMetadata.GeneratorVersion.ToString());
+		Parts.Add(SystemDefinition.GeneratedSourceMetadata.GeneratedAtUtc);
+		Parts.Add(SystemDefinition.GeneratedSourceMetadata.SourceFingerprint);
+
+		for (const FBodyDefinition& Body : SystemDefinition.Bodies)
+		{
+			Parts.Add(FString::Printf(TEXT("B:%s:%s:%s:%s:%.3f:%.3f:%.3f"),
+				*Body.BodyId.ToString(),
+				*Body.BodyType.ToString(),
+				*Body.AnchorId.ToString(),
+				*Body.Orbit.ParentId.ToString(),
+				Body.Orbit.SemiMajorAxisCm,
+				Body.Orbit.PeriodSeconds,
+				Body.Orbit.PhaseOffsetRadians));
+		}
+		for (const FStationDefinition& Station : SystemDefinition.Stations)
+		{
+			Parts.Add(FString::Printf(TEXT("S:%s:%s:%.3f:%.3f:%.3f:%d"),
+				*Station.StationId.ToString(),
+				*Station.AnchorId.ToString(),
+				Station.Orbit.SemiMajorAxisCm,
+				Station.Orbit.PeriodSeconds,
+				Station.Orbit.PhaseOffsetRadians,
+				Station.DockingPorts.Num()));
+		}
+		for (const FGateDefinition& Gate : SystemDefinition.Gates)
+		{
+			Parts.Add(FString::Printf(TEXT("G:%s:%s:%s"),
+				*Gate.GateId.ToString(),
+				*Gate.AnchorId.ToString(),
+				*Gate.Transform.GetLocation().ToCompactString()));
+		}
+		for (const FGravityWellDefinition& Well : SystemDefinition.GravityWells)
+		{
+			Parts.Add(FString::Printf(TEXT("W:%s:%s:%.3f:%.3f:%.3f"),
+				*Well.WellId.ToString(),
+				*Well.AnchorBodyId.ToString(),
+				Well.SlowdownRadiusCm,
+				Well.LockoutRadiusCm,
+				Well.DropoutRadiusCm));
+		}
+		for (const FResourceZoneDefinition& Zone : SystemDefinition.ResourceZones)
+		{
+			Parts.Add(FString::Printf(TEXT("R:%s:%s:%s:%.3f"),
+				*Zone.ZoneId.ToString(),
+				*Zone.AnchorId.ToString(),
+				*Zone.Transform.GetLocation().ToCompactString(),
+				Zone.RadiusCm));
+		}
+		for (const FSpawnZoneDefinition& SpawnZone : SystemDefinition.SpawnZones)
+		{
+			Parts.Add(FString::Printf(TEXT("Z:%s:%s:%s"),
+				*SpawnZone.SpawnZoneId.ToString(),
+				*SpawnZone.AnchorId.ToString(),
+				*SpawnZone.Transform.GetLocation().ToCompactString()));
+		}
+		for (const FMapEntryDefinition& MapEntry : SystemDefinition.MapEntries)
+		{
+			Parts.Add(FString::Printf(TEXT("M:%s:%s:%s"),
+				*MapEntry.MapEntryId.ToString(),
+				*MapEntry.SourceId.ToString(),
+				*MapEntry.EntryType.ToString()));
+		}
+		return FString::Join(Parts, TEXT("|"));
 	}
 }
 
@@ -913,6 +1019,378 @@ bool FM4SupercruiseDistantLegTravelTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("M4 distant leg returns to normal flight after dropout"), FlightMode->GetFlightMode(), EShipFlightMode::Normal);
 	TestTrue(TEXT("M4 distant leg clamps ship velocity after dropout"), ShipVelocityCmPerSec.Size() <= SystemDefinition.Scale.NormalFlightMaxSpeedCmPerSec + KINDA_SMALL_NUMBER);
 	TestTrue(TEXT("M4 flight component clamps speed after dropout"), FlightMode->GetCurrentSupercruiseSpeedCmPerSec() <= SystemDefinition.Scale.NormalFlightMaxSpeedCmPerSec);
+
+	StarSystem->TearDownActiveSystem();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM5CatalogValidationTest,
+	"Stargame.M5.Catalog.ValidatesDockingFixture",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM5CatalogValidationTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	const FStargameValidationReport Report = Catalog->ValidateM5Fixture(FName(TEXT("frontier_test_01")));
+	TestFalse(TEXT("M5 validation report has no blocking issues"), Report.HasBlockingIssues());
+	if (Report.HasBlockingIssues())
+	{
+		for (const FStargameValidationIssue& Issue : Report.Issues)
+		{
+			AddError(Issue.Message);
+		}
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM5DockingEligibilityAndAssistTest,
+	"Stargame.M5.Docking.RejectsInvalidApproachAndDocksMovingPort",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM5DockingEligibilityAndAssistTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FindM1AutomationWorld();
+	TestNotNull(TEXT("Automation world exists"), World);
+	if (!World)
+	{
+		return false;
+	}
+
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M5 system resolves"), Catalog && Catalog->ResolveSystemDefinition(FName(TEXT("frontier_test_01")), SystemDefinition));
+
+	UStarSystemSubsystem* StarSystem = World->GetSubsystem<UStarSystemSubsystem>();
+	TestNotNull(TEXT("Star system subsystem exists"), StarSystem);
+	if (!StarSystem)
+	{
+		return false;
+	}
+	TestTrue(TEXT("M5 active system build succeeds"), StarSystem->BuildSystem(SystemDefinition));
+
+	UStargameSessionSubsystem* Session = World->GetGameInstance() ? World->GetGameInstance()->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	const double SimulationTimeSeconds = Session ? Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds : 0.0;
+	const FSimulationClockSnapshot Clock = Session ? Session->GetSimulationClockSnapshot() : UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, SimulationTimeSeconds);
+	FFrameResolvedTransform ApproachFrame;
+	FFrameResolvedTransform DockedFrame;
+	TestTrue(TEXT("M5 approach frame resolves"), UOrbitRouteFrameQueryService::ResolveDockingPortTransform(SystemDefinition, TEXT("brink_watch"), TEXT("brink_watch_port_a"), EDockingPortTransformKind::Approach, Clock, SimulationTimeSeconds, ApproachFrame));
+	TestTrue(TEXT("M5 docked frame resolves"), UOrbitRouteFrameQueryService::ResolveDockingPortFrame(SystemDefinition, TEXT("brink_watch"), TEXT("brink_watch_port_a"), Clock, SimulationTimeSeconds, DockedFrame));
+
+	ASpaceFlightPawn* FastPawn = SpawnM5PawnAt(World, ApproachFrame, FVector(3000.0, 0.0, 0.0));
+	TestNotNull(TEXT("M5 fast pawn spawns"), FastPawn);
+	TestFalse(TEXT("M5 rejects excessive approach speed"), FastPawn && FastPawn->RequestDocking(TEXT("brink_watch"), TEXT("brink_watch_port_a")));
+	TestTrue(TEXT("M5 fast rejection records reason"), FastPawn && FastPawn->GetDockingOperationState().LastFailureReason.Contains(TEXT("speed")));
+	if (FastPawn)
+	{
+		FastPawn->Destroy();
+	}
+
+	ASpaceFlightPawn* MisalignedPawn = SpawnM5PawnAt(World, ApproachFrame, FVector::ZeroVector);
+	TestNotNull(TEXT("M5 misaligned pawn spawns"), MisalignedPawn);
+	if (MisalignedPawn)
+	{
+		MisalignedPawn->SetActorRotation((DockedFrame.Rotation + FRotator(0.0, 90.0, 0.0)).Quaternion());
+	}
+	TestFalse(TEXT("M5 rejects wrong alignment"), MisalignedPawn && MisalignedPawn->RequestDocking(TEXT("brink_watch"), TEXT("brink_watch_port_a")));
+	TestTrue(TEXT("M5 alignment rejection records reason"), MisalignedPawn && MisalignedPawn->GetDockingOperationState().LastFailureReason.Contains(TEXT("alignment")));
+	if (MisalignedPawn)
+	{
+		MisalignedPawn->Destroy();
+	}
+
+	ASpaceFlightPawn* DockingPawn = SpawnM5PawnAt(World, ApproachFrame, FVector::ZeroVector);
+	TestNotNull(TEXT("M5 docking pawn spawns"), DockingPawn);
+	if (!DockingPawn)
+	{
+		StarSystem->TearDownActiveSystem();
+		return false;
+	}
+	DockingPawn->SetActorRotation(DockedFrame.Rotation);
+	TestTrue(TEXT("M5 valid request starts final assist"), DockingPawn->RequestDocking(TEXT("brink_watch"), TEXT("brink_watch_port_a")));
+	TestEqual(TEXT("M5 enters final assist"), DockingPawn->GetDockingState(), EDockingState::FinalAssist);
+
+	AdvanceM5Docking(Session, DockingPawn, 2.5, 0.25);
+	TestEqual(TEXT("M5 final assist reaches docked"), DockingPawn->GetDockingState(), EDockingState::Docked);
+
+	FDockingPortRuntimeState RuntimeState;
+	TestTrue(TEXT("M5 runtime state resolves"), StarSystem->FindDockingPortRuntimeState(TEXT("brink_watch"), TEXT("brink_watch_port_a"), RuntimeState));
+	TestEqual(TEXT("M5 port is occupied by player ship"), RuntimeState.OccupyingShipId, FName(TEXT("player_ship")));
+
+	const double LiveTime = Session ? Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds : 2.5;
+	FFrameResolvedTransform LiveDockedFrame;
+	TestTrue(TEXT("M5 live docked frame resolves after assist"), UOrbitRouteFrameQueryService::ResolveDockingPortFrame(SystemDefinition, TEXT("brink_watch"), TEXT("brink_watch_port_a"), UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, LiveTime), LiveTime, LiveDockedFrame));
+	TestTrue(TEXT("M5 docked pawn matches moving live port"), DockingPawn->GetActorLocation().Equals(LiveDockedFrame.PositionCm, 1.0));
+
+	DockingPawn->Destroy();
+	StarSystem->TearDownActiveSystem();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM5DockedSaveReloadUndockLoopTest,
+	"Stargame.M5.Docking.SaveReloadAndRepeatUndock",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM5DockedSaveReloadUndockLoopTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FindM1AutomationWorld();
+	TestNotNull(TEXT("Automation world exists"), World);
+	if (!World)
+	{
+		return false;
+	}
+
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition SystemDefinition;
+	TestTrue(TEXT("M5 system resolves"), Catalog && Catalog->ResolveSystemDefinition(FName(TEXT("frontier_test_01")), SystemDefinition));
+
+	UStarSystemSubsystem* StarSystem = World->GetSubsystem<UStarSystemSubsystem>();
+	TestNotNull(TEXT("Star system subsystem exists"), StarSystem);
+	if (!StarSystem)
+	{
+		return false;
+	}
+	TestTrue(TEXT("M5 active system build succeeds"), StarSystem->BuildSystem(SystemDefinition));
+
+	UStargameSessionSubsystem* Session = World->GetGameInstance() ? World->GetGameInstance()->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (Session)
+	{
+		Session->AdvanceSimulationClock(0.0);
+	}
+
+	for (int32 Iteration = 0; Iteration < 5; ++Iteration)
+	{
+		const double SimulationTimeSeconds = Session ? Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds : 0.0;
+		const FSimulationClockSnapshot Clock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, SimulationTimeSeconds);
+		FFrameResolvedTransform ApproachFrame;
+		FFrameResolvedTransform DockedFrame;
+		TestTrue(TEXT("M5 loop approach frame resolves"), UOrbitRouteFrameQueryService::ResolveDockingPortTransform(SystemDefinition, TEXT("brink_watch"), TEXT("brink_watch_port_a"), EDockingPortTransformKind::Approach, Clock, SimulationTimeSeconds, ApproachFrame));
+		TestTrue(TEXT("M5 loop docked frame resolves"), UOrbitRouteFrameQueryService::ResolveDockingPortFrame(SystemDefinition, TEXT("brink_watch"), TEXT("brink_watch_port_a"), Clock, SimulationTimeSeconds, DockedFrame));
+
+		ASpaceFlightPawn* Pawn = SpawnM5PawnAt(World, ApproachFrame, FVector::ZeroVector);
+		TestNotNull(TEXT("M5 loop pawn spawns"), Pawn);
+		if (!Pawn)
+		{
+			StarSystem->TearDownActiveSystem();
+			return false;
+		}
+		Pawn->SetActorRotation(DockedFrame.Rotation);
+		TestTrue(TEXT("M5 loop docking request succeeds"), Pawn->RequestDocking(TEXT("brink_watch"), TEXT("brink_watch_port_a")));
+		AdvanceM5Docking(Session, Pawn, 2.5, 0.25);
+		TestEqual(TEXT("M5 loop reaches docked"), Pawn->GetDockingState(), EDockingState::Docked);
+
+		FShipSaveLocation SaveLocation;
+		SaveLocation.SystemId = SystemDefinition.SystemId;
+		SaveLocation.LocationMode = EShipLocationMode::StationDocked;
+		SaveLocation.DockedStationId = TEXT("brink_watch");
+		SaveLocation.DockingPortId = TEXT("brink_watch_port_a");
+		SaveLocation.DockingState = EDockingState::Docked;
+		SaveLocation.AuthoritativeSimulationTimeSeconds = Session ? Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds : 0.0;
+		TestEqual(TEXT("M5 save captures docked mode"), SaveLocation.LocationMode, EShipLocationMode::StationDocked);
+		TestEqual(TEXT("M5 save captures docked station"), SaveLocation.DockedStationId, FName(TEXT("brink_watch")));
+		TestEqual(TEXT("M5 save captures docked port"), SaveLocation.DockingPortId, FName(TEXT("brink_watch_port_a")));
+
+		if (Session)
+		{
+			Session->AdvanceSimulationClock(5.0);
+		}
+		const double ReloadTimeSeconds = Session ? Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds : SaveLocation.AuthoritativeSimulationTimeSeconds + 5.0;
+		FFrameResolvedTransform ExpectedReloadDockedFrame;
+		TestTrue(TEXT("M5 reload expected frame resolves"), UOrbitRouteFrameQueryService::ResolveDockingPortFrame(SystemDefinition, SaveLocation.DockedStationId, SaveLocation.DockingPortId, UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, ReloadTimeSeconds), ReloadTimeSeconds, ExpectedReloadDockedFrame));
+		TestTrue(TEXT("M5 restore while docked succeeds after time advance"), Pawn->RestoreDockedAt(SaveLocation.DockedStationId, SaveLocation.DockingPortId, ReloadTimeSeconds));
+		TestTrue(TEXT("M5 restored pawn matches live port"), Pawn->GetActorLocation().Equals(ExpectedReloadDockedFrame.PositionCm, 1.0));
+
+		TestTrue(TEXT("M5 undock succeeds"), Pawn->Undock());
+		TestEqual(TEXT("M5 undock returns to normal mode"), Pawn->GetFlightMode(), EShipFlightMode::Normal);
+		FDockingPortRuntimeState RuntimeState;
+		TestTrue(TEXT("M5 loop runtime resolves after undock"), StarSystem->FindDockingPortRuntimeState(TEXT("brink_watch"), TEXT("brink_watch_port_a"), RuntimeState));
+		TestTrue(TEXT("M5 loop releases port after undock"), RuntimeState.OccupyingShipId.IsNone());
+
+		Pawn->Destroy();
+	}
+
+	StarSystem->TearDownActiveSystem();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM6SeededGenerationValidationTest,
+	"Stargame.M6.Generation.ValidatesPhysicalSystemDefinition",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM6SeededGenerationValidationTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	FStarSystemDefinition Generated;
+	TestTrue(TEXT("M6 seeded physical system generates"), Catalog->GenerateSeededPhysicalSystem(6001, Generated));
+	TestEqual(TEXT("M6 generated source type"), Generated.SourceType, ESystemSourceType::Generated);
+	TestEqual(TEXT("M6 generated profile metadata"), Generated.GeneratedSourceMetadata.GenerationProfile, FName(TEXT("M6")));
+	TestEqual(TEXT("M6 generated seed metadata"), Generated.GeneratedSourceMetadata.GeneratedSeed, 6001);
+	TestFalse(TEXT("M6 declares authored overrides"), Generated.GeneratedSourceMetadata.AuthoredOverrideIds.IsEmpty());
+	TestFalse(TEXT("M6 declares stable generation inputs"), Generated.GeneratedSourceMetadata.GenerationInputIds.IsEmpty());
+	TestFalse(TEXT("M6 source fingerprint emitted"), Generated.GeneratedSourceMetadata.SourceFingerprint.IsEmpty());
+	TestFalse(TEXT("M6 does not depend on array order"), Generated.GeneratedSourceMetadata.bDependsOnArrayOrder);
+	TestFalse(TEXT("M6 does not depend on actor names"), Generated.GeneratedSourceMetadata.bDependsOnActorNames);
+	TestFalse(TEXT("M6 does not depend on editor-only state"), Generated.GeneratedSourceMetadata.bDependsOnEditorOnlyState);
+
+	const FStargameValidationReport Report = Catalog->ValidateM6GeneratedSystemDefinition(Generated);
+	TestFalse(TEXT("M6 validation report has no blocking issues"), Report.HasBlockingIssues());
+	if (Report.HasBlockingIssues())
+	{
+		for (const FStargameValidationIssue& Issue : Report.Issues)
+		{
+			AddError(Issue.Message);
+		}
+	}
+
+	TestTrue(TEXT("M6 has star"), Generated.Bodies.ContainsByPredicate([](const FBodyDefinition& Body) { return Body.BodyType == FName(TEXT("star")); }));
+	TestTrue(TEXT("M6 has moon hierarchy"), Generated.Bodies.ContainsByPredicate([](const FBodyDefinition& Body) { return Body.BodyType == FName(TEXT("moon")) && !Body.Orbit.ParentId.IsNone(); }));
+	TestTrue(TEXT("M6 has moving station"), Generated.Stations.ContainsByPredicate([](const FStationDefinition& Station) { return Station.Orbit.SemiMajorAxisCm > 0.0 && Station.Orbit.PeriodSeconds > 0.0; }));
+	TestTrue(TEXT("M6 has gate"), !Generated.Gates.IsEmpty());
+	TestTrue(TEXT("M6 has gravity well lockout"), Generated.GravityWells.ContainsByPredicate([](const FGravityWellDefinition& Well) { return Well.SlowdownRadiusCm >= Well.LockoutRadiusCm && Well.LockoutRadiusCm >= Well.DropoutRadiusCm && Well.DropoutRadiusCm > 0.0; }));
+	TestTrue(TEXT("M6 has resource zone"), !Generated.ResourceZones.IsEmpty());
+	TestTrue(TEXT("M6 has spawn zone"), !Generated.SpawnZones.IsEmpty());
+	TestTrue(TEXT("M6 has map metadata"), Generated.MapEntries.Num() >= Generated.Bodies.Num() + Generated.Stations.Num() + Generated.Gates.Num() + Generated.ResourceZones.Num());
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM6SeededGenerationRejectsInvalidSourceMetadataTest,
+	"Stargame.M6.Generation.RejectsInvalidSourceMetadata",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM6SeededGenerationRejectsInvalidSourceMetadataTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	FStarSystemDefinition MissingOverrides;
+	TestTrue(TEXT("M6 baseline system generates for missing override case"), Catalog->GenerateSeededPhysicalSystem(6001, MissingOverrides));
+	MissingOverrides.GeneratedSourceMetadata.AuthoredOverrideIds.Reset();
+	TestTrue(TEXT("M6 rejects missing authored overrides"), Catalog->ValidateM6GeneratedSystemDefinition(MissingOverrides).HasBlockingIssues());
+
+	FStarSystemDefinition MissingInputs;
+	TestTrue(TEXT("M6 baseline system generates for missing input case"), Catalog->GenerateSeededPhysicalSystem(6001, MissingInputs));
+	MissingInputs.GeneratedSourceMetadata.GenerationInputIds.Reset();
+	TestTrue(TEXT("M6 rejects missing generation inputs"), Catalog->ValidateM6GeneratedSystemDefinition(MissingInputs).HasBlockingIssues());
+
+	FStarSystemDefinition ActorDependent;
+	TestTrue(TEXT("M6 baseline system generates for actor dependency case"), Catalog->GenerateSeededPhysicalSystem(6001, ActorDependent));
+	ActorDependent.GeneratedSourceMetadata.bDependsOnActorNames = true;
+	TestTrue(TEXT("M6 rejects actor-name generation dependency"), Catalog->ValidateM6GeneratedSystemDefinition(ActorDependent).HasBlockingIssues());
+
+	FStarSystemDefinition InvalidTimestamp;
+	TestTrue(TEXT("M6 baseline system generates for timestamp case"), Catalog->GenerateSeededPhysicalSystem(6001, InvalidTimestamp));
+	InvalidTimestamp.GeneratedSourceMetadata.GeneratedAtUtc = TEXT("not-a-utc-timestamp");
+	TestTrue(TEXT("M6 rejects invalid generated timestamp"), Catalog->ValidateM6GeneratedSystemDefinition(InvalidTimestamp).HasBlockingIssues());
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM6SeededGenerationDeterminismTest,
+	"Stargame.M6.Generation.SameSeedProducesSameDefinition",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM6SeededGenerationDeterminismTest::RunTest(const FString& Parameters)
+{
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	TestNotNull(TEXT("Catalog subsystem object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+
+	FStarSystemDefinition First;
+	FStarSystemDefinition Second;
+	FStarSystemDefinition Different;
+	TestTrue(TEXT("M6 first system generates"), Catalog->GenerateSeededPhysicalSystem(6001, First));
+	TestTrue(TEXT("M6 second system generates"), Catalog->GenerateSeededPhysicalSystem(6001, Second));
+	TestTrue(TEXT("M6 different seed system generates"), Catalog->GenerateSeededPhysicalSystem(6002, Different));
+
+	TestEqual(TEXT("M6 same seed signature matches"), BuildM6SystemSignature(First), BuildM6SystemSignature(Second));
+	TestNotEqual(TEXT("M6 different seed signature differs"), BuildM6SystemSignature(First), BuildM6SystemSignature(Different));
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM6GeneratedRegistryCompatibilityTest,
+	"Stargame.M6.Generation.BuildsActiveSystemRegistry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM6GeneratedRegistryCompatibilityTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FindM1AutomationWorld();
+	TestNotNull(TEXT("Automation world exists"), World);
+	if (!World)
+	{
+		return false;
+	}
+
+	UStarCatalogSubsystem* Catalog = CreateM1Catalog();
+	FStarSystemDefinition Generated;
+	TestTrue(TEXT("M6 generated system resolves"), Catalog && Catalog->GenerateSeededPhysicalSystem(6001, Generated));
+
+	UStarSystemSubsystem* StarSystem = World->GetSubsystem<UStarSystemSubsystem>();
+	TestNotNull(TEXT("Star system subsystem exists"), StarSystem);
+	if (!StarSystem)
+	{
+		return false;
+	}
+	TestTrue(TEXT("M6 generated active system build succeeds"), StarSystem->BuildSystem(Generated));
+
+	TArray<FName> EntityIds;
+	StarSystem->GetRegisteredEntityIds(EntityIds);
+	TestEqual(TEXT("M6 generated entity registry count"), EntityIds.Num(), Generated.Bodies.Num() + Generated.Stations.Num() + Generated.Gates.Num() + Generated.ResourceZones.Num());
+
+	TArray<FName> ResourceZoneIds;
+	StarSystem->GetRegisteredResourceZoneIds(ResourceZoneIds);
+	TestEqual(TEXT("M6 generated resource zone registry count"), ResourceZoneIds.Num(), Generated.ResourceZones.Num());
+
+	TArray<FName> MapEntryIds;
+	StarSystem->GetRegisteredMapEntryIds(MapEntryIds);
+	TestEqual(TEXT("M6 generated map registry count"), MapEntryIds.Num(), Generated.MapEntries.Num());
+
+	TArray<FSystemMapEntryViewModel> MapView;
+	const FSimulationClockSnapshot Clock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(Generated.SystemId, 0.0);
+	UOrbitRouteFrameQueryService::BuildSystemMapViewModel(Generated, Clock, 0.0, MapView);
+	TestEqual(TEXT("M6 generated map view resolves all entries"), MapView.Num(), Generated.MapEntries.Num());
+
+	const FStationDefinition* MovingStation = Generated.Stations.Num() > 0 ? &Generated.Stations[0] : nullptr;
+	TestNotNull(TEXT("M6 generated moving station exists"), MovingStation);
+	if (MovingStation)
+	{
+		FFrameResolvedTransform StationAt0;
+		FFrameResolvedTransform StationAt30;
+		TestTrue(TEXT("M6 generated station resolves at t0"), UOrbitRouteFrameQueryService::ResolveEntityFrame(Generated, MovingStation->StationId, Clock, 0.0, StationAt0));
+		TestTrue(TEXT("M6 generated station resolves at t30"), UOrbitRouteFrameQueryService::ResolveEntityFrame(Generated, MovingStation->StationId, Clock, 30.0, StationAt30));
+		TestFalse(TEXT("M6 generated station moves"), StationAt0.PositionCm.Equals(StationAt30.PositionCm, 0.01));
+
+		FFrameResolvedTransform SpawnTransform;
+		TestTrue(TEXT("M6 generated spawn resolves"), UOrbitRouteFrameQueryService::ResolveEntityFrame(Generated, Generated.SpawnZones[0].SpawnZoneId, Clock, 0.0, SpawnTransform));
+		TestTrue(TEXT("M6 generated has long supercruise leg"), FVector::Distance(SpawnTransform.PositionCm, StationAt0.PositionCm) > Generated.Scale.LocalBubbleRadiusCm);
+	}
 
 	StarSystem->TearDownActiveSystem();
 	return true;

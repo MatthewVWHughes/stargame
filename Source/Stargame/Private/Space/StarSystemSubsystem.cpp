@@ -107,6 +107,24 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 		}
 	}
 
+	for (const FResourceZoneDefinition& ResourceZone : SystemDefinition.ResourceZones)
+	{
+		FFrameResolvedTransform ResolvedTransform;
+		if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, ResourceZone.ZoneId, BuildClock, BuildClock.AuthoritativeSimulationTimeSeconds, ResolvedTransform))
+		{
+			TearDownActiveSystem();
+			return false;
+		}
+
+		if (!RegisterEntity(ResourceZone.ZoneId, TEXT("resource"), FTransform(ResolvedTransform.Rotation, ResolvedTransform.PositionCm), ResourceZone.RadiusCm) ||
+			!RegisterNavigationTarget(ResourceZone.NavigationTarget) ||
+			!RegisterResourceZone(ResourceZone))
+		{
+			TearDownActiveSystem();
+			return false;
+		}
+	}
+
 	for (const FMapEntryDefinition& MapEntry : SystemDefinition.MapEntries)
 	{
 		if (!RegisterMapEntry(MapEntry))
@@ -136,7 +154,9 @@ void UStarSystemSubsystem::TearDownActiveSystem()
 	NavigationTargetsById.Reset();
 	SpawnZonesById.Reset();
 	DockingPortsById.Reset();
+	DockingPortRuntimeStatesById.Reset();
 	GravityWellsById.Reset();
+	ResourceZonesById.Reset();
 	MapEntriesById.Reset();
 	ActiveSystemDefinition = FStarSystemDefinition();
 	bBuildComplete = false;
@@ -389,6 +409,15 @@ void UStarSystemSubsystem::GetRegisteredGravityWellIds(TArray<FName>& OutGravity
 	});
 }
 
+void UStarSystemSubsystem::GetRegisteredResourceZoneIds(TArray<FName>& OutResourceZoneIds) const
+{
+	ResourceZonesById.GenerateKeyArray(OutResourceZoneIds);
+	OutResourceZoneIds.Sort([](const FName& Left, const FName& Right)
+	{
+		return Left.LexicalLess(Right);
+	});
+}
+
 void UStarSystemSubsystem::GetRegisteredDockingPortIds(TArray<FName>& OutDockingPortIds) const
 {
 	DockingPortsById.GenerateKeyArray(OutDockingPortIds);
@@ -405,6 +434,119 @@ void UStarSystemSubsystem::GetRegisteredDockingPorts(TArray<FDockingPortRegistry
 	{
 		return MakeDockingPortRegistryId(Left.StationId, Left.PortId).LexicalLess(MakeDockingPortRegistryId(Right.StationId, Right.PortId));
 	});
+}
+
+bool UStarSystemSubsystem::FindDockingPort(FName StationId, FName PortId, FDockingPortRegistryEntry& OutDockingPort) const
+{
+	if (const FDockingPortRegistryEntry* Entry = DockingPortsById.Find(MakeDockingPortRegistryId(StationId, PortId)))
+	{
+		OutDockingPort = *Entry;
+		return true;
+	}
+	return false;
+}
+
+bool UStarSystemSubsystem::FindDockingPortRuntimeState(FName StationId, FName PortId, FDockingPortRuntimeState& OutRuntimeState) const
+{
+	if (const FDockingPortRuntimeState* RuntimeState = DockingPortRuntimeStatesById.Find(MakeDockingPortRegistryId(StationId, PortId)))
+	{
+		OutRuntimeState = *RuntimeState;
+		return true;
+	}
+	return false;
+}
+
+bool UStarSystemSubsystem::TryReserveDockingPort(FName StationId, FName PortId, FName ShipInstanceId, double SimulationTimeSeconds, FDockingPortRuntimeState& OutRuntimeState, FString& OutFailureReason)
+{
+	OutRuntimeState = FDockingPortRuntimeState();
+	OutFailureReason.Reset();
+
+	FDockingPortRuntimeState* RuntimeState = DockingPortRuntimeStatesById.Find(MakeDockingPortRegistryId(StationId, PortId));
+	if (!RuntimeState)
+	{
+		OutFailureReason = TEXT("Docking port is not registered.");
+		return false;
+	}
+	if (!RuntimeState->OccupyingShipId.IsNone() && RuntimeState->OccupyingShipId != ShipInstanceId)
+	{
+		RuntimeState->LastFailureReason = TEXT("Docking port is occupied.");
+		OutFailureReason = RuntimeState->LastFailureReason;
+		OutRuntimeState = *RuntimeState;
+		return false;
+	}
+	const bool bReservationExpired = RuntimeState->ReservationExpiryTimeSeconds > 0.0 && RuntimeState->ReservationExpiryTimeSeconds <= SimulationTimeSeconds;
+	if (bReservationExpired)
+	{
+		RuntimeState->ReservedShipId = NAME_None;
+		RuntimeState->ClearanceId = NAME_None;
+		RuntimeState->ReservationExpiryTimeSeconds = 0.0;
+	}
+	if (!RuntimeState->ReservedShipId.IsNone() && RuntimeState->ReservedShipId != ShipInstanceId)
+	{
+		RuntimeState->LastFailureReason = TEXT("Docking port is reserved.");
+		OutFailureReason = RuntimeState->LastFailureReason;
+		OutRuntimeState = *RuntimeState;
+		return false;
+	}
+
+	RuntimeState->ReservedShipId = ShipInstanceId;
+	RuntimeState->ClearanceId = FName(*FString::Printf(TEXT("%s_%s_%d"), *StationId.ToString(), *PortId.ToString(), FMath::RoundToInt(SimulationTimeSeconds)));
+	RuntimeState->ReservationExpiryTimeSeconds = SimulationTimeSeconds + 60.0;
+	RuntimeState->DockingState = EDockingState::Reserved;
+	RuntimeState->LastFailureReason.Reset();
+	OutRuntimeState = *RuntimeState;
+	return true;
+}
+
+bool UStarSystemSubsystem::OccupyDockingPort(FName StationId, FName PortId, FName ShipInstanceId, FDockingPortRuntimeState& OutRuntimeState, FString& OutFailureReason)
+{
+	OutRuntimeState = FDockingPortRuntimeState();
+	OutFailureReason.Reset();
+
+	FDockingPortRuntimeState* RuntimeState = DockingPortRuntimeStatesById.Find(MakeDockingPortRegistryId(StationId, PortId));
+	if (!RuntimeState)
+	{
+		OutFailureReason = TEXT("Docking port is not registered.");
+		return false;
+	}
+	if (!RuntimeState->OccupyingShipId.IsNone() && RuntimeState->OccupyingShipId != ShipInstanceId)
+	{
+		RuntimeState->LastFailureReason = TEXT("Docking port is occupied.");
+		OutFailureReason = RuntimeState->LastFailureReason;
+		OutRuntimeState = *RuntimeState;
+		return false;
+	}
+
+	RuntimeState->OccupyingShipId = ShipInstanceId;
+	RuntimeState->ReservedShipId = NAME_None;
+	RuntimeState->ReservationExpiryTimeSeconds = 0.0;
+	RuntimeState->DockingState = EDockingState::Docked;
+	RuntimeState->LastFailureReason.Reset();
+	OutRuntimeState = *RuntimeState;
+	return true;
+}
+
+bool UStarSystemSubsystem::ReleaseDockingPort(FName StationId, FName PortId, FName ShipInstanceId)
+{
+	FDockingPortRuntimeState* RuntimeState = DockingPortRuntimeStatesById.Find(MakeDockingPortRegistryId(StationId, PortId));
+	if (!RuntimeState)
+	{
+		return false;
+	}
+	if ((!RuntimeState->OccupyingShipId.IsNone() && RuntimeState->OccupyingShipId != ShipInstanceId) ||
+		(!RuntimeState->ReservedShipId.IsNone() && RuntimeState->ReservedShipId != ShipInstanceId))
+	{
+		RuntimeState->LastFailureReason = TEXT("Docking port belongs to another ship.");
+		return false;
+	}
+
+	RuntimeState->ReservedShipId = NAME_None;
+	RuntimeState->OccupyingShipId = NAME_None;
+	RuntimeState->ClearanceId = NAME_None;
+	RuntimeState->ReservationExpiryTimeSeconds = 0.0;
+	RuntimeState->DockingState = EDockingState::None;
+	RuntimeState->LastFailureReason.Reset();
+	return true;
 }
 
 void UStarSystemSubsystem::GetRegisteredMapEntryIds(TArray<FName>& OutMapEntryIds) const
@@ -472,6 +614,9 @@ FString UStarSystemSubsystem::GetM1DebugSummary() const
 	TArray<FName> GravityWellIds;
 	GetRegisteredGravityWellIds(GravityWellIds);
 
+	TArray<FName> ResourceZoneIds;
+	GetRegisteredResourceZoneIds(ResourceZoneIds);
+
 	TArray<FName> MapEntryIds;
 	GetRegisteredMapEntryIds(MapEntryIds);
 
@@ -495,13 +640,14 @@ FString UStarSystemSubsystem::GetM1DebugSummary() const
 	};
 
 	return FString::Printf(
-		TEXT("ActiveSystem=%s\nBuildComplete=%s\nEntities=%s\nSpawnZones=%s\nDockingPorts=%s\nGravityWells=%s\nMapEntries=%s\nNavigationTargets=%s"),
+		TEXT("ActiveSystem=%s\nBuildComplete=%s\nEntities=%s\nSpawnZones=%s\nDockingPorts=%s\nGravityWells=%s\nResourceZones=%s\nMapEntries=%s\nNavigationTargets=%s"),
 		*GetActiveSystemId().ToString(),
 		bBuildComplete ? TEXT("true") : TEXT("false"),
 		*JoinNames(EntityIds),
 		*JoinNames(SpawnZoneIds),
 		*JoinNames(DockingPortIds),
 		*JoinNames(GravityWellIds),
+		*JoinNames(ResourceZoneIds),
 		*JoinNames(MapEntryIds),
 		*FString::Join(TargetIds, TEXT(",")));
 }
@@ -696,6 +842,21 @@ bool UStarSystemSubsystem::ValidateSystemForBuild(const FStarSystemDefinition& S
 		GravityWellIds.Add(GravityWell.WellId);
 	}
 
+	TSet<FName> ResourceZoneIds;
+	for (const FResourceZoneDefinition& ResourceZone : SystemDefinition.ResourceZones)
+	{
+		if (!AddEntityId(ResourceZone.ZoneId, TEXT("Resource zone")) || !AddTargetId(ResourceZone.NavigationTarget))
+		{
+			return false;
+		}
+		if (ResourceZoneIds.Contains(ResourceZone.ZoneId))
+		{
+			OutError = FString::Printf(TEXT("Duplicate resource zone ID '%s'."), *ResourceZone.ZoneId.ToString());
+			return false;
+		}
+		ResourceZoneIds.Add(ResourceZone.ZoneId);
+	}
+
 	TSet<FName> MapEntryIds;
 	for (const FMapEntryDefinition& MapEntry : SystemDefinition.MapEntries)
 	{
@@ -817,6 +978,12 @@ bool UStarSystemSubsystem::RegisterDockingPort(FName StationId, const FDockingPo
 	Entry.BuildGeneration = ActiveBuildGeneration;
 	Entry.Definition = DockingPort;
 	DockingPortsById.Add(RegistryId, Entry);
+
+	FDockingPortRuntimeState RuntimeState;
+	RuntimeState.StationId = StationId;
+	RuntimeState.PortId = DockingPort.PortId;
+	RuntimeState.DockingState = EDockingState::None;
+	DockingPortRuntimeStatesById.Add(RegistryId, RuntimeState);
 	return true;
 }
 
@@ -833,6 +1000,22 @@ bool UStarSystemSubsystem::RegisterGravityWell(const FGravityWellDefinition& Gra
 		return false;
 	}
 	GravityWellsById.Add(GravityWell.WellId, GravityWell);
+	return true;
+}
+
+bool UStarSystemSubsystem::RegisterResourceZone(const FResourceZoneDefinition& ResourceZone)
+{
+	if (ResourceZone.ZoneId.IsNone())
+	{
+		LastBuildError = TEXT("Cannot register resource zone with an empty ID.");
+		return false;
+	}
+	if (ResourceZonesById.Contains(ResourceZone.ZoneId))
+	{
+		LastBuildError = FString::Printf(TEXT("Duplicate resource zone ID '%s'."), *ResourceZone.ZoneId.ToString());
+		return false;
+	}
+	ResourceZonesById.Add(ResourceZone.ZoneId, ResourceZone);
 	return true;
 }
 

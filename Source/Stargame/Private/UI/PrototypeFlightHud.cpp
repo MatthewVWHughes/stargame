@@ -43,6 +43,7 @@ void APrototypeFlightHud::DrawHUD()
 	DrawSystemsCluster(ViewWidth, ViewHeight, Scale);
 	DrawNavigationTargets(ViewWidth, Scale, TargetViewModels);
 	DrawSupercruiseTelemetry(ViewWidth, Scale, FlightPawn->GetSupercruiseTelemetry());
+	DrawDockingTelemetry(ViewWidth, Scale, FlightPawn->GetDockingOperationState());
 	DrawRadarReserve(ViewWidth, ViewHeight, Scale);
 }
 
@@ -219,6 +220,26 @@ void APrototypeFlightHud::DrawSupercruiseTelemetry(float ViewWidth, float Scale,
 	DrawText(FString::Printf(TEXT("LOCKOUT %s"), Telemetry.Gravity.bInsideLockout ? TEXT("YES") : TEXT("NO")), Telemetry.Gravity.bInsideLockout ? Warning : Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
 	Y += 22.0f * Scale;
 	DrawText(FString::Printf(TEXT("DROP %.1f km"), Telemetry.Target.DistanceToDropoutBandCm / 100000.0), Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
+}
+
+void APrototypeFlightHud::DrawDockingTelemetry(float ViewWidth, float Scale, const FDockingOperationState& Docking)
+{
+	if (Docking.DockingState == EDockingState::None)
+	{
+		return;
+	}
+
+	const FLinearColor Cyan(0.72f, 0.94f, 1.0f, 0.82f);
+	const FLinearColor Text(1.0f, 0.93f, 0.72f, 0.92f);
+	const FLinearColor Warning(1.0f, 0.38f, 0.28f, 0.95f);
+
+	const float X = ViewWidth - 310.0f * Scale;
+	float Y = 292.0f * Scale;
+	DrawText(TEXT("DOCKING"), Cyan, X, Y, GEngine->GetSmallFont(), Scale, false);
+	Y += 26.0f * Scale;
+	DrawText(FString::Printf(TEXT("STATE %s"), *UEnum::GetValueAsString(Docking.DockingState)), Docking.DockingState == EDockingState::Aborted ? Warning : Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
+	Y += 22.0f * Scale;
+	DrawText(FString::Printf(TEXT("PORT  %s/%s"), *Docking.StationId.ToString(), *Docking.PortId.ToString()), Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
 }
 
 void APrototypeFlightHud::DrawRadarReserve(float ViewWidth, float ViewHeight, float Scale)

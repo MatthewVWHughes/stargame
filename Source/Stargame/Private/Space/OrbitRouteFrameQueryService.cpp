@@ -36,6 +36,18 @@ bool UOrbitRouteFrameQueryService::ResolveDockingPortFrame(
 	double RequestedSimulationTimeSeconds,
 	FFrameResolvedTransform& OutTransform)
 {
+	return ResolveDockingPortTransform(SystemDefinition, StationId, DockingPortId, EDockingPortTransformKind::Docked, ClockSnapshot, RequestedSimulationTimeSeconds, OutTransform);
+}
+
+bool UOrbitRouteFrameQueryService::ResolveDockingPortTransform(
+	const FStarSystemDefinition& SystemDefinition,
+	FName StationId,
+	FName DockingPortId,
+	EDockingPortTransformKind TransformKind,
+	const FSimulationClockSnapshot& ClockSnapshot,
+	double RequestedSimulationTimeSeconds,
+	FFrameResolvedTransform& OutTransform)
+{
 	FFrameResolvedTransform StationTransform;
 	if (!ResolveEntityFrame(SystemDefinition, StationId, ClockSnapshot, RequestedSimulationTimeSeconds, StationTransform))
 	{
@@ -60,7 +72,22 @@ bool UOrbitRouteFrameQueryService::ResolveDockingPortFrame(
 		return false;
 	}
 
-	const FTransform ResolvedTransform = DockingPort->DockedTransform * FTransform(StationTransform.Rotation, StationTransform.PositionCm);
+	const FTransform* LocalPortTransform = &DockingPort->DockedTransform;
+	switch (TransformKind)
+	{
+	case EDockingPortTransformKind::Approach:
+		LocalPortTransform = &DockingPort->ApproachTransform;
+		break;
+	case EDockingPortTransformKind::Undock:
+		LocalPortTransform = &DockingPort->UndockTransform;
+		break;
+	case EDockingPortTransformKind::Docked:
+	default:
+		LocalPortTransform = &DockingPort->DockedTransform;
+		break;
+	}
+
+	const FTransform ResolvedTransform = *LocalPortTransform * FTransform(StationTransform.Rotation, StationTransform.PositionCm);
 	OutTransform = StationTransform;
 	OutTransform.CoordinateFrame.FrameType = TEXT("station_relative");
 	OutTransform.CoordinateFrame.AnchorId = StationId;
@@ -345,6 +372,19 @@ bool UOrbitRouteFrameQueryService::FindEntityDefinition(
 		OutTransform = SpawnZone->Transform;
 		OutOrbit = FOrbitDefinition();
 		OutVisualRadiusCm = SpawnZone->RadiusCm;
+		return true;
+	}
+
+	if (const FResourceZoneDefinition* ResourceZone = SystemDefinition.ResourceZones.FindByPredicate([EntityId](const FResourceZoneDefinition& Candidate)
+	{
+		return Candidate.ZoneId == EntityId;
+	}))
+	{
+		OutEntityType = TEXT("resource");
+		OutAnchorId = ResourceZone->AnchorId;
+		OutTransform = ResourceZone->Transform;
+		OutOrbit = FOrbitDefinition();
+		OutVisualRadiusCm = ResourceZone->RadiusCm;
 		return true;
 	}
 

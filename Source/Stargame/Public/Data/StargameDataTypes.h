@@ -73,7 +73,9 @@ enum class EStargameValidationProfile : uint8
 	M1,
 	M2,
 	M3,
-	M4
+	M4,
+	M5,
+	M6
 };
 
 UENUM(BlueprintType)
@@ -83,6 +85,27 @@ enum class EShipLocationMode : uint8
 	StationDocked,
 	GateArrival,
 	Respawn
+};
+
+UENUM(BlueprintType)
+enum class EDockingState : uint8
+{
+	None,
+	Requested,
+	Reserved,
+	Approach,
+	FinalAssist,
+	Docked,
+	Undocking,
+	Aborted
+};
+
+UENUM(BlueprintType)
+enum class EDockingPortTransformKind : uint8
+{
+	Approach,
+	Docked,
+	Undock
 };
 
 UENUM(BlueprintType)
@@ -352,6 +375,18 @@ struct STARGAME_API FShipSaveLocation
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
 	double AuthoritativeSimulationTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FName DockedStationId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FName DockingPortId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	EDockingState DockingState = EDockingState::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Save")
+	FTransform PortRelativeTransform = FTransform::Identity;
 };
 
 USTRUCT(BlueprintType)
@@ -679,6 +714,81 @@ struct STARGAME_API FDockingPortDefinition
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Docking")
 	FGameplayTagContainer AllowedShipClasses;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Docking", meta = (Units = "cm"))
+	double ActivationRangeCm = 15000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Docking", meta = (Units = "cm/s"))
+	double MaxApproachSpeedCmPerSec = 2500.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Docking", meta = (Units = "deg"))
+	double RequiredAlignmentDegrees = 10.0;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FDockingPortRuntimeState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	FName StationId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	FName PortId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	FName ReservedShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	FName OccupyingShipId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	FName ClearanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	double ReservationExpiryTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	EDockingState DockingState = EDockingState::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	FString LastFailureReason;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FDockingOperationState
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	FName ShipInstanceId = TEXT("player_ship");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	FName StationId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	FName PortId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	EDockingState DockingState = EDockingState::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	FName ClearanceId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	FTransform CapturedPortRelativeTransform = FTransform::Identity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking", meta = (Units = "cm/s"))
+	FVector CapturedPortRelativeVelocityCmPerSec = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	double StateStartTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	double LastStateChangeTimeSeconds = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Docking")
+	FString LastFailureReason;
 };
 
 USTRUCT(BlueprintType)
@@ -847,6 +957,42 @@ struct STARGAME_API FGravityWellDefinition
 };
 
 USTRUCT(BlueprintType)
+struct STARGAME_API FResourceZoneDefinition
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Resource Zone")
+	FName ZoneId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Resource Zone")
+	FText DisplayName;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Resource Zone")
+	FName ZoneType = TEXT("asteroid_field");
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Resource Zone")
+	FName FrameType = TEXT("system_barycentric");
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Resource Zone")
+	FName AnchorId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Resource Zone")
+	FTransform Transform = FTransform::Identity;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Resource Zone", meta = (Units = "cm"))
+	double RadiusCm = 250000.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Resource Zone")
+	FGameplayTagContainer ResourceTags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Resource Zone")
+	FGameplayTagContainer HazardTags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Resource Zone")
+	FNavigationTargetDefinition NavigationTarget;
+};
+
+USTRUCT(BlueprintType)
 struct STARGAME_API FSpawnZoneDefinition
 {
 	GENERATED_BODY()
@@ -871,6 +1017,45 @@ struct STARGAME_API FSpawnZoneDefinition
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
 	TArray<FName> AllowedContexts;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FGeneratedSystemSourceMetadata
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Generation")
+	int32 GeneratedSeed = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Generation")
+	FName GeneratorVersion;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Generation")
+	FName SourceSystemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Generation")
+	FName GenerationProfile;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Generation")
+	FString GeneratedAtUtc;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Generation")
+	TArray<FName> AuthoredOverrideIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Generation")
+	TArray<FName> GenerationInputIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Generation")
+	FString SourceFingerprint;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Generation")
+	bool bDependsOnArrayOrder = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Generation")
+	bool bDependsOnActorNames = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Generation")
+	bool bDependsOnEditorOnlyState = false;
 };
 
 USTRUCT(BlueprintType)
@@ -909,7 +1094,13 @@ struct STARGAME_API FStarSystemDefinition
 	TArray<FGravityWellDefinition> GravityWells;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+	TArray<FResourceZoneDefinition> ResourceZones;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
 	TArray<FMapEntryDefinition> MapEntries;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+	FGeneratedSystemSourceMetadata GeneratedSourceMetadata;
 };
 
 USTRUCT(BlueprintType)

@@ -3,6 +3,7 @@
 #include "Data/FrontierTestFixtureProvider.h"
 #include "Data/StarCatalogSubsystem.h"
 #include "Engine/Engine.h"
+#include "Flight/SpaceFlightPawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "Runtime/StargameM0SaveGame.h"
@@ -191,6 +192,24 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 		return false;
 	}
 
+	if (LoadedState.ShipLocation.LocationMode == EShipLocationMode::StationDocked &&
+		!LoadedState.ShipLocation.DockedStationId.IsNone() &&
+		!LoadedState.ShipLocation.DockingPortId.IsNone())
+	{
+		APawn* Pawn = PlayerController ? PlayerController->GetPawn() : nullptr;
+		ASpaceFlightPawn* FlightPawn = Cast<ASpaceFlightPawn>(Pawn);
+		if (!FlightPawn)
+		{
+			ReportStartupError(TEXT("Saved docked location requires a space flight pawn."));
+			return false;
+		}
+		if (!FlightPawn->RestoreDockedAt(LoadedState.ShipLocation.DockedStationId, LoadedState.ShipLocation.DockingPortId, ClockSnapshot.AuthoritativeSimulationTimeSeconds))
+		{
+			ReportStartupError(TEXT("Saved docked location could not resolve its live docking port."));
+			return false;
+		}
+	}
+
 	return true;
 }
 
@@ -242,6 +261,29 @@ FStargameM0SaveState UStargameSessionSubsystem::MakeCurrentM0SaveState() const
 	State.ShipLocation.AnchorId = CurrentSpawnZoneId;
 	State.ShipLocation.VelocityFrame = State.ShipLocation.CoordinateFrame;
 	State.ShipLocation.AuthoritativeSimulationTimeSeconds = ClockSnapshot.AuthoritativeSimulationTimeSeconds;
+
+	const UWorld* World = GetWorld();
+	const APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
+	const ASpaceFlightPawn* FlightPawn = PlayerController ? Cast<ASpaceFlightPawn>(PlayerController->GetPawn()) : nullptr;
+	if (FlightPawn)
+	{
+		State.ShipLocation.PositionCm = FlightPawn->GetLogicalSystemPositionCm();
+		State.ShipLocation.Rotation = FlightPawn->GetActorRotation();
+		State.ShipLocation.LinearVelocityCmPerSec = FlightPawn->GetLinearVelocityCmPerSec();
+		const FDockingOperationState Docking = FlightPawn->GetDockingOperationState();
+		if (Docking.DockingState == EDockingState::Docked && !Docking.StationId.IsNone() && !Docking.PortId.IsNone())
+		{
+			State.ShipLocation.CoordinateFrame.FrameType = TEXT("station_relative");
+			State.ShipLocation.CoordinateFrame.AnchorId = Docking.StationId;
+			State.ShipLocation.LocationMode = EShipLocationMode::StationDocked;
+			State.ShipLocation.AnchorId = Docking.StationId;
+			State.ShipLocation.VelocityFrame = State.ShipLocation.CoordinateFrame;
+			State.ShipLocation.DockedStationId = Docking.StationId;
+			State.ShipLocation.DockingPortId = Docking.PortId;
+			State.ShipLocation.DockingState = EDockingState::Docked;
+			State.ShipLocation.PortRelativeTransform = Docking.CapturedPortRelativeTransform;
+		}
+	}
 	return State;
 }
 

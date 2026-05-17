@@ -12,6 +12,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Runtime/StargameSessionSubsystem.h"
+#include "Space/OrbitRouteFrameQueryService.h"
 #include "Space/StarSystemSubsystem.h"
 #include "UObject/ConstructorHelpers.h"
 
@@ -80,6 +81,17 @@ FSupercruiseTelemetry ASpaceFlightPawn::GetSupercruiseTelemetry() const
 	return FlightModeComponent ? FlightModeComponent->GetSupercruiseTelemetry() : FSupercruiseTelemetry();
 }
 
+FString ASpaceFlightPawn::GetDockingDebugSummary() const
+{
+	return FString::Printf(
+		TEXT("DockingState=%s\nStation=%s\nPort=%s\nClearance=%s\nFailure=%s"),
+		*UEnum::GetValueAsString(DockingOperation.DockingState),
+		*DockingOperation.StationId.ToString(),
+		*DockingOperation.PortId.ToString(),
+		*DockingOperation.ClearanceId.ToString(),
+		*DockingOperation.LastFailureReason);
+}
+
 void ASpaceFlightPawn::BeginPlay()
 {
 	Super::BeginPlay();
@@ -125,7 +137,13 @@ void ASpaceFlightPawn::Tick(float DeltaSeconds)
 	UpdateThrottle(DeltaSeconds);
 	UpdateSteering(DeltaSeconds);
 	const FVector PreviousVelocity = LinearVelocity;
-	if (GetFlightMode() == EShipFlightMode::Supercruise)
+	if (DockingOperation.DockingState == EDockingState::FinalAssist ||
+		DockingOperation.DockingState == EDockingState::Docked ||
+		DockingOperation.DockingState == EDockingState::Undocking)
+	{
+		UpdateDocking(DeltaSeconds);
+	}
+	else if (GetFlightMode() == EShipFlightMode::Supercruise)
 	{
 		UpdateSupercruise(DeltaSeconds);
 	}
@@ -246,8 +264,218 @@ void ASpaceFlightPawn::RequestSupercruise()
 	FlightModeComponent->RequestEnterSupercruise(Gravity, Target);
 }
 
+bool ASpaceFlightPawn::RequestDocking(FName StationId, FName PortId)
+{
+	DockingOperation = FDockingOperationState();
+	DockingOperation.StationId = StationId;
+	DockingOperation.PortId = PortId;
+	DockingOperation.DockingState = EDockingState::Requested;
+
+	UWorld* World = GetWorld();
+	UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	const UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!StarSystem)
+	{
+		DockingOperation.DockingState = EDockingState::Aborted;
+		DockingOperation.LastFailureReason = TEXT("Docking requires an active star system.");
+		return false;
+	}
+
+	FDockingPortRegistryEntry Port;
+	if (!StarSystem->FindDockingPort(StationId, PortId, Port))
+	{
+		DockingOperation.DockingState = EDockingState::Aborted;
+		DockingOperation.LastFailureReason = TEXT("Docking port is not registered.");
+		return false;
+	}
+
+	const double SimulationTimeSeconds = Session ? Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds : 0.0;
+	const FSimulationClockSnapshot Clock = Session
+		? Session->GetSimulationClockSnapshot()
+		: UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(StarSystem->GetActiveSystemId(), SimulationTimeSeconds);
+	FFrameResolvedTransform ApproachFrame;
+	FFrameResolvedTransform DockedFrame;
+	if (!UOrbitRouteFrameQueryService::ResolveDockingPortTransform(StarSystem->GetActiveSystemDefinition(), StationId, PortId, EDockingPortTransformKind::Approach, Clock, SimulationTimeSeconds, ApproachFrame) ||
+		!UOrbitRouteFrameQueryService::ResolveDockingPortTransform(StarSystem->GetActiveSystemDefinition(), StationId, PortId, EDockingPortTransformKind::Docked, Clock, SimulationTimeSeconds, DockedFrame))
+	{
+		DockingOperation.DockingState = EDockingState::Aborted;
+		DockingOperation.LastFailureReason = TEXT("Docking port frame could not be resolved.");
+		return false;
+	}
+
+	const double DistanceToApproachCm = FVector::Distance(LogicalSystemPositionCm, ApproachFrame.PositionCm);
+	if (DistanceToApproachCm > Port.Definition.ActivationRangeCm)
+	{
+		DockingOperation.DockingState = EDockingState::Aborted;
+		DockingOperation.LastFailureReason = TEXT("Ship is outside docking activation range.");
+		return false;
+	}
+	if (LinearVelocity.Size() > Port.Definition.MaxApproachSpeedCmPerSec)
+	{
+		DockingOperation.DockingState = EDockingState::Aborted;
+		DockingOperation.LastFailureReason = TEXT("Approach speed exceeds docking limit.");
+		return false;
+	}
+
+	const double AlignmentDot = FVector::DotProduct(GetActorForwardVector().GetSafeNormal(), DockedFrame.Rotation.Vector().GetSafeNormal());
+	const double AlignmentDegrees = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(AlignmentDot, -1.0, 1.0)));
+	if (AlignmentDegrees > Port.Definition.RequiredAlignmentDegrees)
+	{
+		DockingOperation.DockingState = EDockingState::Aborted;
+		DockingOperation.LastFailureReason = TEXT("Ship alignment exceeds docking tolerance.");
+		return false;
+	}
+
+	FDockingPortRuntimeState RuntimeState;
+	FString FailureReason;
+	if (!StarSystem->TryReserveDockingPort(StationId, PortId, DockingOperation.ShipInstanceId, SimulationTimeSeconds, RuntimeState, FailureReason))
+	{
+		DockingOperation.DockingState = EDockingState::Aborted;
+		DockingOperation.LastFailureReason = FailureReason;
+		return false;
+	}
+
+	const FTransform LivePortTransform(DockedFrame.Rotation, DockedFrame.PositionCm);
+	DockingAssistStartLocalTransform = GetActorTransform().GetRelativeTransform(LivePortTransform);
+	DockingAssistTargetLocalTransform = Port.Definition.DockedTransform.GetRelativeTransform(Port.Definition.DockedTransform);
+	DockingOperation.CapturedPortRelativeTransform = DockingAssistStartLocalTransform;
+	DockingOperation.CapturedPortRelativeVelocityCmPerSec = LivePortTransform.InverseTransformVectorNoScale(LinearVelocity);
+	DockingOperation.ClearanceId = RuntimeState.ClearanceId;
+	DockingOperation.DockingState = EDockingState::FinalAssist;
+	DockingOperation.StateStartTimeSeconds = SimulationTimeSeconds;
+	DockingOperation.LastStateChangeTimeSeconds = SimulationTimeSeconds;
+	LinearVelocity = FVector::ZeroVector;
+	LastAcceleration = FVector::ZeroVector;
+	ThrottlePercent = 0.0f;
+	if (FlightModeComponent)
+	{
+		FlightModeComponent->SetFlightMode(EShipFlightMode::DockingAssist);
+	}
+	return true;
+}
+
+bool ASpaceFlightPawn::RestoreDockedAt(FName StationId, FName PortId, double SimulationTimeSeconds)
+{
+	UWorld* World = GetWorld();
+	UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	const UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!StarSystem)
+	{
+		return false;
+	}
+
+	const FSimulationClockSnapshot Clock = Session
+		? Session->GetSimulationClockSnapshot()
+		: UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(StarSystem->GetActiveSystemId(), SimulationTimeSeconds);
+	FFrameResolvedTransform DockedFrame;
+	if (!UOrbitRouteFrameQueryService::ResolveDockingPortFrame(StarSystem->GetActiveSystemDefinition(), StationId, PortId, Clock, SimulationTimeSeconds, DockedFrame))
+	{
+		return false;
+	}
+
+	FDockingPortRuntimeState RuntimeState;
+	FString FailureReason;
+	if (!StarSystem->OccupyDockingPort(StationId, PortId, DockingOperation.ShipInstanceId, RuntimeState, FailureReason))
+	{
+		return false;
+	}
+
+	SetActorTransform(FTransform(DockedFrame.Rotation, DockedFrame.PositionCm), false, nullptr, ETeleportType::TeleportPhysics);
+	LogicalSystemPositionCm = DockedFrame.PositionCm;
+	LinearVelocity = DockedFrame.LinearVelocityCmPerSec;
+	LastAcceleration = FVector::ZeroVector;
+	DockingOperation.StationId = StationId;
+	DockingOperation.PortId = PortId;
+	DockingOperation.DockingState = EDockingState::Docked;
+	DockingOperation.ClearanceId = RuntimeState.ClearanceId;
+	DockingOperation.CapturedPortRelativeTransform = FTransform::Identity;
+	DockingOperation.StateStartTimeSeconds = SimulationTimeSeconds;
+	DockingOperation.LastStateChangeTimeSeconds = SimulationTimeSeconds;
+	DockingOperation.LastFailureReason.Reset();
+	if (FlightModeComponent)
+	{
+		FlightModeComponent->SetFlightMode(EShipFlightMode::Docked);
+	}
+	return true;
+}
+
+bool ASpaceFlightPawn::Undock()
+{
+	if (DockingOperation.DockingState != EDockingState::Docked)
+	{
+		DockingOperation.LastFailureReason = TEXT("Ship is not docked.");
+		return false;
+	}
+
+	UWorld* World = GetWorld();
+	UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	const UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!StarSystem)
+	{
+		DockingOperation.LastFailureReason = TEXT("Undock requires an active star system.");
+		return false;
+	}
+
+	const double SimulationTimeSeconds = Session ? Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds : DockingOperation.LastStateChangeTimeSeconds;
+	const FSimulationClockSnapshot Clock = Session
+		? Session->GetSimulationClockSnapshot()
+		: UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(StarSystem->GetActiveSystemId(), SimulationTimeSeconds);
+	FFrameResolvedTransform UndockFrame;
+	if (!UOrbitRouteFrameQueryService::ResolveDockingPortTransform(StarSystem->GetActiveSystemDefinition(), DockingOperation.StationId, DockingOperation.PortId, EDockingPortTransformKind::Undock, Clock, SimulationTimeSeconds, UndockFrame))
+	{
+		DockingOperation.LastFailureReason = TEXT("Undock frame could not be resolved.");
+		return false;
+	}
+
+	SetActorTransform(FTransform(UndockFrame.Rotation, UndockFrame.PositionCm), false, nullptr, ETeleportType::TeleportPhysics);
+	LogicalSystemPositionCm = UndockFrame.PositionCm;
+	LinearVelocity = UndockFrame.LinearVelocityCmPerSec;
+	LastAcceleration = FVector::ZeroVector;
+	StarSystem->ReleaseDockingPort(DockingOperation.StationId, DockingOperation.PortId, DockingOperation.ShipInstanceId);
+	DockingOperation.DockingState = EDockingState::None;
+	DockingOperation.StationId = NAME_None;
+	DockingOperation.PortId = NAME_None;
+	DockingOperation.ClearanceId = NAME_None;
+	DockingOperation.LastFailureReason.Reset();
+	if (FlightModeComponent)
+	{
+		FlightModeComponent->SetFlightMode(EShipFlightMode::Normal);
+	}
+	return true;
+}
+
+void ASpaceFlightPawn::SetFlightTestVelocity(FVector NewVelocityCmPerSec)
+{
+	LinearVelocity = NewVelocityCmPerSec;
+}
+
+void ASpaceFlightPawn::SetFlightTestTransformAndVelocity(const FTransform& NewTransform, FVector NewVelocityCmPerSec)
+{
+	SetActorTransform(NewTransform, false, nullptr, ETeleportType::TeleportPhysics);
+	LogicalSystemPositionCm = NewTransform.GetLocation();
+	LinearVelocity = NewVelocityCmPerSec;
+	LastAcceleration = FVector::ZeroVector;
+}
+
+void ASpaceFlightPawn::TickDockingForTest(float DeltaSeconds)
+{
+	UpdateDocking(DeltaSeconds);
+}
+
 void ASpaceFlightPawn::UpdateThrottle(float DeltaSeconds)
 {
+	if (DockingOperation.DockingState == EDockingState::FinalAssist ||
+		DockingOperation.DockingState == EDockingState::Docked ||
+		DockingOperation.DockingState == EDockingState::Undocking)
+	{
+		ThrottleInput = 0.0f;
+		ThrottlePercent = 0.0f;
+		return;
+	}
+
 	if (bEngineKill)
 	{
 		return;
@@ -265,6 +493,14 @@ void ASpaceFlightPawn::UpdateThrottle(float DeltaSeconds)
 
 void ASpaceFlightPawn::UpdateSteering(float DeltaSeconds)
 {
+	if (DockingOperation.DockingState == EDockingState::FinalAssist ||
+		DockingOperation.DockingState == EDockingState::Docked ||
+		DockingOperation.DockingState == EDockingState::Undocking)
+	{
+		AngularVelocityDegrees = FRotator::ZeroRotator;
+		return;
+	}
+
 	if (bSteeringEnabled)
 	{
 		if (const APlayerController* PlayerController = Cast<APlayerController>(GetController()))
@@ -404,6 +640,88 @@ void ASpaceFlightPawn::UpdateSupercruise(float DeltaSeconds)
 	LastAcceleration = DeltaSeconds > SMALL_NUMBER
 		? (LinearVelocity - PreviousVelocity) / DeltaSeconds
 		: FVector::ZeroVector;
+}
+
+void ASpaceFlightPawn::UpdateDocking(float DeltaSeconds)
+{
+	UWorld* World = GetWorld();
+	UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	const UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	const double SimulationTimeSeconds = Session ? Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds : DockingOperation.LastStateChangeTimeSeconds + DeltaSeconds;
+	if (!Session)
+	{
+		DockingOperation.LastStateChangeTimeSeconds = SimulationTimeSeconds;
+	}
+
+	if (!StarSystem)
+	{
+		DockingOperation.DockingState = EDockingState::Aborted;
+		DockingOperation.LastFailureReason = TEXT("Docking update requires active star system.");
+		return;
+	}
+
+	FFrameResolvedTransform DockedFrame;
+	const FSimulationClockSnapshot Clock = Session
+		? Session->GetSimulationClockSnapshot()
+		: UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(StarSystem->GetActiveSystemId(), SimulationTimeSeconds);
+	if (!UOrbitRouteFrameQueryService::ResolveDockingPortFrame(StarSystem->GetActiveSystemDefinition(), DockingOperation.StationId, DockingOperation.PortId, Clock, SimulationTimeSeconds, DockedFrame))
+	{
+		DockingOperation.DockingState = EDockingState::Aborted;
+		DockingOperation.LastFailureReason = TEXT("Docking frame could not be resolved during update.");
+		return;
+	}
+
+	if (DockingOperation.DockingState == EDockingState::Docked)
+	{
+		SetActorTransform(FTransform(DockedFrame.Rotation, DockedFrame.PositionCm), false, nullptr, ETeleportType::TeleportPhysics);
+		LogicalSystemPositionCm = DockedFrame.PositionCm;
+		LinearVelocity = DockedFrame.LinearVelocityCmPerSec;
+		LastAcceleration = FVector::ZeroVector;
+		return;
+	}
+
+	if (DockingOperation.DockingState != EDockingState::FinalAssist)
+	{
+		return;
+	}
+
+	const double Alpha = FMath::Clamp((SimulationTimeSeconds - DockingOperation.StateStartTimeSeconds) / FMath::Max(static_cast<double>(DockingFinalAssistSeconds), SMALL_NUMBER), 0.0, 1.0);
+	FTransform LocalInterpolated = FTransform::Identity;
+	LocalInterpolated.Blend(DockingAssistStartLocalTransform, DockingAssistTargetLocalTransform, static_cast<float>(Alpha));
+
+	const FTransform LivePortTransform(DockedFrame.Rotation, DockedFrame.PositionCm);
+	const FTransform NewTransform = LocalInterpolated * LivePortTransform;
+	SetActorTransform(NewTransform, false, nullptr, ETeleportType::TeleportPhysics);
+	LogicalSystemPositionCm = NewTransform.GetLocation();
+	LinearVelocity = FVector::ZeroVector;
+	LastAcceleration = FVector::ZeroVector;
+
+	if (Alpha >= 1.0 - KINDA_SMALL_NUMBER)
+	{
+		FDockingPortRuntimeState RuntimeState;
+		FString FailureReason;
+		if (StarSystem->OccupyDockingPort(DockingOperation.StationId, DockingOperation.PortId, DockingOperation.ShipInstanceId, RuntimeState, FailureReason))
+		{
+			DockingOperation.DockingState = EDockingState::Docked;
+			DockingOperation.LastStateChangeTimeSeconds = SimulationTimeSeconds;
+			DockingOperation.CapturedPortRelativeTransform = FTransform::Identity;
+			DockingOperation.LastFailureReason.Reset();
+			if (FlightModeComponent)
+			{
+				FlightModeComponent->SetFlightMode(EShipFlightMode::Docked);
+			}
+		}
+		else
+		{
+			DockingOperation.DockingState = EDockingState::Aborted;
+			DockingOperation.LastFailureReason = FailureReason;
+			if (FlightModeComponent)
+			{
+				FlightModeComponent->SetFlightMode(EShipFlightMode::Normal);
+			}
+		}
+	}
 }
 
 void ASpaceFlightPawn::UpdateShipVisuals(float DeltaSeconds)

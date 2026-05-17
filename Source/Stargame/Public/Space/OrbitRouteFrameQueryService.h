@@ -34,6 +34,16 @@ public:
 		double RequestedSimulationTimeSeconds,
 		FFrameResolvedTransform& OutTransform);
 
+	UFUNCTION(BlueprintPure, Category = "Stargame|Frame")
+	static bool ResolveDockingPortTransform(
+		const FStarSystemDefinition& SystemDefinition,
+		FName StationId,
+		FName DockingPortId,
+		EDockingPortTransformKind TransformKind,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double RequestedSimulationTimeSeconds,
+		FFrameResolvedTransform& OutTransform);
+
 	UFUNCTION(BlueprintPure, Category = "Stargame|Map")
 	static void BuildSystemMapViewModel(
 		const FStarSystemDefinition& SystemDefinition,

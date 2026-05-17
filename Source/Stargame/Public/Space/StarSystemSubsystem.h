@@ -67,6 +67,8 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	FName GetActiveSystemId() const { return ActiveSystemDefinition.SystemId; }
 
+	const FStarSystemDefinition& GetActiveSystemDefinition() const { return ActiveSystemDefinition; }
+
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	FStargameScaleContract GetActiveScaleContract() const { return ActiveSystemDefinition.Scale; }
 
@@ -110,10 +112,28 @@ public:
 	void GetRegisteredGravityWellIds(TArray<FName>& OutGravityWellIds) const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	void GetRegisteredResourceZoneIds(TArray<FName>& OutResourceZoneIds) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	void GetRegisteredDockingPortIds(TArray<FName>& OutDockingPortIds) const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	void GetRegisteredDockingPorts(TArray<FDockingPortRegistryEntry>& OutDockingPorts) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	bool FindDockingPort(FName StationId, FName PortId, FDockingPortRegistryEntry& OutDockingPort) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
+	bool FindDockingPortRuntimeState(FName StationId, FName PortId, FDockingPortRuntimeState& OutRuntimeState) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
+	bool TryReserveDockingPort(FName StationId, FName PortId, FName ShipInstanceId, double SimulationTimeSeconds, FDockingPortRuntimeState& OutRuntimeState, FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
+	bool OccupyDockingPort(FName StationId, FName PortId, FName ShipInstanceId, FDockingPortRuntimeState& OutRuntimeState, FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
+	bool ReleaseDockingPort(FName StationId, FName PortId, FName ShipInstanceId);
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	void GetRegisteredMapEntryIds(TArray<FName>& OutMapEntryIds) const;
@@ -143,6 +163,7 @@ private:
 	bool RegisterSpawnZone(const FSpawnZoneDefinition& SpawnZone);
 	bool RegisterDockingPort(FName StationId, const FDockingPortDefinition& DockingPort);
 	bool RegisterGravityWell(const FGravityWellDefinition& GravityWell);
+	bool RegisterResourceZone(const FResourceZoneDefinition& ResourceZone);
 	bool RegisterMapEntry(const FMapEntryDefinition& MapEntry);
 	static FName MakeDockingPortRegistryId(FName StationId, FName PortId);
 
@@ -162,7 +183,13 @@ private:
 	TMap<FName, FDockingPortRegistryEntry> DockingPortsById;
 
 	UPROPERTY()
+	TMap<FName, FDockingPortRuntimeState> DockingPortRuntimeStatesById;
+
+	UPROPERTY()
 	TMap<FName, FGravityWellDefinition> GravityWellsById;
+
+	UPROPERTY()
+	TMap<FName, FResourceZoneDefinition> ResourceZonesById;
 
 	UPROPERTY()
 	TMap<FName, FMapEntryDefinition> MapEntriesById;

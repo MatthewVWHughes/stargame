@@ -123,6 +123,9 @@ namespace
 			DockingPort.DockedTransform = FTransform(FRotator::ZeroRotator, FVector(0.0, -1200.0, 0.0));
 			DockingPort.UndockTransform = FTransform(FRotator::ZeroRotator, FVector(0.0, -6000.0, 0.0));
 			DockingPort.AllowedShipClasses.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Stargame.ShipClass.Light"), false));
+			DockingPort.ActivationRangeCm = 15000.0;
+			DockingPort.MaxApproachSpeedCmPerSec = 2500.0;
+			DockingPort.RequiredAlignmentDegrees = 10.0;
 			return DockingPort;
 		};
 
@@ -362,8 +365,10 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 	const bool bValidateM2 = ProfileString.Equals(TEXT("M2"), ESearchCase::IgnoreCase);
 	const bool bValidateM3 = ProfileString.Equals(TEXT("M3"), ESearchCase::IgnoreCase);
 	const bool bValidateM4 = ProfileString.Equals(TEXT("M4"), ESearchCase::IgnoreCase);
+	const bool bValidateM5 = ProfileString.Equals(TEXT("M5"), ESearchCase::IgnoreCase);
+	const bool bValidateM6 = ProfileString.Equals(TEXT("M6"), ESearchCase::IgnoreCase);
 	const bool bValidateM0 = ProfileString.Equals(TEXT("M0"), ESearchCase::IgnoreCase);
-	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4)
+	if (!bValidateM0 && !bValidateM1 && !bValidateM2 && !bValidateM3 && !bValidateM4 && !bValidateM5 && !bValidateM6)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Unsupported validation profile '%s'."), *ProfileString);
 		return 1;
@@ -392,13 +397,29 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 
 	if (!Catalog->BuildAssetCatalogCache(false))
 	{
-		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))));
+		UE_LOG(LogTemp, Error, TEXT("%s validation could not build an Asset Manager-backed catalog."), bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))))));
 		return 1;
 	}
 
-	const FStargameValidationReport Report = bValidateM4
-		? Catalog->ValidateM4Fixture(SystemId)
-		: (bValidateM3 ? Catalog->ValidateM3Fixture(SystemId) : (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId)));
+	FStargameValidationReport Report;
+	if (bValidateM6)
+	{
+		int32 Seed = 6001;
+		FParse::Value(*Params, TEXT("Seed="), Seed);
+		FStarSystemDefinition GeneratedSystem;
+		if (!Catalog->GenerateSeededPhysicalSystem(Seed, GeneratedSystem))
+		{
+			UE_LOG(LogTemp, Error, TEXT("M6 validation could not generate a physical system for seed %d."), Seed);
+			return 1;
+		}
+		Report = Catalog->ValidateM6GeneratedSystemDefinition(GeneratedSystem);
+	}
+	else
+	{
+		Report = bValidateM5
+			? Catalog->ValidateM5Fixture(SystemId)
+			: (bValidateM4 ? Catalog->ValidateM4Fixture(SystemId) : (bValidateM3 ? Catalog->ValidateM3Fixture(SystemId) : (bValidateM2 ? Catalog->ValidateM2Fixture(SystemId) : Catalog->ValidateM1Fixture(SystemId))));
+	}
 	for (const FStargameValidationIssue& Issue : Report.Issues)
 	{
 		const ELogVerbosity::Type Verbosity = (Issue.Severity == EStargameValidationSeverity::Error || Issue.Severity == EStargameValidationSeverity::Fatal)
@@ -415,6 +436,6 @@ int32 UStargameValidateContentCommandlet::Main(const FString& Params)
 		return 1;
 	}
 
-	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))), *SystemId.ToString());
+	UE_LOG(LogTemp, Display, TEXT("%s validation passed for system '%s'."), bValidateM6 ? TEXT("M6") : (bValidateM5 ? TEXT("M5") : (bValidateM4 ? TEXT("M4") : (bValidateM3 ? TEXT("M3") : (bValidateM2 ? TEXT("M2") : TEXT("M1"))))), *Report.SystemId.ToString());
 	return 0;
 }
