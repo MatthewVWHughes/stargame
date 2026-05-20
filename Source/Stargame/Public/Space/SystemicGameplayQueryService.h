@@ -97,6 +97,31 @@ public:
 		FCargoTransferResult& OutResult);
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
+	static bool AddItemToContainerStacking(
+		FSystemicGameplayState& InOutState,
+		FName ContainerId,
+		FName ItemId,
+		int32 Quantity,
+		FName StackIdPrefix,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
+	static bool EquipItemFromContainer(
+		FSystemicGameplayState& InOutState,
+		FName ContainerId,
+		FName StackId,
+		FName SlotId,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
+	static bool UnequipItemToContainer(
+		FSystemicGameplayState& InOutState,
+		FName SlotId,
+		FName ContainerId,
+		FName StackIdPrefix,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
 	static bool ExecuteMarketTransaction(
 		FSystemicGameplayState& InOutState,
 		const FMarketTransactionRequest& Request,
@@ -124,6 +149,14 @@ public:
 		FName IdempotencyKey,
 		FMissionInstanceState& OutMission,
 		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
+	static bool ResolveMissionContactInteraction(
+		const FStarSystemDefinition& SystemDefinition,
+		const FSystemicGameplayState& State,
+		FName StationId,
+		FName GiverNpcId,
+		FMissionContactInteractionView& OutInteraction);
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
 	static bool CompleteMissionOnce(
@@ -175,6 +208,26 @@ public:
 		FPatrolReservationRecord& OutReservation,
 		FString& OutFailureReason);
 
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
+	static bool ReservePatrolForBestScoredRoute(
+		const FStarSystemDefinition& SystemDefinition,
+		FSystemicGameplayState& InOutState,
+		FName SourceEventId,
+		double ExpiresAtTimeSeconds,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double SimulationTimeSeconds,
+		FPatrolReservationRecord& OutReservation,
+		FString& OutFailureReason);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
+	static bool ScorePatrolAndAmbushRoutes(
+		const FStarSystemDefinition& SystemDefinition,
+		const FSystemicGameplayState& State,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double SimulationTimeSeconds,
+		TArray<FRouteEncounterScoreRecord>& OutScores,
+		FString& OutFailureReason);
+
 	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
 	static bool SelectPirateInterdictionHazard(
 		const FStarSystemDefinition& SystemDefinition,
@@ -206,6 +259,14 @@ public:
 		FSystemicGameplayState& InOutState,
 		FName EncounterId,
 		double AppliedTimeSeconds,
+		FLogicalEncounterResolutionResult& OutResult,
+		FString& OutFailureReason);
+
+	static bool ResolveLogicalEncounterOnceWithOutcome(
+		FSystemicGameplayState& InOutState,
+		FName EncounterId,
+		double AppliedTimeSeconds,
+		FName RuntimeOutcomeType,
 		FLogicalEncounterResolutionResult& OutResult,
 		FString& OutFailureReason);
 

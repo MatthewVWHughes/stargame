@@ -3,18 +3,16 @@
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
 #include "Components/InputComponent.h"
-#include "Components/InstancedStaticMeshComponent.h"
-#include "Components/StaticMeshComponent.h"
+#include "Components/SceneComponent.h"
 #include "Engine/GameInstance.h"
 #include "Flight/ShipFlightModeComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
-#include "Materials/MaterialInstanceDynamic.h"
-#include "Materials/MaterialInterface.h"
 #include "Runtime/StargameSessionSubsystem.h"
 #include "Space/OrbitRouteFrameQueryService.h"
 #include "Space/StarSystemSubsystem.h"
-#include "UObject/ConstructorHelpers.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogStargameFlightInput, Log, All);
 
 ASpaceFlightPawn::ASpaceFlightPawn()
 {
@@ -29,32 +27,9 @@ ASpaceFlightPawn::ASpaceFlightPawn()
 	CollisionRoot->SetCollisionObjectType(ECC_Pawn);
 	CollisionRoot->SetCollisionResponseToAllChannels(ECR_Block);
 
-	ShipMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ShipMesh"));
-	ShipMesh->SetupAttachment(CollisionRoot);
-	ShipMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	ShipMesh->SetRelativeLocation(ShipVisualOffset);
-	ShipMesh->SetRelativeScale3D(FVector(2.4f, 0.8f, 0.45f));
-
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
-	if (CubeMesh.Succeeded())
-	{
-		ShipMesh->SetStaticMesh(CubeMesh.Object);
-	}
-
-	AtmosphericDust = CreateDefaultSubobject<UInstancedStaticMeshComponent>(TEXT("AtmosphericDust"));
-	AtmosphericDust->SetupAttachment(CollisionRoot);
-	AtmosphericDust->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	AtmosphericDust->SetMobility(EComponentMobility::Movable);
-	if (CubeMesh.Succeeded())
-	{
-		AtmosphericDust->SetStaticMesh(CubeMesh.Object);
-	}
-
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> BasicMaterial(TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
-	if (BasicMaterial.Succeeded())
-	{
-		AtmosphericDust->SetMaterial(0, BasicMaterial.Object);
-	}
+	ShipVisualRoot = CreateDefaultSubobject<USceneComponent>(TEXT("ShipVisualRoot"));
+	ShipVisualRoot->SetupAttachment(CollisionRoot);
+	ShipVisualRoot->SetRelativeLocation(ShipVisualOffset);
 
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(CollisionRoot);
@@ -99,7 +74,6 @@ void ASpaceFlightPawn::BeginPlay()
 	CurrentCameraArmLength = CameraArmLength;
 	CurrentCameraTargetOffset = CameraTargetOffset;
 	LogicalSystemPositionCm = GetActorLocation();
-	InitializeAtmosphericDust();
 
 	if (const UWorld* World = GetWorld())
 	{
@@ -115,17 +89,6 @@ void ASpaceFlightPawn::BeginPlay()
 					FlightModeComponent->ConfigureSupercruiseFromScale(Scale);
 				}
 			}
-		}
-	}
-
-	if (AtmosphericDust)
-	{
-		UMaterialInstanceDynamic* DustMaterial = AtmosphericDust->CreateAndSetMaterialInstanceDynamic(0);
-		if (DustMaterial)
-		{
-			const FLinearColor DustColor(0.82f, 0.54f, 0.30f, 1.0f);
-			DustMaterial->SetVectorParameterValue(TEXT("Color"), DustColor);
-			DustMaterial->SetVectorParameterValue(TEXT("BaseColor"), DustColor);
 		}
 	}
 }
@@ -153,7 +116,6 @@ void ASpaceFlightPawn::Tick(float DeltaSeconds)
 	}
 	UpdateShipVisuals(DeltaSeconds);
 	UpdateCameraResponse(DeltaSeconds, PreviousVelocity);
-	UpdateAtmosphericDust(DeltaSeconds);
 }
 
 void ASpaceFlightPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -172,6 +134,7 @@ void ASpaceFlightPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	PlayerInputComponent->BindAction(TEXT("SecondaryMouse"), IE_Released, this, &ASpaceFlightPawn::StopSecondaryMouse);
 	PlayerInputComponent->BindAction(TEXT("CycleTarget"), IE_Pressed, this, &ASpaceFlightPawn::CycleNavigationTarget);
 	PlayerInputComponent->BindAction(TEXT("RequestSupercruise"), IE_Pressed, this, &ASpaceFlightPawn::RequestSupercruise);
+	PlayerInputComponent->BindAction(TEXT("InteractTarget"), IE_Pressed, this, &ASpaceFlightPawn::InteractWithSelectedTarget);
 }
 
 void ASpaceFlightPawn::Throttle(float Value)
@@ -264,6 +227,117 @@ void ASpaceFlightPawn::RequestSupercruise()
 	FlightModeComponent->RequestEnterSupercruise(Gravity, Target);
 }
 
+void ASpaceFlightPawn::InteractWithSelectedTarget()
+{
+	UWorld* World = GetWorld();
+	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	if (!Session || !StarSystem)
+	{
+		return;
+	}
+
+	if (DockingOperation.DockingState == EDockingState::Docked)
+	{
+		FDockedStationCommandResult Result;
+		const bool bEntered = Session->EnterDockedStationInterior(Result);
+		UE_LOG(LogStargameFlightInput, Display, TEXT("Enter station interior %s Station=%s Reason=%s"),
+			bEntered ? TEXT("accepted") : TEXT("rejected"),
+			*Result.StationId.ToString(),
+			*Result.FailureReason);
+		return;
+	}
+
+	FNavigationTargetDefinition SelectedTarget;
+	if (!StarSystem->FindNavigationTarget(Session->GetSelectedTargetId(), SelectedTarget))
+	{
+		UE_LOG(LogStargameFlightInput, Display, TEXT("Interact target rejected: no selected navigation target."));
+		return;
+	}
+
+	if (SelectedTarget.TargetType == FName(TEXT("station")))
+	{
+		RequestDockingWithSelectedStation(Session, StarSystem);
+	}
+	else if (SelectedTarget.TargetType == FName(TEXT("gate")))
+	{
+		RequestGateTransitionWithSelectedGate(Session, StarSystem);
+	}
+	else
+	{
+		UE_LOG(LogStargameFlightInput, Display, TEXT("Interact target ignored for target '%s' type '%s'."),
+			*SelectedTarget.TargetId.ToString(),
+			*SelectedTarget.TargetType.ToString());
+	}
+}
+
+void ASpaceFlightPawn::RequestDockingWithSelectedStation(UStargameSessionSubsystem* Session, const UStarSystemSubsystem* StarSystem)
+{
+	if (!Session || !StarSystem)
+	{
+		return;
+	}
+
+	const FName SelectedTargetId = Session->GetSelectedTargetId();
+	const FStarSystemDefinition& SystemDefinition = StarSystem->GetActiveSystemDefinition();
+	const FStationDefinition* Station = SystemDefinition.Stations.FindByPredicate([SelectedTargetId](const FStationDefinition& Candidate)
+	{
+		return Candidate.StationId == SelectedTargetId || Candidate.NavigationTarget.TargetId == SelectedTargetId;
+	});
+	if (!Station || Station->DockingPorts.IsEmpty())
+	{
+		UE_LOG(LogStargameFlightInput, Display, TEXT("Docking rejected: selected station '%s' has no authored docking port."), *SelectedTargetId.ToString());
+		return;
+	}
+
+	const FDockingPortDefinition& Port = Station->DockingPorts[0];
+	const bool bAccepted = RequestDocking(Station->StationId, Port.PortId);
+	UE_LOG(LogStargameFlightInput, Display, TEXT("Docking request %s Station=%s Port=%s State=%s Reason=%s"),
+		bAccepted ? TEXT("accepted") : TEXT("rejected"),
+		*Station->StationId.ToString(),
+		*Port.PortId.ToString(),
+		*UEnum::GetValueAsString(DockingOperation.DockingState),
+		*DockingOperation.LastFailureReason);
+}
+
+void ASpaceFlightPawn::RequestGateTransitionWithSelectedGate(UStargameSessionSubsystem* Session, const UStarSystemSubsystem* StarSystem)
+{
+	if (!Session || !StarSystem)
+	{
+		return;
+	}
+
+	const FName SelectedTargetId = Session->GetSelectedTargetId();
+	TArray<FNavigationTargetViewModel> Targets;
+	StarSystem->BuildNavigationTargetViewModels(
+		SelectedTargetId,
+		LogicalSystemPositionCm,
+		LinearVelocity,
+		Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds,
+		Targets);
+
+	const FNavigationTargetViewModel* SelectedView = Targets.FindByPredicate([SelectedTargetId](const FNavigationTargetViewModel& Target)
+	{
+		return Target.TargetId == SelectedTargetId;
+	});
+	if (!SelectedView || !SelectedView->bInsideGateActivationRange)
+	{
+		UE_LOG(LogStargameFlightInput, Display, TEXT("Gate transition rejected: selected gate '%s' is outside activation range."), *SelectedTargetId.ToString());
+		return;
+	}
+
+	FGateTransitionRequest Request;
+	Request.SourceGateId = SelectedTargetId;
+	FGateTransitionResult Result;
+	const bool bAccepted = Session->RequestGateTransition(Request, Result);
+	UE_LOG(LogStargameFlightInput, Display, TEXT("Gate transition %s Source=%s Destination=%s Reason=%s"),
+		bAccepted ? TEXT("accepted") : TEXT("rejected"),
+		*Result.SourceGateId.ToString(),
+		*Result.DestinationSystemId.ToString(),
+		*Result.FailureReason);
+}
+
 bool ASpaceFlightPawn::RequestDocking(FName StationId, FName PortId)
 {
 	DockingOperation = FDockingOperationState();
@@ -308,7 +382,10 @@ bool ASpaceFlightPawn::RequestDocking(FName StationId, FName PortId)
 	if (DistanceToApproachCm > Port.Definition.ActivationRangeCm)
 	{
 		DockingOperation.DockingState = EDockingState::Aborted;
-		DockingOperation.LastFailureReason = TEXT("Ship is outside docking activation range.");
+		DockingOperation.LastFailureReason = FString::Printf(
+			TEXT("Ship is outside docking activation range: distance %.1f cm, activation %.1f cm."),
+			DistanceToApproachCm,
+			Port.Definition.ActivationRangeCm);
 		return false;
 	}
 	if (LinearVelocity.Size() > Port.Definition.MaxApproachSpeedCmPerSec)
@@ -759,8 +836,8 @@ void ASpaceFlightPawn::UpdateShipVisuals(float DeltaSeconds)
 	const FRotator TargetRotation(TargetPitch, 0.0f, TargetBank);
 	ShipVisualRotation = FMath::RInterpTo(ShipVisualRotation, TargetRotation, DeltaSeconds, VisualRotationInterpSpeed);
 
-	ShipMesh->SetRelativeLocation(ShipVisualOffset);
-	ShipMesh->SetRelativeRotation(ShipVisualRotation);
+	ShipVisualRoot->SetRelativeLocation(ShipVisualOffset);
+	ShipVisualRoot->SetRelativeRotation(ShipVisualRotation);
 }
 
 void ASpaceFlightPawn::UpdateCameraResponse(float DeltaSeconds, const FVector& PreviousVelocity)
@@ -787,70 +864,4 @@ void ASpaceFlightPawn::UpdateCameraResponse(float DeltaSeconds, const FVector& P
 	CameraBoom->TargetArmLength = CurrentCameraArmLength;
 	CameraBoom->TargetOffset = CurrentCameraTargetOffset;
 	CameraBoom->CameraRotationLagSpeed = CameraRotationLagSpeed;
-}
-
-void ASpaceFlightPawn::InitializeAtmosphericDust()
-{
-	if (!AtmosphericDust)
-	{
-		return;
-	}
-
-	AtmosphericDust->ClearInstances();
-	AtmosphericDustPositions.Reset();
-	AtmosphericDustSizeFactors.Reset();
-
-	FRandomStream Random(4711);
-	for (int32 Index = 0; Index < AtmosphericDustCount; ++Index)
-	{
-		const FVector LocalPosition(
-			Random.FRandRange(-AtmosphericDustRearRange, AtmosphericDustForwardRange),
-			Random.FRandRange(-AtmosphericDustHorizontalSpread, AtmosphericDustHorizontalSpread),
-			Random.FRandRange(-AtmosphericDustVerticalSpread, AtmosphericDustVerticalSpread));
-
-		AtmosphericDustPositions.Add(LocalPosition);
-		AtmosphericDustSizeFactors.Add(Random.FRandRange(0.55f, 1.55f));
-		AtmosphericDust->AddInstance(FTransform(FRotator::ZeroRotator, LocalPosition, FVector::ZeroVector));
-	}
-}
-
-void ASpaceFlightPawn::UpdateAtmosphericDust(float DeltaSeconds)
-{
-	if (!AtmosphericDust || AtmosphericDustPositions.Num() == 0)
-	{
-		return;
-	}
-
-	const float Speed = LinearVelocity.Size();
-	const float SpeedInfluence = FMath::Clamp(
-		(Speed - AtmosphericDustMinSpeed) / FMath::Max(NormalMaxSpeed - AtmosphericDustMinSpeed, 1.0f),
-		0.0f,
-		1.0f);
-	const float Visibility = SpeedInfluence;
-	const float Travel = FMath::Max(Speed, AtmosphericDustMinSpeed) * AtmosphericDustTravelMultiplier * DeltaSeconds;
-	const float LoopLength = AtmosphericDustForwardRange + AtmosphericDustRearRange;
-
-	for (int32 Index = 0; Index < AtmosphericDustPositions.Num(); ++Index)
-	{
-		FVector& LocalPosition = AtmosphericDustPositions[Index];
-		LocalPosition.X -= Travel;
-		while (LocalPosition.X < -AtmosphericDustRearRange)
-		{
-			LocalPosition.X += LoopLength;
-		}
-
-		const float SizeFactor = AtmosphericDustSizeFactors.IsValidIndex(Index) ? AtmosphericDustSizeFactors[Index] : 1.0f;
-		const float Length = FMath::Lerp(18.0f, 190.0f, SpeedInfluence) * SizeFactor;
-		const float Thickness = FMath::Lerp(0.0f, 2.6f, Visibility) * SizeFactor;
-		const FVector Scale(Length / 100.0f, Thickness / 100.0f, Thickness / 100.0f);
-
-		AtmosphericDust->UpdateInstanceTransform(
-			Index,
-			FTransform(FRotator::ZeroRotator, LocalPosition, Scale),
-			false,
-			false,
-			true);
-	}
-
-	AtmosphericDust->MarkRenderStateDirty();
 }

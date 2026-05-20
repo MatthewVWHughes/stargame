@@ -5,6 +5,18 @@ UShipFlightModeComponent::UShipFlightModeComponent()
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
+void UShipFlightModeComponent::SetFlightMode(EShipFlightMode NewMode)
+{
+	FlightMode = NewMode;
+	if (NewMode != EShipFlightMode::Supercruise)
+	{
+		SupercruiseState = ESupercruiseState::Inactive;
+		CurrentSupercruiseSpeedCmPerSec = 0.0;
+		CurrentSpeedLimitCmPerSec = NormalFlightMaxSpeedCmPerSec;
+		StateRemainingSeconds = 0.0;
+	}
+}
+
 void UShipFlightModeComponent::SetNormalFlightMaxSpeedCmPerSec(double NewMaxSpeedCmPerSec)
 {
 	NormalFlightMaxSpeedCmPerSec = FMath::Max(1.0, NewMaxSpeedCmPerSec);

@@ -2,7 +2,7 @@
 
 Architecture and game contracts for Stargame.
 
-The current foundation is an authored frontier slice: a non-Sol start profile, one active source system, a destination arrival system reached by gate transition, deterministic frame/scale queries, normal flight, supercruise, docking, generated physical-system support, logical traffic, systemic gameplay records, logical encounters, combat/threat state, realized AI hooks, and a first service-level systemic progression loop. It is engineering-playable and validation-backed, but the player-facing mission, service, market, comms, ledger, and reputation surfaces are still thin.
+The current foundation is an authored frontier slice: a non-Sol start profile, a minimal boot new/continue flow, one active source system, a destination arrival system reached by gate transition, deterministic frame/scale queries, normal flight, supercruise, docking, generated physical-system support, logical traffic, systemic gameplay records, logical encounters, combat/threat state, realized AI hooks, and a first service-level systemic progression loop. It is engineering-playable and validation-backed, but the player-facing mission, service, market, comms, ledger, and reputation surfaces are still thin.
 
 The docs are authoritative for gameplay and data contracts. Code should be brought up to the docs when a contract is already documented. When the docs still describe staging history, prefer migrating them toward what the game is instead of adding more chronology.
 
@@ -41,6 +41,7 @@ The historical build sequence remains in [Build Roadmap](build-roadmap.md), but 
 - [Space AI And Dynamic Orbits](space-ai-and-dynamic-orbits.md)
 - [Systemic Gameplay Foundations](systemic-gameplay-foundations.md)
 - [C++ And Blueprint Ownership](cpp-blueprint-ownership.md)
+- [Playable Parity Roadmap](playable-parity-roadmap.md)
 
 ## Supporting Architecture
 
@@ -52,6 +53,23 @@ The historical build sequence remains in [Build Roadmap](build-roadmap.md), but 
 ## Tooling
 
 - [Unreal MCP Setup](unreal-mcp.md)
+
+## Linux Audio Startup
+
+On this workstation, Unreal 5.7's Linux audio path uses SDL3 through `AudioMixerSDL`. The installed editor build originally requested six output channels from SDL/Pulse on Linux, which could wedge PipeWire/WirePlumber and stall other audio/video clients. The local Unreal install is patched so `Engine/Binaries/Linux/libUnrealEditor-AudioMixerSDL.so` requests stereo output instead. Its backup is `libUnrealEditor-AudioMixerSDL.so.bak-codex-audio`.
+
+The project also pins the Unreal Editor audio output in `Config/DefaultEditor.ini`:
+
+- `bUseSystemDevice=False`
+- `AudioOutputDeviceId=JBL Quantum350 Wireless Analog Stereo`
+
+The wrappers do not mutate system audio profiles. They only choose the SDL3 Pulse backend, keep the legacy SDL2 variable for Unreal's stale environment check, and set a conservative Pulse latency:
+
+- `tools/run-unreal-editor.sh` launches the editor with `SDL_AUDIO_DRIVER=pulseaudio`, `SDL_AUDIODRIVER=pulseaudio`, and `PULSE_LATENCY_MSEC=60`.
+- `tools/run-unreal-automation.sh <test-filter>` runs headless automation with the same audio environment and `-NullRHI`.
+- `tools/recover-linux-audio.sh` restarts `wireplumber`, `pipewire`, and `pipewire-pulse` if the desktop audio graph gets stuck.
+
+Change `AudioOutputDeviceId` in `Config/DefaultEditor.ini` when intentionally routing Unreal to another output device.
 
 ## Historical Planning
 

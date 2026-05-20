@@ -14,4 +14,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stargame|UI")
+	TSubclassOf<class UStargameBootMenuWidget> BootMenuWidgetClass;
 };

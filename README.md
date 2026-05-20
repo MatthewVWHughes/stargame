@@ -6,7 +6,7 @@ These docs describe the Unreal-native game we are building.
 
 Start with `docs/README.md`. The active game contracts live in the domain docs: runtime architecture, system data contracts, frontier fixture, save/load, flight/docking, validation/tooling, AI, and systemic gameplay. `docs/build-roadmap.md` and `docs/implementation-plan-m0.md` are historical planning references; do not treat stale staging text there as more authoritative than the current domain contracts.
 
-The current foundation is the authored frontier slice through the systemic progression foundation: non-Sol startup, system build, save/load, flight, supercruise, docking, gate arrival, generated-system support, logical traffic, systemic records, logical encounters, combat/threat records, realized AI hooks, and service-level progression. It is an engineering-playable foundation, not yet a complete player-facing vertical slice.
+The current foundation is the authored frontier slice through the systemic progression foundation: non-Sol startup, minimal boot new/continue flow, system build, save/load, flight, supercruise, docking, gate arrival, generated-system support, logical traffic, systemic records, logical encounters, combat/threat records, realized AI hooks, and service-level progression. It is an engineering-playable foundation, not yet a complete player-facing vertical slice.
 
 | Doc | Status | Owns |
 | --- | --- | --- |
@@ -20,6 +20,7 @@ The current foundation is the authored frontier slice through the systemic progr
 | `docs/cpp-blueprint-ownership.md` | canonical | what must be C++ and what Blueprints may own |
 | `docs/flight-supercruise-docking.md` | canonical | local bubble, frame projection, supercruise, docking behavior |
 | `docs/systemic-gameplay-foundations.md` | canonical | faction, legal, inventory, market, comms, mission foundation contracts |
+| `docs/playable-parity-roadmap.md` | active migration plan | Godot-to-Unreal playable parity slices for the non-Sol frontier build |
 | `docs/simulation-tiering-and-economy.md` | supporting architecture | NPC tiers, realization, distant economy model |
 | `docs/space-ai-and-dynamic-orbits.md` | supporting architecture | frame-aware NPC planning, patrol, pirate, formation behavior |
 | `docs/legal-crime-system.md` | supporting architecture | player/NPC offense, evidence, wanted, jurisdiction behavior |

@@ -1,26 +1,44 @@
 #include "Core/StargameGameModeBase.h"
 
 #include "Core/StargamePlayerController.h"
-#include "Runtime/StargameSessionSubsystem.h"
-#include "UI/PrototypeFlightHud.h"
-#include "Engine/GameInstance.h"
+#include "UI/StargameBootMenuWidget.h"
+#include "Engine/World.h"
+#include "Blueprint/UserWidget.h"
 
 AStargameGameModeBase::AStargameGameModeBase()
 {
 	PlayerControllerClass = AStargamePlayerController::StaticClass();
 	DefaultPawnClass = nullptr;
-	HUDClass = APrototypeFlightHud::StaticClass();
+	HUDClass = nullptr;
 }
 
 void AStargameGameModeBase::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (UGameInstance* GameInstance = GetGameInstance())
+	APlayerController* PlayerController = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+	if (!PlayerController)
 	{
-		if (UStargameSessionSubsystem* Session = GameInstance->GetSubsystem<UStargameSessionSubsystem>())
-		{
-			Session->StartNewSession();
-		}
+		return;
 	}
+
+	UStargameBootMenuWidget* BootMenu = BootMenuWidgetClass
+		? CreateWidget<UStargameBootMenuWidget>(PlayerController, BootMenuWidgetClass)
+		: nullptr;
+	if (!BootMenu)
+	{
+		return;
+	}
+
+	BootMenu->AddToViewport(100);
+	BootMenu->RefreshContinueState();
+	BootMenu->SetIsFocusable(true);
+
+	FInputModeUIOnly InputMode;
+	InputMode.SetWidgetToFocus(BootMenu->TakeWidget());
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	PlayerController->SetInputMode(InputMode);
+	PlayerController->SetIgnoreLookInput(true);
+	PlayerController->SetIgnoreMoveInput(true);
+	PlayerController->bShowMouseCursor = true;
 }

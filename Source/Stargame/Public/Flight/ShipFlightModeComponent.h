@@ -17,7 +17,7 @@ public:
 	EShipFlightMode GetFlightMode() const { return FlightMode; }
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Flight")
-	void SetFlightMode(EShipFlightMode NewMode) { FlightMode = NewMode; }
+	void SetFlightMode(EShipFlightMode NewMode);
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Flight")
 	double GetNormalFlightMaxSpeedCmPerSec() const { return NormalFlightMaxSpeedCmPerSec; }

@@ -7,6 +7,10 @@
 
 class APlayerController;
 class APawn;
+class ACombatShotPresentationActor;
+class ALogicalTrafficActor;
+class AM0SystemMarkerActor;
+class ASystemSpacePresentationActor;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FStarSystemBuildComplete);
 
@@ -44,6 +48,105 @@ struct STARGAME_API FDockingPortRegistryEntry
 
 	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Space")
 	FDockingPortDefinition Definition;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FRealizedTrafficActorEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Traffic AI")
+	FName ShipInstanceId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Traffic AI")
+	FName GroupId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Traffic AI")
+	EShipGoalKind GoalKind = EShipGoalKind::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Traffic AI")
+	FName RouteSegmentId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Traffic AI")
+	double RouteProgress01 = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Traffic AI")
+	TWeakObjectPtr<ALogicalTrafficActor> Actor;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FRealizedEncounterActorEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FName ActorId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FName EncounterId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FName HazardId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FName PatrolReservationId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	EShipGoalKind Role = EShipGoalKind::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FName IntentId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FName IntentType;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FName ThreatId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FName TargetShipId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FName BehaviorVariantId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FName CommsVariantId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FName LocalBehaviorStateId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FString CommsLine;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FName RouteSegmentId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	double RouteProgress01 = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FRouteSample RouteSample;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	FRouteSample TargetRouteSample;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter", meta = (Units = "cm"))
+	FVector DesiredPositionCm = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter", meta = (Units = "cm"))
+	double DistanceToDesiredCm = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter", meta = (Units = "cm"))
+	double DistanceTrendCm = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	bool bSteeringActive = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	double LastSteeringSimulationTimeSeconds = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	TWeakObjectPtr<ALogicalTrafficActor> Actor;
 };
 
 UCLASS()
@@ -104,6 +207,39 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
 	bool RefreshRegisteredEntityTransforms(double SimulationTimeSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Traffic AI")
+	bool RealizeTrafficActors(const FActiveTrafficSimulationState& TrafficState, double SimulationTimeSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Traffic AI")
+	bool RefreshRealizedTrafficActors(const FActiveTrafficSimulationState& TrafficState, double SimulationTimeSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Traffic AI")
+	void ClearRealizedTrafficActors();
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Traffic AI")
+	void GetRealizedTrafficActors(TArray<FRealizedTrafficActorEntry>& OutActors) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Encounter")
+	bool RealizeSystemicEncounterActors(const FSystemicGameplayState& SystemicState, double SimulationTimeSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Encounter")
+	void ClearRealizedEncounterActors();
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Encounter")
+	void GetRealizedEncounterActors(TArray<FRealizedEncounterActorEntry>& OutActors) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Encounter")
+	bool ApplyEncounterResponseManeuver(FName EncounterId, FName ResponseStateId, double SimulationTimeSeconds, FVector& OutStartPositionCm, FVector& OutEndPositionCm, FName& OutManeuverStateId);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Combat")
+	bool SpawnCombatShotPresentation(FName ShotPresentationId, FName PresentationType, const FVector& StartPositionCm, const FVector& EndPositionCm, double StartedAtTimeSeconds, double DurationSeconds, FName& OutActorId);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Combat")
+	void RefreshCombatShotPresentations(double SimulationTimeSeconds);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Combat")
+	bool IsCombatShotPresentationActive(FName ShotPresentationId) const;
 
 	UFUNCTION(BlueprintPure, Category = "Stargame|Space")
 	void GetRegisteredEntityIds(TArray<FName>& OutEntityIds) const;
@@ -175,6 +311,7 @@ private:
 	bool RegisterGravityWell(const FGravityWellDefinition& GravityWell);
 	bool RegisterResourceZone(const FResourceZoneDefinition& ResourceZone);
 	bool RegisterMapEntry(const FMapEntryDefinition& MapEntry);
+	bool SpawnSystemPresentation(FName SystemId);
 	static FName MakeDockingPortRegistryId(FName StationId, FName PortId);
 
 	UPROPERTY()
@@ -206,6 +343,18 @@ private:
 
 	UPROPERTY()
 	TArray<TObjectPtr<AActor>> SpawnedSystemActors;
+
+	UPROPERTY()
+	TObjectPtr<ASystemSpacePresentationActor> SpacePresentationActor;
+
+	UPROPERTY()
+	TMap<FName, FRealizedTrafficActorEntry> RealizedTrafficActorsByShipId;
+
+	UPROPERTY()
+	TMap<FName, FRealizedEncounterActorEntry> RealizedEncounterActorsById;
+
+	UPROPERTY()
+	TMap<FName, TObjectPtr<ACombatShotPresentationActor>> CombatShotPresentationActorsById;
 
 	UPROPERTY()
 	TWeakObjectPtr<APawn> ActivePlayerPawn;

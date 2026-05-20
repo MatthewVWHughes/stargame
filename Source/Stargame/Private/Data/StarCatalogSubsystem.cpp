@@ -4,6 +4,7 @@
 #include "Engine/AssetManager.h"
 #include "Engine/AssetManagerSettings.h"
 #include "Flight/SpaceFlightPawn.h"
+#include "Space/LogicalTrafficActor.h"
 #include "Space/LogicalTrafficQueryService.h"
 #include "Space/OrbitRouteFrameQueryService.h"
 #include "Space/SystemicGameplayQueryService.h"
@@ -119,11 +120,185 @@ namespace
 
 	void AddSystemMapEntry(FStarSystemDefinition& SystemDefinition, FName SourceId, FName EntryType)
 	{
+		if (SystemDefinition.MapEntries.ContainsByPredicate([SourceId](const FMapEntryDefinition& Entry)
+		{
+			return Entry.MapEntryId == SourceId || Entry.SourceId == SourceId;
+		}))
+		{
+			return;
+		}
+
 		FMapEntryDefinition Entry;
 		Entry.MapEntryId = SourceId;
 		Entry.SourceId = SourceId;
 		Entry.EntryType = EntryType;
 		SystemDefinition.MapEntries.Add(Entry);
+	}
+
+	FName ResolveAuthoredStationAnchor(const FStarSystemDefinition& SystemDefinition, FName PreferredAnchorId)
+	{
+		auto HasBody = [&SystemDefinition](FName BodyId)
+		{
+			return !BodyId.IsNone() && SystemDefinition.Bodies.ContainsByPredicate([BodyId](const FBodyDefinition& Body)
+			{
+				return Body.BodyId == BodyId;
+			});
+		};
+
+		if (HasBody(PreferredAnchorId))
+		{
+			return PreferredAnchorId;
+		}
+		if (HasBody(TEXT("brink")))
+		{
+			return TEXT("brink");
+		}
+		if (HasBody(TEXT("ember")))
+		{
+			return TEXT("ember");
+		}
+		return SystemDefinition.Bodies.IsEmpty() ? NAME_None : SystemDefinition.Bodies[0].BodyId;
+	}
+
+	bool ShouldApplyFrontierPlayableMetadata(const FStarSystemDefinition& SystemDefinition)
+	{
+		return SystemDefinition.SystemId == FFrontierTestFixtureProvider::FrontierSystemId ||
+			SystemDefinition.Stations.ContainsByPredicate([](const FStationDefinition& Station)
+			{
+				return Station.StationId == FName(TEXT("brink_watch"));
+			});
+	}
+
+	void ApplyGodotStationRegistryMetadata(FStarSystemDefinition& SystemDefinition)
+	{
+		const FName DerelictAnchorId = ResolveAuthoredStationAnchor(SystemDefinition, TEXT("brink_minor"));
+		if (!SystemDefinition.Stations.ContainsByPredicate([](const FStationDefinition& Station)
+		{
+			return Station.StationId == FName(TEXT("derelict_outpost_01"));
+		}))
+		{
+			FStationDefinition DerelictOutpost;
+			DerelictOutpost.StationId = TEXT("derelict_outpost_01");
+			DerelictOutpost.DisplayName = FText::FromString(TEXT("Derelict Outpost"));
+			DerelictOutpost.FrameType = TEXT("station_relative");
+			DerelictOutpost.AnchorId = DerelictAnchorId;
+			DerelictOutpost.VisualRadiusCm = 9000.0;
+			DerelictOutpost.StationProfileId = FPrimaryAssetId(UStationProfileAsset::AssetType, TEXT("frontier_station_basic"));
+			DerelictOutpost.OwnerFactionId = TEXT("ember_raiders");
+			DerelictOutpost.StationRole = TEXT("hostile_boarding");
+			DerelictOutpost.RegionName = TEXT("wayfarer_trade_lane");
+			DerelictOutpost.SecurityProfile = TEXT("hostile_contested_space");
+			DerelictOutpost.MissionTags = { TEXT("boarding"), TEXT("clearance"), TEXT("hostile_boarding") };
+			DerelictOutpost.DockingPorts = { MakeGeneratedDockingPort(TEXT("derelict_outpost_port_a")) };
+			DerelictOutpost.NavigationTarget = MakeGeneratedNavigationTarget(TEXT("derelict_outpost_01"), TEXT("Derelict Outpost"), TEXT("station"), DerelictOutpost.FrameType, DerelictOutpost.AnchorId);
+			DerelictOutpost.Orbit.ParentId = DerelictAnchorId;
+			DerelictOutpost.Orbit.SemiMajorAxisCm = 2400000.0;
+			DerelictOutpost.Orbit.PeriodSeconds = 1200.0;
+			DerelictOutpost.Orbit.PhaseOffsetRadians = 4.2;
+			SystemDefinition.Stations.Add(DerelictOutpost);
+			AddSystemMapEntry(SystemDefinition, DerelictOutpost.StationId, TEXT("station"));
+		}
+
+		for (FStationDefinition& Station : SystemDefinition.Stations)
+		{
+			if (Station.StationId == FName(TEXT("brink_watch")))
+			{
+				Station.OwnerFactionId = TEXT("frontier_local_authority");
+				Station.StationRole = TEXT("frontier_security_market");
+				Station.RegionName = TEXT("brink_orbital_corridor");
+				Station.SecurityProfile = TEXT("low_to_moderate_frontier_security");
+				Station.MarketProfileId = TEXT("brink_watch_market");
+				Station.MissionTags = { TEXT("convoy_defense"), TEXT("patrol_response"), TEXT("ore_trade"), TEXT("frontier_security") };
+				Station.QuestGiverNpcIds = { TEXT("npc_brink_watch_dispatch"), TEXT("npc_brink_market_factor") };
+				Station.QuestGivers = {
+					{ TEXT("npc_brink_watch_dispatch"), FText::FromString(TEXT("Brink Watch Dispatch")), FVector(-320.0, -180.0, 10.0) },
+					{ TEXT("npc_brink_market_factor"), FText::FromString(TEXT("Brink Market Factor")), FVector(-320.0, 220.0, 10.0) }
+				};
+			}
+			else if (Station.StationId == FName(TEXT("wayfarer_depot")))
+			{
+				const FName WayfarerAnchorId = ResolveAuthoredStationAnchor(SystemDefinition, Station.AnchorId);
+				Station.AnchorId = WayfarerAnchorId;
+				Station.Orbit.ParentId = WayfarerAnchorId;
+				Station.NavigationTarget.AnchorId = WayfarerAnchorId;
+				Station.OwnerFactionId = TEXT("frontier_local_authority");
+				Station.StationRole = TEXT("route_depot_and_repair_stop");
+				Station.RegionName = TEXT("wayfarer_trade_lane");
+				Station.SecurityProfile = TEXT("patrolled_trade_lane_endpoint");
+				Station.MarketProfileId = TEXT("wayfarer_depot_market");
+				Station.MissionTags = { TEXT("route_delivery"), TEXT("repair"), TEXT("distress_response"), TEXT("trade_lane") };
+				Station.QuestGiverNpcIds = { TEXT("npc_wayfarer_depot_master") };
+				Station.QuestGivers = {
+					{ TEXT("npc_wayfarer_depot_master"), FText::FromString(TEXT("Wayfarer Depot Master")), FVector(-280.0, -260.0, 10.0) }
+				};
+			}
+			else if (Station.StationId == FName(TEXT("derelict_outpost_01")))
+			{
+				const FName StationAnchorId = ResolveAuthoredStationAnchor(SystemDefinition, Station.AnchorId);
+				Station.AnchorId = StationAnchorId;
+				Station.Orbit.ParentId = StationAnchorId;
+				Station.NavigationTarget.AnchorId = StationAnchorId;
+			}
+		}
+	}
+
+	void ApplyGodotMissionBoardMetadata(FStarSystemDefinition& SystemDefinition)
+	{
+		auto AddMissionDefinition = [&SystemDefinition](
+			FName MissionDefinitionId,
+			const TCHAR* Title,
+			const TCHAR* Summary,
+			const TCHAR* OfferDialog,
+			const TCHAR* InProgressDialog,
+			const TCHAR* TurnInDialog)
+		{
+			if (SystemDefinition.SystemicGameplay.MissionDefinitions.ContainsByPredicate([MissionDefinitionId](const FMissionDefinition& MissionDefinition)
+			{
+				return MissionDefinition.MissionDefinitionId == MissionDefinitionId;
+			}))
+			{
+				return;
+			}
+
+			FMissionDefinition MissionDefinition;
+			MissionDefinition.MissionDefinitionId = MissionDefinitionId;
+			MissionDefinition.Title = FText::FromString(Title);
+			MissionDefinition.Summary = FText::FromString(Summary);
+			MissionDefinition.OfferDialog = FText::FromString(OfferDialog);
+			MissionDefinition.AcceptedDialog = FText::FromString(TEXT("Contract accepted. I will keep the channel open."));
+			MissionDefinition.InProgressDialog = FText::FromString(InProgressDialog);
+			MissionDefinition.TurnInDialog = FText::FromString(TurnInDialog);
+			SystemDefinition.SystemicGameplay.MissionDefinitions.Add(MissionDefinition);
+		};
+
+		AddMissionDefinition(
+			TEXT("mission_ore_delivery_basic"),
+			TEXT("Ore Delivery"),
+			TEXT("Deliver ore from Brink Watch to Wayfarer Depot."),
+			TEXT("Wayfarer Depot needs ore. Take the shipment out and report back when it is delivered."),
+			TEXT("The ore delivery is still active. Get the cargo to Wayfarer Depot."),
+			TEXT("Ore delivery confirmed. Payment is ready."));
+		AddMissionDefinition(
+			TEXT("mission_m12_route_security_cargo"),
+			TEXT("Wayfarer Security Cargo"),
+			TEXT("Deliver security cargo to Wayfarer Depot, respond to trouble on the lane, and return."),
+			TEXT("Take this security cargo to Wayfarer Depot. If the lane flares up, handle it and come back."),
+			TEXT("The Wayfarer security cargo contract is active. Finish the delivery and patrol response."),
+			TEXT("Wayfarer confirmed the delivery and the patrol report. Escrow is ready."));
+
+		for (FMissionOfferRecord& Offer : SystemDefinition.SystemicGameplay.MissionOffers)
+		{
+			if (Offer.OfferId == FName(TEXT("offer_brink_ore_delivery_01")))
+			{
+				Offer.GiverNpcId = TEXT("npc_brink_market_factor");
+				Offer.RequiredStationTags = { TEXT("ore_trade") };
+			}
+			else if (Offer.OfferId == FName(TEXT("offer_m12_wayfarer_security_01")))
+			{
+				Offer.GiverNpcId = TEXT("npc_brink_watch_dispatch");
+				Offer.RequiredStationTags = { TEXT("convoy_defense"), TEXT("frontier_security") };
+			}
+		}
 	}
 
 	FStarSystemDefinition MakeFrontierArrivalSystemDefinition()
@@ -210,6 +385,9 @@ void UStarCatalogSubsystem::BuildNativeFixtureCache()
 			SystemDefinition.Gates[0].DestinationArrivalLocalOffsetCm = FVector(0.0, 18000.0, 0.0);
 			SystemDefinition.Gates[0].DestinationArrivalRotation = FRotator(0.0, 180.0, 0.0);
 		}
+		ApplyGodotStationRegistryMetadata(SystemDefinition);
+		ApplyGodotMissionBoardMetadata(SystemDefinition);
+		SystemDefinition.SystemicGameplay = USystemicGameplayQueryService::MakeM12FixtureState(SystemDefinition);
 
 		FGravityWellDefinition Well;
 		Well.WellId = TEXT("ember_well");
@@ -316,6 +494,7 @@ void UStarCatalogSubsystem::BuildNativeFixtureCache()
 	Ship.DisplayName = FText::FromString(TEXT("Wayfarer Mk1"));
 	Ship.ShipClassTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Stargame.ShipClass.Light"), false));
 	Ship.PawnClass = ASpaceFlightPawn::StaticClass();
+	Ship.ActorClass = ALogicalTrafficActor::StaticClass();
 	Ship.MovementProfileId = Movement.MovementProfileId;
 	Ship.DefaultCargoCapacityMassKg = 1000.0;
 	Ship.DefaultCargoCapacityVolumeM3 = 12.0;
@@ -353,7 +532,14 @@ bool UStarCatalogSubsystem::BuildAssetCatalogCache()
 	{
 		if (const UStarSystemDefinitionAsset* Asset = Cast<UStarSystemDefinitionAsset>(LoadAsset(AssetId)))
 		{
-			SystemsById.Add(Asset->Definition.SystemId, Asset->Definition);
+			FStarSystemDefinition SystemDefinition = Asset->Definition;
+			if (ShouldApplyFrontierPlayableMetadata(SystemDefinition))
+			{
+				ApplyGodotStationRegistryMetadata(SystemDefinition);
+				ApplyGodotMissionBoardMetadata(SystemDefinition);
+				SystemDefinition.SystemicGameplay = USystemicGameplayQueryService::MakeM12FixtureState(SystemDefinition);
+			}
+			SystemsById.Add(SystemDefinition.SystemId, SystemDefinition);
 		}
 	}
 
@@ -2349,6 +2535,8 @@ bool UStarCatalogSubsystem::ValidateM9SystemDefinition(const FStarSystemDefiniti
 		Require(Endpoint.InventoryContainerId.IsNone() || ContainerIds.Contains(Endpoint.InventoryContainerId), TEXT("m9_endpoint_missing_inventory"), Endpoint.ServiceEndpointId, TEXT("Station service endpoint inventory container must resolve."));
 		Require(Endpoint.CreditAccountId.IsNone() || AccountIds.Contains(Endpoint.CreditAccountId), TEXT("m9_endpoint_missing_account"), Endpoint.ServiceEndpointId, TEXT("Station service endpoint account must resolve."));
 		Require(Endpoint.CommsEndpointId.IsNone() || CommsIds.Contains(Endpoint.CommsEndpointId), TEXT("m9_endpoint_missing_comms"), Endpoint.ServiceEndpointId, TEXT("Station service endpoint comms endpoint must resolve."));
+		const bool bPricedShipService = Endpoint.ServiceType == FName(TEXT("repair")) || Endpoint.ServiceType == FName(TEXT("refuel")) || Endpoint.ServiceType == FName(TEXT("rearm"));
+		Require(!bPricedShipService || Endpoint.UnitPriceCredits > 0, TEXT("m9_endpoint_missing_unit_price"), Endpoint.ServiceEndpointId, TEXT("Station repair, refuel, and rearm endpoints must author a positive unit price."));
 	}
 
 	FSystemicDecisionInputSnapshot Snapshot;
@@ -2539,7 +2727,10 @@ bool UStarCatalogSubsystem::ValidateM12GameplaySystemDefinition(const FStarSyste
 	Require(State.MissionOffers.ContainsByPredicate([](const FMissionOfferRecord& Offer)
 	{
 		return Offer.OfferId == FName(TEXT("offer_m12_wayfarer_security_01")) &&
-			Offer.SourceServiceEndpointId == FName(TEXT("service_brink_watch_mission_board"));
+			Offer.SourceServiceEndpointId == FName(TEXT("service_brink_watch_mission_board")) &&
+			Offer.GiverNpcId == FName(TEXT("npc_brink_watch_dispatch")) &&
+			Offer.RequiredStationTags.Contains(FName(TEXT("convoy_defense"))) &&
+			Offer.RequiredStationTags.Contains(FName(TEXT("frontier_security")));
 	}), TEXT("m12_missing_route_security_offer"), SystemDefinition.SystemId, TEXT("M12 requires authored/generated mission-board route/security offer records."));
 	Require(State.FollowUpOpportunities.ContainsByPredicate([](const FFollowUpOpportunityRecord& Opportunity)
 	{
@@ -2575,8 +2766,19 @@ bool UStarCatalogSubsystem::ValidateM12ScenarioSystemDefinition(const FStarSyste
 		FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
 		FMissionInstanceState Mission;
 		FProgressionDebugLedgerEntry CompletionEntry;
+		auto CompleteMissionObjectives = [&State](FName MissionInstanceId)
+		{
+			for (FObjectiveState& Objective : State.ObjectiveStates)
+			{
+				if (Objective.MissionInstanceId == MissionInstanceId)
+				{
+					Objective.State = TEXT("completed");
+				}
+			}
+		};
 		RequireScenario(
 			USystemicGameplayQueryService::AcceptMissionOfferOnce(State, TEXT("offer_m12_wayfarer_security_01"), TEXT("player"), TEXT("idem_validate_m12_accept"), Mission, FailureReason) &&
+			(CompleteMissionObjectives(Mission.MissionInstanceId), true) &&
 			USystemicGameplayQueryService::CompleteMissionOnce(State, Mission.MissionInstanceId, TEXT("event_validate_m12_complete"), TEXT("idem_validate_m12_complete"), CompletionEntry, FailureReason) &&
 			CompletionEntry.EntryType == FName(TEXT("mission_complete")) &&
 			State.CreditLedger.ContainsByPredicate([](const FCreditLedgerEntry& Ledger)
@@ -2693,6 +2895,14 @@ bool UStarCatalogSubsystem::ValidateShipArchetype(const FStartProfileDefinition&
 	else if (!Ship->PawnClass.LoadSynchronous())
 	{
 		AddIssue(Report, EStargameValidationSeverity::Error, TEXT("unresolved_ship_pawn_class"), Ship->ShipArchetypeId, TEXT("Ship pawn class reference does not resolve."));
+	}
+	if (!Ship->ActorClass.IsNull())
+	{
+		UClass* ActorClass = Ship->ActorClass.LoadSynchronous();
+		if (!ActorClass || !ActorClass->IsChildOf(ALogicalTrafficActor::StaticClass()))
+		{
+			AddIssue(Report, EStargameValidationSeverity::Error, TEXT("invalid_ship_actor_class"), Ship->ShipArchetypeId, TEXT("Ship actor class must resolve to a logical traffic actor class when authored."));
+		}
 	}
 	if (Ship->DefaultCargoCapacityMassKg <= 0.0 || Ship->DefaultCargoCapacityVolumeM3 <= 0.0)
 	{

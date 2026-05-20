@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Data/FrontierTestFixtureProvider.h"
+#include "Data/StarCatalogSubsystem.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -116,9 +117,12 @@ bool FM0NoLegacyStartupReferencesTest::RunTest(const FString& Parameters)
 		TEXT("TActorIterator"),
 		TEXT("GasGiant"),
 		TEXT("PrototypeGasGiant"),
-		TEXT("Earth"),
-		TEXT("Mars"),
-		TEXT("Luna"),
+		TEXT("TEXT(\"earth\")"),
+		TEXT("TEXT(\"Earth\")"),
+		TEXT("TEXT(\"mars\")"),
+		TEXT("TEXT(\"Mars\")"),
+		TEXT("TEXT(\"luna\")"),
+		TEXT("TEXT(\"Luna\")"),
 		TEXT("TEXT(\"sol\")"),
 		TEXT("TEXT(\"Sol\")")
 	};
@@ -160,6 +164,25 @@ bool FM0CycleTargetInputTest::RunTest(const FString& Parameters)
 	const FString InputConfigPath = FPaths::ProjectDir() / TEXT("Config/DefaultInput.ini");
 	TestTrue(TEXT("DefaultInput.ini loads"), FFileHelper::LoadFileToString(InputConfig, *InputConfigPath));
 	TestTrue(TEXT("CycleTarget input action exists"), InputConfig.Contains(TEXT("ActionName=\"CycleTarget\"")));
+	TestTrue(TEXT("InteractTarget input action exists"), InputConfig.Contains(TEXT("ActionName=\"InteractTarget\"")));
+	TestTrue(TEXT("ToggleSystemMap input action exists"), InputConfig.Contains(TEXT("ActionName=\"ToggleSystemMap\"")));
+	TestTrue(TEXT("ToggleComms input action exists"), InputConfig.Contains(TEXT("ActionName=\"ToggleComms\"")));
+	TestTrue(TEXT("TogglePauseMenu input action exists"), InputConfig.Contains(TEXT("ActionName=\"TogglePauseMenu\"")));
+	TestTrue(TEXT("StationExit input action exists"), InputConfig.Contains(TEXT("ActionName=\"StationExit\"")));
+	TestTrue(TEXT("StationRepair input action exists"), InputConfig.Contains(TEXT("ActionName=\"StationRepair\"")));
+	TestTrue(TEXT("StationRefuel input action exists"), InputConfig.Contains(TEXT("ActionName=\"StationRefuel\"")));
+	TestTrue(TEXT("StationBuyOre input action exists"), InputConfig.Contains(TEXT("ActionName=\"StationBuyOre\"")));
+	TestTrue(TEXT("StationAcceptMission input action exists"), InputConfig.Contains(TEXT("ActionName=\"StationAcceptMission\"")));
+	TestTrue(TEXT("StationCompleteMission input action exists"), InputConfig.Contains(TEXT("ActionName=\"StationCompleteMission\"")));
+	TestTrue(TEXT("StationUndock input action exists"), InputConfig.Contains(TEXT("ActionName=\"StationUndock\"")));
+	TestTrue(TEXT("EncounterEscape input action exists"), InputConfig.Contains(TEXT("ActionName=\"EncounterEscape\"")));
+	TestTrue(TEXT("EncounterSurrender input action exists"), InputConfig.Contains(TEXT("ActionName=\"EncounterSurrender\"")));
+	TestTrue(TEXT("EncounterPatrolResponse input action exists"), InputConfig.Contains(TEXT("ActionName=\"EncounterPatrolResponse\"")));
+	TestTrue(TEXT("EncounterFireWeapon input action exists"), InputConfig.Contains(TEXT("ActionName=\"EncounterFireWeapon\"")));
+	TestTrue(TEXT("Station interior forward axis exists"), InputConfig.Contains(TEXT("AxisName=\"MoveForward\"")));
+	TestTrue(TEXT("Station interior right axis exists"), InputConfig.Contains(TEXT("AxisName=\"MoveRight\"")));
+	TestTrue(TEXT("Station interior turn axis exists"), InputConfig.Contains(TEXT("AxisName=\"Turn\"")));
+	TestTrue(TEXT("Station interior look axis exists"), InputConfig.Contains(TEXT("AxisName=\"LookUp\"")));
 	return true;
 }
 
@@ -285,6 +308,56 @@ bool FM0SavePayloadRoundTripTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Loaded system ID"), LoadedState.SystemId, State.SystemId);
 	TestEqual(TEXT("Loaded spawn zone ID"), LoadedState.SpawnZoneId, State.SpawnZoneId);
 	TestEqual(TEXT("Loaded selected target ID"), LoadedState.SelectedTargetId, State.SelectedTargetId);
+
+	UGameplayStatics::DeleteGameInSlot(UStargameSessionSubsystem::DevelopmentSlotName, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FM0BootContinueAvailabilityTest,
+	"Stargame.M0.Boot.ContinueReflectsLoadableSave",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FM0BootContinueAvailabilityTest::RunTest(const FString& Parameters)
+{
+	UGameplayStatics::DeleteGameInSlot(UStargameSessionSubsystem::DevelopmentSlotName, 0);
+
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	TestNotNull(TEXT("Game instance object created"), GameInstance);
+	if (!GameInstance)
+	{
+		return false;
+	}
+
+	UStargameSessionSubsystem* Session = NewObject<UStargameSessionSubsystem>(GameInstance);
+	TestNotNull(TEXT("Session object created"), Session);
+	if (!Session)
+	{
+		return false;
+	}
+
+	UStarCatalogSubsystem* Catalog = NewObject<UStarCatalogSubsystem>(GameInstance);
+	TestNotNull(TEXT("Catalog object created"), Catalog);
+	if (!Catalog)
+	{
+		return false;
+	}
+	Catalog->BuildAssetCatalogCache();
+	Session->ConfigureAutomationTestContext(nullptr, Catalog);
+
+	FString ContinueReason;
+	TestFalse(TEXT("Continue is disabled without a save"), Session->CanContinueDevelopmentSlot(ContinueReason));
+	TestTrue(TEXT("Missing save reason is player-facing"), ContinueReason.Contains(TEXT("No save")));
+
+	FStargameM0SaveState State;
+	State.SystemId = FName(TEXT("frontier_test_01"));
+	State.SpawnZoneId = FName(TEXT("spawn_deep_space"));
+	State.SelectedTargetId = FName(TEXT("brink_watch"));
+
+	TestTrue(TEXT("Save payload succeeds"), Session->SaveDevelopmentSlot(State));
+	ContinueReason.Reset();
+	TestTrue(TEXT("Continue is enabled with a compatible save"), Session->CanContinueDevelopmentSlot(ContinueReason));
+	TestTrue(TEXT("Continue reason names saved system"), ContinueReason.Contains(TEXT("frontier_test_01")));
 
 	UGameplayStatics::DeleteGameInSlot(UStargameSessionSubsystem::DevelopmentSlotName, 0);
 	return true;

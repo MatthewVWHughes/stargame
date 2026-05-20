@@ -10,6 +10,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
 #include "Curves/CurveFloat.h"
+#include "Space/LogicalTrafficActor.h"
 #include "Space/LogicalTrafficQueryService.h"
 #include "Space/SystemicGameplayQueryService.h"
 #include "UObject/Package.h"
@@ -219,7 +220,7 @@ namespace
 		}
 	}
 
-	FNavigationTargetDefinition MakeNavigationTarget(FName TargetId, const TCHAR* DisplayName, FName TargetType)
+	FNavigationTargetDefinition MakeM1NavigationTarget(FName TargetId, const TCHAR* DisplayName, FName TargetType)
 	{
 		FNavigationTargetDefinition Target;
 		Target.TargetId = TargetId;
@@ -255,7 +256,7 @@ namespace
 			Body.PhysicalReferenceRadiusCm = RadiusCm;
 			Body.CollisionRadiusCm = RadiusCm;
 			Body.VisualProfileId = FPrimaryAssetId(UBodyVisualProfileAsset::AssetType, TEXT("ember_visual"));
-			Body.NavigationTarget = MakeNavigationTarget(BodyId, DisplayName, TEXT("body"));
+			Body.NavigationTarget = MakeM1NavigationTarget(BodyId, DisplayName, TEXT("body"));
 			Body.NavigationTarget.FrameType = Body.FrameType;
 			Body.NavigationTarget.AnchorId = ParentId;
 			Body.Orbit.ParentId = ParentId;
@@ -292,8 +293,19 @@ namespace
 		BrinkWatch.AnchorId = TEXT("brink");
 		BrinkWatch.VisualRadiusCm = 12000.0;
 		BrinkWatch.StationProfileId = FPrimaryAssetId(UStationProfileAsset::AssetType, TEXT("frontier_station_basic"));
+		BrinkWatch.OwnerFactionId = TEXT("frontier_local_authority");
+		BrinkWatch.StationRole = TEXT("frontier_security_market");
+		BrinkWatch.RegionName = TEXT("brink_orbital_corridor");
+		BrinkWatch.SecurityProfile = TEXT("low_to_moderate_frontier_security");
+		BrinkWatch.MarketProfileId = TEXT("brink_watch_market");
+		BrinkWatch.MissionTags = { TEXT("convoy_defense"), TEXT("patrol_response"), TEXT("ore_trade"), TEXT("frontier_security") };
+		BrinkWatch.QuestGiverNpcIds = { TEXT("npc_brink_watch_dispatch"), TEXT("npc_brink_market_factor") };
+		BrinkWatch.QuestGivers = {
+			{ TEXT("npc_brink_watch_dispatch"), FText::FromString(TEXT("Brink Watch Dispatch")), FVector(-320.0, -180.0, 10.0) },
+			{ TEXT("npc_brink_market_factor"), FText::FromString(TEXT("Brink Market Factor")), FVector(-320.0, 220.0, 10.0) }
+		};
 		BrinkWatch.DockingPorts = { MakeDockingPort(TEXT("brink_watch_port_a"), TEXT("Brink Watch Port A")) };
-		BrinkWatch.NavigationTarget = MakeNavigationTarget(TEXT("brink_watch"), TEXT("Brink Watch"), TEXT("station"));
+		BrinkWatch.NavigationTarget = MakeM1NavigationTarget(TEXT("brink_watch"), TEXT("Brink Watch"), TEXT("station"));
 		BrinkWatch.NavigationTarget.FrameType = BrinkWatch.FrameType;
 		BrinkWatch.NavigationTarget.AnchorId = BrinkWatch.AnchorId;
 		BrinkWatch.Orbit.ParentId = TEXT("brink");
@@ -309,8 +321,18 @@ namespace
 		WayfarerDepot.AnchorId = TEXT("brink_minor");
 		WayfarerDepot.VisualRadiusCm = 14000.0;
 		WayfarerDepot.StationProfileId = FPrimaryAssetId(UStationProfileAsset::AssetType, TEXT("frontier_station_basic"));
+		WayfarerDepot.OwnerFactionId = TEXT("frontier_local_authority");
+		WayfarerDepot.StationRole = TEXT("route_depot_and_repair_stop");
+		WayfarerDepot.RegionName = TEXT("wayfarer_trade_lane");
+		WayfarerDepot.SecurityProfile = TEXT("patrolled_trade_lane_endpoint");
+		WayfarerDepot.MarketProfileId = TEXT("wayfarer_depot_market");
+		WayfarerDepot.MissionTags = { TEXT("route_delivery"), TEXT("repair"), TEXT("distress_response"), TEXT("trade_lane") };
+		WayfarerDepot.QuestGiverNpcIds = { TEXT("npc_wayfarer_depot_master") };
+		WayfarerDepot.QuestGivers = {
+			{ TEXT("npc_wayfarer_depot_master"), FText::FromString(TEXT("Wayfarer Depot Master")), FVector(-280.0, -260.0, 10.0) }
+		};
 		WayfarerDepot.DockingPorts = { MakeDockingPort(TEXT("wayfarer_depot_port_a"), TEXT("Wayfarer Depot Port A")) };
-		WayfarerDepot.NavigationTarget = MakeNavigationTarget(TEXT("wayfarer_depot"), TEXT("Wayfarer Depot"), TEXT("station"));
+		WayfarerDepot.NavigationTarget = MakeM1NavigationTarget(TEXT("wayfarer_depot"), TEXT("Wayfarer Depot"), TEXT("station"));
 		WayfarerDepot.NavigationTarget.FrameType = WayfarerDepot.FrameType;
 		WayfarerDepot.NavigationTarget.AnchorId = WayfarerDepot.AnchorId;
 		WayfarerDepot.Orbit.ParentId = TEXT("brink_minor");
@@ -318,6 +340,28 @@ namespace
 		WayfarerDepot.Orbit.PeriodSeconds = 900.0;
 		WayfarerDepot.Orbit.PhaseOffsetRadians = 3.0;
 		SystemDefinition.Stations.Add(WayfarerDepot);
+
+		FStationDefinition DerelictOutpost;
+		DerelictOutpost.StationId = TEXT("derelict_outpost_01");
+		DerelictOutpost.DisplayName = FText::FromString(TEXT("Derelict Outpost"));
+		DerelictOutpost.FrameType = TEXT("station_relative");
+		DerelictOutpost.AnchorId = TEXT("brink_minor");
+		DerelictOutpost.VisualRadiusCm = 9000.0;
+		DerelictOutpost.StationProfileId = FPrimaryAssetId(UStationProfileAsset::AssetType, TEXT("frontier_station_basic"));
+		DerelictOutpost.OwnerFactionId = TEXT("ember_raiders");
+		DerelictOutpost.StationRole = TEXT("hostile_boarding");
+		DerelictOutpost.RegionName = TEXT("wayfarer_trade_lane");
+		DerelictOutpost.SecurityProfile = TEXT("hostile_contested_space");
+		DerelictOutpost.MissionTags = { TEXT("boarding"), TEXT("clearance"), TEXT("hostile_boarding") };
+		DerelictOutpost.DockingPorts = { MakeDockingPort(TEXT("derelict_outpost_port_a"), TEXT("Derelict Outpost Port A")) };
+		DerelictOutpost.NavigationTarget = MakeM1NavigationTarget(TEXT("derelict_outpost_01"), TEXT("Derelict Outpost"), TEXT("station"));
+		DerelictOutpost.NavigationTarget.FrameType = DerelictOutpost.FrameType;
+		DerelictOutpost.NavigationTarget.AnchorId = DerelictOutpost.AnchorId;
+		DerelictOutpost.Orbit.ParentId = TEXT("brink_minor");
+		DerelictOutpost.Orbit.SemiMajorAxisCm = 2400000.0;
+		DerelictOutpost.Orbit.PeriodSeconds = 1200.0;
+		DerelictOutpost.Orbit.PhaseOffsetRadians = 4.2;
+		SystemDefinition.Stations.Add(DerelictOutpost);
 
 			if (SystemDefinition.Gates.Num() > 0)
 			{
@@ -328,7 +372,7 @@ namespace
 				SystemDefinition.Gates[0].DestinationArrivalFrame = TEXT("gate_relative");
 				SystemDefinition.Gates[0].DestinationArrivalLocalOffsetCm = FVector(0.0, 18000.0, 0.0);
 				SystemDefinition.Gates[0].DestinationArrivalRotation = FRotator(0.0, 180.0, 0.0);
-				SystemDefinition.Gates[0].NavigationTarget = MakeNavigationTarget(TEXT("frontier_gate_a"), TEXT("Frontier Gate A"), TEXT("gate"));
+				SystemDefinition.Gates[0].NavigationTarget = MakeM1NavigationTarget(TEXT("frontier_gate_a"), TEXT("Frontier Gate A"), TEXT("gate"));
 			}
 
 		FGravityWellDefinition EmberWell;
@@ -671,6 +715,7 @@ int32 UStargameCreateM1FixtureAssetsCommandlet::Main(const FString& Params)
 	Ship->Definition.ShipClassTags.Reset();
 	Ship->Definition.ShipClassTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Stargame.ShipClass.Light"), false));
 	Ship->Definition.PawnClass = ASpaceFlightPawn::StaticClass();
+	Ship->Definition.ActorClass = ALogicalTrafficActor::StaticClass();
 	Ship->Definition.MovementProfileId = Movement->Definition.MovementProfileId;
 	Ship->Definition.DefaultCargoCapacityMassKg = 1000.0;
 	Ship->Definition.DefaultCargoCapacityVolumeM3 = 12.0;

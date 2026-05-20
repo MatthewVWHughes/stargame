@@ -12,6 +12,7 @@ namespace
 	constexpr double RouteRecoveryMaxBasisErrorDegrees = 15.0;
 	constexpr double RouteRecoveryMaxVelocityErrorCmPerSec = 2500000.0;
 	constexpr double RouteRecoveryMaxSampleAgeSeconds = 1.0;
+	constexpr double RealizationDespawnRadiusMultiplier = 1.4;
 
 	void WriteRouteLogicalLocation(FShipTrafficInstance& Ship, const FRouteSample& Sample)
 	{
@@ -376,6 +377,115 @@ void ULogicalTrafficQueryService::RefreshTransientRouteSamples(
 			Ship.LastRouteSample = Sample;
 			WriteRouteLogicalLocation(Ship, Sample);
 		}
+	}
+}
+
+void ULogicalTrafficQueryService::ApplyPlayerRelevanceRealization(
+	const FStarSystemDefinition& SystemDefinition,
+	const FSystemicGameplayState& SystemicState,
+	FName ActorBudgetProfileId,
+	const FVector& ObserverPositionCm,
+	const FSimulationClockSnapshot& ClockSnapshot,
+	double RequestedSimulationTimeSeconds,
+	FActiveTrafficSimulationState& InOutTrafficState)
+{
+	const FRealizedActorBudgetProfile* Budget = SystemicState.RealizedActorBudgetProfiles.FindByPredicate([ActorBudgetProfileId](const FRealizedActorBudgetProfile& Candidate)
+	{
+		return Candidate.BudgetProfileId == ActorBudgetProfileId;
+	});
+	if (!Budget || Budget->MaxRealizedActors <= 0 || Budget->PromotionRadiusCm <= 0.0)
+	{
+		return;
+	}
+
+	struct FCandidate
+	{
+		FShipTrafficInstance* Ship = nullptr;
+		const FRealizedActorMappingRecord* Mapping = nullptr;
+		FRouteSample Sample;
+		double DistanceCm = 0.0;
+	};
+
+	TArray<FCandidate> Candidates;
+	TSet<FName> EligibleShipIds;
+	for (const FRealizedActorMappingRecord& Mapping : SystemicState.RealizedActorMappings)
+	{
+		if (Mapping.ActorBudgetProfileId != ActorBudgetProfileId || Mapping.State != FName(TEXT("eligible")) || Mapping.RealizationToken.IsNone())
+		{
+			continue;
+		}
+		FShipTrafficInstance* Ship = InOutTrafficState.Ships.FindByPredicate([&Mapping](const FShipTrafficInstance& Candidate)
+		{
+			return Candidate.ShipInstanceId == Mapping.ShipInstanceId;
+		});
+		if (!Ship || Ship->CurrentGoal.RouteSegmentId.IsNone())
+		{
+			continue;
+		}
+
+		FRouteSample Sample;
+		if (!UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, Ship->CurrentGoal.RouteSegmentId, Ship->CurrentGoal.RouteProgress01, ClockSnapshot, RequestedSimulationTimeSeconds, Sample))
+		{
+			continue;
+		}
+
+		EligibleShipIds.Add(Ship->ShipInstanceId);
+		const double DistanceCm = FVector::Distance(Sample.ResolvedTransform.PositionCm, ObserverPositionCm);
+		if (DistanceCm <= Budget->PromotionRadiusCm || Ship->TrafficTier == ELogicalTrafficTier::Tier1Realized)
+		{
+			FCandidate Candidate;
+			Candidate.Ship = Ship;
+			Candidate.Mapping = &Mapping;
+			Candidate.Sample = Sample;
+			Candidate.DistanceCm = DistanceCm;
+			Candidates.Add(Candidate);
+		}
+	}
+
+	Candidates.Sort([](const FCandidate& Left, const FCandidate& Right)
+	{
+		if (Left.Mapping->PromotionPriority == Right.Mapping->PromotionPriority)
+		{
+			return Left.DistanceCm < Right.DistanceCm;
+		}
+		return Left.Mapping->PromotionPriority > Right.Mapping->PromotionPriority;
+	});
+
+	TSet<FName> KeepRealizedShipIds;
+	const int32 MaxRealizedActors = FMath::Max(0, Budget->MaxRealizedActors);
+	for (const FCandidate& Candidate : Candidates)
+	{
+		if (!Candidate.Ship || !Candidate.Mapping)
+		{
+			continue;
+		}
+
+		if (KeepRealizedShipIds.Num() >= MaxRealizedActors ||
+			Candidate.DistanceCm > Budget->PromotionRadiusCm * RealizationDespawnRadiusMultiplier)
+		{
+			continue;
+		}
+
+		KeepRealizedShipIds.Add(Candidate.Ship->ShipInstanceId);
+		Candidate.Ship->TrafficTier = ELogicalTrafficTier::Tier1Realized;
+		Candidate.Ship->RealizationToken = Candidate.Mapping->RealizationToken;
+		Candidate.Ship->LastRouteSample = Candidate.Sample;
+		WriteRouteLogicalLocation(*Candidate.Ship, Candidate.Sample);
+		Candidate.Ship->LastUpdateTimeSeconds = RequestedSimulationTimeSeconds;
+		Candidate.Ship->LastDecisionReason = FName(*FString::Printf(TEXT("promoted_player_relevance_distance_%.0f"), Candidate.DistanceCm));
+	}
+
+	for (FShipTrafficInstance& Ship : InOutTrafficState.Ships)
+	{
+		if (Ship.TrafficTier != ELogicalTrafficTier::Tier1Realized || !EligibleShipIds.Contains(Ship.ShipInstanceId) || KeepRealizedShipIds.Contains(Ship.ShipInstanceId))
+		{
+			continue;
+		}
+
+		Ship.TrafficTier = ELogicalTrafficTier::Tier2Logical;
+		Ship.RealizationToken = NAME_None;
+		Ship.LastUpdateTimeSeconds = RequestedSimulationTimeSeconds;
+		Ship.LastDecisionReason = TEXT("demoted_player_relevance_budget_or_distance");
 	}
 }
 

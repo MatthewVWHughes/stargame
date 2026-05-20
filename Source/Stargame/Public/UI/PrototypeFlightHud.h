@@ -20,7 +20,11 @@ private:
 	void DrawNavigationTargets(float ViewWidth, float Scale, const TArray<FNavigationTargetViewModel>& Targets);
 	void DrawSupercruiseTelemetry(float ViewWidth, float Scale, const FSupercruiseTelemetry& Telemetry);
 	void DrawDockingTelemetry(float ViewWidth, float Scale, const FDockingOperationState& Docking);
+	void DrawActiveMissionPanel(float ViewWidth, float Scale);
+	void DrawRuntimeEncounterPanel(float ViewWidth, float ViewHeight, float Scale);
+	void DrawDockedStationPanel(float ViewWidth, float ViewHeight, float Scale);
 	void DrawCenterSymbology(float ViewWidth, float ViewHeight, float Scale);
+	void DrawCombatLeadPip(float ViewWidth, float ViewHeight, float Scale);
 	void DrawTopStrip(float ViewWidth, float Scale, const TArray<FNavigationTargetViewModel>& Targets);
 	void DrawRadarReserve(float ViewWidth, float ViewHeight, float Scale);
 	void DrawOutlinedRect(float X, float Y, float Width, float Height, const FLinearColor& Color, float Thickness = 1.0f);

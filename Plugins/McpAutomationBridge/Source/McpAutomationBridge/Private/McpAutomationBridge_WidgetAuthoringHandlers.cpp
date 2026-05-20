@@ -1140,6 +1140,15 @@ bool UMcpAutomationBridgeSubsystem::HandleManageWidgetAuthoringAction(
             SendAutomationError(RequestingSocket, RequestId, TEXT("Widget blueprint not found"), TEXT("NOT_FOUND"));
             return true;
         }
+        if (WidgetBP->WidgetTree && WidgetBP->WidgetTree->FindWidget(FName(*SlotName)))
+        {
+            ResultJson->SetBoolField(TEXT("success"), true);
+            ResultJson->SetStringField(TEXT("message"), TEXT("Canvas panel already exists"));
+            ResultJson->SetStringField(TEXT("slotName"), SlotName);
+            McpHandlerUtils::AddVerification(ResultJson, WidgetBP);
+            SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Canvas panel already exists"), ResultJson);
+            return true;
+        }
 
         // Create canvas panel
         UCanvasPanel* CanvasPanel = WidgetBP->WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), FName(*SlotName));
@@ -1374,6 +1383,15 @@ bool UMcpAutomationBridgeSubsystem::HandleManageWidgetAuthoringAction(
             SendAutomationError(RequestingSocket, RequestId, TEXT("Widget blueprint not found"), TEXT("NOT_FOUND"));
             return true;
         }
+        if (WidgetBP->WidgetTree && WidgetBP->WidgetTree->FindWidget(FName(*SlotName)))
+        {
+            ResultJson->SetBoolField(TEXT("success"), true);
+            ResultJson->SetStringField(TEXT("message"), TEXT("Text block already exists"));
+            ResultJson->SetStringField(TEXT("slotName"), SlotName);
+            McpHandlerUtils::AddVerification(ResultJson, WidgetBP);
+            SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Text block already exists"), ResultJson);
+            return true;
+        }
 
         UTextBlock* TextBlock = WidgetBP->WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), FName(*SlotName));
         if (!TextBlock)
@@ -1537,6 +1555,15 @@ bool UMcpAutomationBridgeSubsystem::HandleManageWidgetAuthoringAction(
             SendAutomationError(RequestingSocket, RequestId, TEXT("Widget blueprint not found"), TEXT("NOT_FOUND"));
             return true;
         }
+        if (WidgetBP->WidgetTree && WidgetBP->WidgetTree->FindWidget(FName(*SlotName)))
+        {
+            ResultJson->SetBoolField(TEXT("success"), true);
+            ResultJson->SetStringField(TEXT("message"), TEXT("Button already exists"));
+            ResultJson->SetStringField(TEXT("slotName"), SlotName);
+            McpHandlerUtils::AddVerification(ResultJson, WidgetBP);
+            SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Button already exists"), ResultJson);
+            return true;
+        }
 
         UButton* ButtonWidget = WidgetBP->WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), FName(*SlotName));
         if (!ButtonWidget)
@@ -1607,6 +1634,15 @@ bool UMcpAutomationBridgeSubsystem::HandleManageWidgetAuthoringAction(
         if (!WidgetBP)
         {
             SendAutomationError(RequestingSocket, RequestId, TEXT("Widget blueprint not found"), TEXT("NOT_FOUND"));
+            return true;
+        }
+        if (WidgetBP->WidgetTree && WidgetBP->WidgetTree->FindWidget(FName(*SlotName)))
+        {
+            ResultJson->SetBoolField(TEXT("success"), true);
+            ResultJson->SetStringField(TEXT("message"), TEXT("Progress bar already exists"));
+            ResultJson->SetStringField(TEXT("slotName"), SlotName);
+            McpHandlerUtils::AddVerification(ResultJson, WidgetBP);
+            SendAutomationResponse(RequestingSocket, RequestId, true, TEXT("Progress bar already exists"), ResultJson);
             return true;
         }
 

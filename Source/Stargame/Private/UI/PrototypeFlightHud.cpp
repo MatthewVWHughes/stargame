@@ -2,16 +2,70 @@
 
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
+#include "Core/StargamePlayerController.h"
 #include "Flight/SpaceFlightPawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Runtime/StargameSessionSubsystem.h"
 #include "Space/StarSystemSubsystem.h"
+#include "HAL/IConsoleManager.h"
+
+namespace
+{
+	TAutoConsoleVariable<int32> CVarStargameDebugCanvasHud(
+		TEXT("stargame.DebugCanvasHud"),
+		0,
+		TEXT("Draw the legacy C++ Canvas flight HUD. Normal HUD presentation is Blueprint-owned."),
+		ECVF_Default);
+
+	FString MakeReadableId(FName Id)
+	{
+		FString Text = Id.IsNone() ? FString(TEXT("NONE")) : Id.ToString();
+		Text.ReplaceInline(TEXT("_"), TEXT(" "));
+		return Text.ToUpper();
+	}
+
+	FString MakeMissionObjectiveLine(FName ObjectiveType, FName TargetId)
+	{
+		const FString Target = MakeReadableId(TargetId);
+		if (ObjectiveType == FName(TEXT("reach_station")))
+		{
+			return FString::Printf(TEXT("FLY TO %s"), *Target);
+		}
+		if (ObjectiveType == FName(TEXT("clear_station_hostiles")) ||
+			ObjectiveType == FName(TEXT("clear_hostiles")) ||
+			ObjectiveType == FName(TEXT("hostile_boarding")) ||
+			ObjectiveType == FName(TEXT("boarding_clearance")))
+		{
+			return FString::Printf(TEXT("BOARD AND CLEAR HOSTILES AT %s"), *Target);
+		}
+		return FString::Printf(TEXT("%s  %s"), *MakeReadableId(ObjectiveType), *Target);
+	}
+
+	FString MakeMissionContactLine(const FDockedMissionContactOption& Contact)
+	{
+		if (Contact.bCanTurnIn)
+		{
+			return TEXT("TURN IN READY");
+		}
+		if (Contact.bCanAccept)
+		{
+			return TEXT("MISSION AVAILABLE");
+		}
+		if (Contact.bCanContinue)
+		{
+			return Contact.ActiveObjectiveTargetId.IsNone()
+				? TEXT("MISSION IN PROGRESS")
+				: MakeMissionObjectiveLine(Contact.ActiveObjectiveType, Contact.ActiveObjectiveTargetId);
+		}
+		return MakeReadableId(Contact.InteractionState);
+	}
+}
 
 void APrototypeFlightHud::DrawHUD()
 {
 	Super::DrawHUD();
 
-	if (!Canvas || !GEngine)
+	if (CVarStargameDebugCanvasHud.GetValueOnGameThread() == 0 || !Canvas || !GEngine)
 	{
 		return;
 	}
@@ -39,11 +93,15 @@ void APrototypeFlightHud::DrawHUD()
 
 	DrawTopStrip(ViewWidth, Scale, TargetViewModels);
 	DrawCenterSymbology(ViewWidth, ViewHeight, Scale);
+	DrawCombatLeadPip(ViewWidth, ViewHeight, Scale);
 	DrawFlightCluster(ViewWidth, ViewHeight, Scale, SpeedMeters, AccelerationMeters, Throttle);
 	DrawSystemsCluster(ViewWidth, ViewHeight, Scale);
 	DrawNavigationTargets(ViewWidth, Scale, TargetViewModels);
 	DrawSupercruiseTelemetry(ViewWidth, Scale, FlightPawn->GetSupercruiseTelemetry());
 	DrawDockingTelemetry(ViewWidth, Scale, FlightPawn->GetDockingOperationState());
+	DrawActiveMissionPanel(ViewWidth, Scale);
+	DrawRuntimeEncounterPanel(ViewWidth, ViewHeight, Scale);
+	DrawDockedStationPanel(ViewWidth, ViewHeight, Scale);
 	DrawRadarReserve(ViewWidth, ViewHeight, Scale);
 }
 
@@ -120,6 +178,43 @@ void APrototypeFlightHud::DrawCenterSymbology(float ViewWidth, float ViewHeight,
 	DrawLine(CenterX - Bracket, CenterY + Bracket, CenterX - Bracket * 0.55f, CenterY + Bracket, SoftCyan, 1.2f * Scale);
 	DrawLine(CenterX + Bracket, CenterY + Bracket * 0.55f, CenterX + Bracket, CenterY + Bracket, SoftCyan, 1.2f * Scale);
 	DrawLine(CenterX + Bracket, CenterY + Bracket, CenterX + Bracket * 0.55f, CenterY + Bracket, SoftCyan, 1.2f * Scale);
+}
+
+void APrototypeFlightHud::DrawCombatLeadPip(float ViewWidth, float ViewHeight, float Scale)
+{
+	const UGameInstance* GameInstance = GetGameInstance();
+	const UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!Session)
+	{
+		return;
+	}
+
+	const FRuntimeEncounterViewModel Encounter = Session->GetRuntimeEncounterView();
+	if (!Encounter.bPlayerWeaponHasLeadPoint || Encounter.PlayerWeaponLeadPointCm.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FVector ScreenPosition = Project(Encounter.PlayerWeaponLeadPointCm);
+	if (ScreenPosition.Z <= 0.0f)
+	{
+		return;
+	}
+
+	const float Margin = 18.0f * Scale;
+	const float X = FMath::Clamp(ScreenPosition.X, Margin, ViewWidth - Margin);
+	const float Y = FMath::Clamp(ScreenPosition.Y, Margin, ViewHeight - Margin);
+	const float Radius = 13.0f * Scale;
+	const float Tick = 6.0f * Scale;
+	const FLinearColor PipColor = Encounter.bPlayerFireSolutionReady
+		? FLinearColor(0.42f, 1.0f, 0.62f, 0.94f)
+		: FLinearColor(1.0f, 0.86f, 0.30f, 0.92f);
+
+	DrawLine(X - Radius, Y, X - Tick, Y, PipColor, 1.6f * Scale);
+	DrawLine(X + Tick, Y, X + Radius, Y, PipColor, 1.6f * Scale);
+	DrawLine(X, Y - Radius, X, Y - Tick, PipColor, 1.6f * Scale);
+	DrawLine(X, Y + Tick, X, Y + Radius, PipColor, 1.6f * Scale);
+	DrawOutlinedRect(X - Tick, Y - Tick, Tick * 2.0f, Tick * 2.0f, PipColor, 1.0f * Scale);
 }
 
 void APrototypeFlightHud::DrawFlightCluster(float ViewWidth, float ViewHeight, float Scale, float SpeedMeters, float AccelerationMeters, float Throttle)
@@ -240,6 +335,353 @@ void APrototypeFlightHud::DrawDockingTelemetry(float ViewWidth, float Scale, con
 	DrawText(FString::Printf(TEXT("STATE %s"), *UEnum::GetValueAsString(Docking.DockingState)), Docking.DockingState == EDockingState::Aborted ? Warning : Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
 	Y += 22.0f * Scale;
 	DrawText(FString::Printf(TEXT("PORT  %s/%s"), *Docking.StationId.ToString(), *Docking.PortId.ToString()), Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
+}
+
+void APrototypeFlightHud::DrawActiveMissionPanel(float ViewWidth, float Scale)
+{
+	const UGameInstance* GameInstance = GetGameInstance();
+	const UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!Session)
+	{
+		return;
+	}
+
+	FMissionWaypointViewModel Mission;
+	if (!Session->GetActiveMissionWaypoint(Mission) || !Mission.bHasActiveMission)
+	{
+		return;
+	}
+
+	const FLinearColor Cyan(0.72f, 0.94f, 1.0f, 0.82f);
+	const FLinearColor Text(1.0f, 0.93f, 0.72f, 0.92f);
+	const FLinearColor Selected(1.0f, 0.86f, 0.30f, 0.95f);
+	const FLinearColor Green(0.42f, 1.0f, 0.62f, 0.88f);
+
+	const float X = 34.0f * Scale;
+	float Y = 260.0f * Scale;
+	DrawText(TEXT("MISSION"), Cyan, X, Y, GEngine->GetSmallFont(), Scale, false);
+	Y += 26.0f * Scale;
+
+	DrawText(*Mission.MissionInstanceId.ToString(), Text, X, Y, GEngine->GetSmallFont(), Scale * 0.78f, false);
+	Y += 22.0f * Scale;
+
+	if (Mission.bReadyToTurnIn)
+	{
+		DrawText(TEXT("STATUS  RETURN TO MISSION CONTACT"), Green, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
+		return;
+	}
+
+	if (!Mission.TargetId.IsNone())
+	{
+		const FString TargetLine = Mission.bTargetResolved
+			? FString::Printf(TEXT("TARGET  %s  %.1f km"), *Mission.TargetId.ToString().ToUpper(), Mission.DistanceCm / 100000.0)
+			: FString::Printf(TEXT("TARGET  %s"), *Mission.TargetId.ToString().ToUpper());
+		DrawText(TargetLine, Mission.bTargetSelected ? Selected : Text, X, Y, GEngine->GetSmallFont(), Scale * 0.9f, false);
+		Y += 22.0f * Scale;
+		DrawText(MakeMissionObjectiveLine(Mission.ObjectiveType, Mission.TargetId), Text, X, Y, GEngine->GetSmallFont(), Scale * 0.82f, false);
+	}
+}
+
+void APrototypeFlightHud::DrawDockedStationPanel(float ViewWidth, float ViewHeight, float Scale)
+{
+	const UGameInstance* GameInstance = GetGameInstance();
+	const UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!Session)
+	{
+		return;
+	}
+
+	FDockedStationCommandPanelView Panel;
+	if (!Session->GetDockedStationCommandPanel(Panel) || !Panel.bDocked)
+	{
+		return;
+	}
+
+	const FLinearColor Frame(0.72f, 0.94f, 1.0f, 0.32f);
+	const FLinearColor Cyan(0.72f, 0.94f, 1.0f, 0.88f);
+	const FLinearColor Text(1.0f, 0.93f, 0.72f, 0.94f);
+	const FLinearColor Yellow(1.0f, 0.86f, 0.30f, 0.95f);
+	const FLinearColor Green(0.42f, 1.0f, 0.62f, 0.88f);
+	const FLinearColor Warning(1.0f, 0.38f, 0.28f, 0.95f);
+
+	const float Width = 520.0f * Scale;
+	const float Height = 548.0f * Scale;
+	const float X = (ViewWidth - Width) * 0.5f;
+	const float Y = ViewHeight - Height - 34.0f * Scale;
+	DrawOutlinedRect(X, Y, Width, Height, Frame, 1.2f * Scale);
+
+	float TextY = Y + 18.0f * Scale;
+	DrawText(TEXT("DOCKED STATION"), Cyan, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale, false);
+	TextY += 26.0f * Scale;
+	const FString StationName = Panel.StationDisplayName.IsEmpty()
+		? Panel.StationId.ToString()
+		: Panel.StationDisplayName.ToString();
+	DrawText(FString::Printf(TEXT("%s / %s"), *StationName.ToUpper(), *Panel.PortId.ToString()), Yellow, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.95f, false);
+	TextY += 22.0f * Scale;
+	const FString OwnerName = Panel.OwnerFactionDisplayName.IsEmpty() ? TEXT("UNKNOWN") : Panel.OwnerFactionDisplayName.ToString();
+	DrawText(FString::Printf(TEXT("OWNER  %s"), *OwnerName.ToUpper()), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.78f, false);
+	TextY += 20.0f * Scale;
+	DrawText(FString::Printf(TEXT("CREDITS  %lld"), static_cast<long long>(Panel.PlayerCredits)), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.78f, false);
+	DrawText(FString::Printf(TEXT("HULL  %.0f/%.0f"), Panel.Hull, Panel.MaxHull), Text, X + 172.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.78f, false);
+	TextY += 24.0f * Scale;
+	DrawText(FString::Printf(TEXT("SERVICES  %d"), Panel.AvailableServiceCount), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.9f, false);
+	DrawText(FString::Printf(TEXT("MARKETS  %d"), Panel.AvailableMarketCount), Text, X + 210.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.9f, false);
+	TextY += 24.0f * Scale;
+	DrawText(FString::Printf(TEXT("MISSIONS  %d"), Panel.AvailableMissionCount), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.9f, false);
+	DrawText(FString::Printf(TEXT("INV  %d/%d"), Panel.PersonalInventorySlotsUsed, Panel.PersonalInventorySlotsMax), Text, X + 210.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.9f, false);
+
+	TextY += 24.0f * Scale;
+	DrawText(TEXT("COMMANDS"), Cyan, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.72f, false);
+	TextY += 18.0f * Scale;
+	DrawText(TEXT("1 REPAIR   2 REFUEL   3 BUY MARKET ITEM"), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.68f, false);
+	TextY += 18.0f * Scale;
+	DrawText(TEXT("4 ACCEPT MISSION   5 TURN IN   F ENTER   U LAUNCH"), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.68f, false);
+	const int32 CommandLimit = FMath::Min(Panel.Commands.Num(), 5);
+	for (int32 CommandIndex = 0; CommandIndex < CommandLimit; ++CommandIndex)
+	{
+		const FDockedStationCommandOption& Command = Panel.Commands[CommandIndex];
+		TextY += 18.0f * Scale;
+		const FString Availability = Command.bAvailable ? TEXT("OK") : TEXT("--");
+		const FString CommandName = Command.DisplayName.IsEmpty() ? Command.CommandId.ToString() : Command.DisplayName.ToString();
+		DrawText(
+			FString::Printf(TEXT("[%s] %s"), *Availability, *CommandName.ToUpper()),
+			Command.bAvailable ? Text : Warning,
+			X + 18.0f * Scale,
+			TextY,
+			GEngine->GetSmallFont(),
+			Scale * 0.68f,
+			false);
+	}
+
+	FDockedMarketView MarketPanel;
+	if (Session->GetDockedMarketView(MarketPanel) && MarketPanel.bAvailable)
+	{
+		TextY += 24.0f * Scale;
+		DrawText(TEXT("MARKET"), Cyan, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.72f, false);
+		DrawText(FString::Printf(TEXT("CREDITS %lld"), static_cast<long long>(MarketPanel.PlayerCredits)), Text, X + 210.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.68f, false);
+		const int32 CommodityLimit = FMath::Min(MarketPanel.Commodities.Num(), 4);
+		for (int32 CommodityIndex = 0; CommodityIndex < CommodityLimit; ++CommodityIndex)
+		{
+			const FDockedMarketCommodityView& Commodity = MarketPanel.Commodities[CommodityIndex];
+			TextY += 18.0f * Scale;
+			const FString CommodityName = Commodity.DisplayName.IsEmpty() ? Commodity.CommodityId.ToString() : Commodity.DisplayName.ToString();
+			DrawText(
+				FString::Printf(TEXT("%s  %lld CR  STOCK %d/%d  HOLD %d  %s"),
+					*CommodityName.ToUpper(),
+					static_cast<long long>(Commodity.UnitPrice),
+					Commodity.Stock,
+					Commodity.MaxStock,
+					Commodity.PlayerCargoQuantity + Commodity.PlayerPersonalInventoryQuantity,
+					Commodity.bCanBuy ? TEXT("BUY") : TEXT("--")),
+				Commodity.bCanBuy ? Text : Warning,
+				X + 18.0f * Scale,
+				TextY,
+				GEngine->GetSmallFont(),
+				Scale * 0.62f,
+				false);
+		}
+	}
+
+	FDockedMissionContactPanelView ContactPanel;
+	if (Session->GetDockedMissionContactPanel(ContactPanel) && !ContactPanel.Contacts.IsEmpty())
+	{
+		const FDockedMissionContactOption& Contact = ContactPanel.Contacts[0];
+		TextY += 24.0f * Scale;
+		const FString ContactName = Contact.DisplayName.IsEmpty() ? Contact.GiverNpcId.ToString() : Contact.DisplayName.ToString();
+		DrawText(
+			FString::Printf(TEXT("CONTACT  %s"), *ContactName.ToUpper()),
+			Cyan,
+			X + 18.0f * Scale,
+			TextY,
+			GEngine->GetSmallFont(),
+			Scale * 0.68f,
+			false);
+		TextY += 18.0f * Scale;
+		DrawText(
+			Contact.RewardText.IsEmpty()
+				? MakeMissionContactLine(Contact)
+				: FString::Printf(TEXT("%s  %s"), *MakeMissionContactLine(Contact), *Contact.RewardText.ToUpper()),
+			Contact.bCanTurnIn ? Green : Contact.bHasMission ? Text : Warning,
+			X + 18.0f * Scale,
+			TextY,
+			GEngine->GetSmallFont(),
+			Scale * 0.68f,
+			false);
+		if (!Contact.ActiveObjectiveTargetId.IsNone())
+		{
+			TextY += 18.0f * Scale;
+			DrawText(
+				MakeMissionObjectiveLine(Contact.ActiveObjectiveType, Contact.ActiveObjectiveTargetId),
+				Text,
+				X + 18.0f * Scale,
+				TextY,
+				GEngine->GetSmallFont(),
+				Scale * 0.62f,
+				false);
+		}
+	}
+
+	FDockedInventoryEquipmentPanelView InventoryPanel;
+	if (Session->GetDockedInventoryEquipmentPanel(InventoryPanel))
+	{
+		TextY += 22.0f * Scale;
+		DrawText(
+			FString::Printf(TEXT("LOADOUT  P%d  S%d  INV %d/%d  CARGO %d"),
+				InventoryPanel.PlayerLoadout.Num(),
+				InventoryPanel.ShipLoadout.Num(),
+				InventoryPanel.PersonalInventorySlotsUsed,
+				InventoryPanel.PersonalInventorySlotsMax,
+				InventoryPanel.ShipCargoStacks),
+			Text,
+			X + 18.0f * Scale,
+			TextY,
+			GEngine->GetSmallFont(),
+			Scale * 0.62f,
+			false);
+		for (const FDockedEquipmentSlotView& Slot : InventoryPanel.ShipLoadout)
+		{
+			if (Slot.SlotId == FName(TEXT("ship_weapon_hardpoint_1")) || Slot.SlotId == FName(TEXT("ship_shield")))
+			{
+				TextY += 18.0f * Scale;
+				const FString ItemName = Slot.EquippedDisplayName.IsEmpty() ? Slot.EquippedItemId.ToString() : Slot.EquippedDisplayName.ToString();
+				DrawText(
+					FString::Printf(TEXT("%s  %s"), *Slot.SlotId.ToString().ToUpper(), Slot.bOccupied ? *ItemName.ToUpper() : TEXT("EMPTY")),
+					Slot.bOccupied ? Text : Warning,
+					X + 18.0f * Scale,
+					TextY,
+					GEngine->GetSmallFont(),
+					Scale * 0.58f,
+					false);
+			}
+		}
+		const int32 CargoLimit = FMath::Min(InventoryPanel.ShipCargo.Num(), 2);
+		for (int32 CargoIndex = 0; CargoIndex < CargoLimit; ++CargoIndex)
+		{
+			const FDockedInventoryStackView& Stack = InventoryPanel.ShipCargo[CargoIndex];
+			TextY += 18.0f * Scale;
+			const FString StackName = Stack.DisplayName.IsEmpty() ? Stack.ItemId.ToString() : Stack.DisplayName.ToString();
+			DrawText(
+				FString::Printf(TEXT("CARGO  %s x%d"), *StackName.ToUpper(), Stack.Quantity),
+				Text,
+				X + 18.0f * Scale,
+				TextY,
+				GEngine->GetSmallFont(),
+				Scale * 0.58f,
+				false);
+		}
+	}
+
+	const AStargamePlayerController* StargameController = Cast<AStargamePlayerController>(GetOwningPlayerController());
+	if (StargameController && StargameController->HasLastDockedStationCommandResult())
+	{
+		const FDockedStationCommandResult Result = StargameController->GetLastDockedStationCommandResult();
+		TextY += 24.0f * Scale;
+		DrawText(
+			FString::Printf(TEXT("LAST  %s  %s"), *Result.CommandId.ToString(), Result.bAccepted ? TEXT("ACCEPTED") : TEXT("REJECTED")),
+			Result.bAccepted ? Green : Warning,
+			X + 18.0f * Scale,
+			TextY,
+			GEngine->GetSmallFont(),
+			Scale * 0.78f,
+			false);
+	}
+}
+
+void APrototypeFlightHud::DrawRuntimeEncounterPanel(float ViewWidth, float ViewHeight, float Scale)
+{
+	const UGameInstance* GameInstance = GetGameInstance();
+	const UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!Session)
+	{
+		return;
+	}
+
+	const FRuntimeEncounterViewModel Encounter = Session->GetRuntimeEncounterView();
+	if (!Encounter.bHasEncounterActor && !Encounter.bPirateAmbushActive && !Encounter.bPatrolResponseActive && !Encounter.bResolvedEncounter)
+	{
+		return;
+	}
+
+	const FLinearColor Frame(0.72f, 0.94f, 1.0f, 0.32f);
+	const FLinearColor Cyan(0.72f, 0.94f, 1.0f, 0.88f);
+	const FLinearColor Text(1.0f, 0.93f, 0.72f, 0.94f);
+	const FLinearColor Yellow(1.0f, 0.86f, 0.30f, 0.95f);
+	const FLinearColor Green(0.42f, 1.0f, 0.62f, 0.88f);
+	const FLinearColor Warning(1.0f, 0.38f, 0.28f, 0.95f);
+
+	const float Width = 376.0f * Scale;
+	const float Height = Encounter.bResolvedEncounter ? 144.0f * Scale : 372.0f * Scale;
+	const float X = (ViewWidth - Width) * 0.5f;
+	const float Y = ViewHeight * 0.5f + 92.0f * Scale;
+	DrawOutlinedRect(X, Y, Width, Height, Frame, 1.2f * Scale);
+
+	float TextY = Y + 18.0f * Scale;
+	DrawText(Encounter.bPirateAmbushActive ? TEXT("PIRATE INTERDICTION") : TEXT("ENCOUNTER"), Encounter.bResolvedEncounter ? Green : Warning, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale, false);
+	TextY += 26.0f * Scale;
+	DrawText(FString::Printf(TEXT("%s  %.1f km"), *Encounter.EncounterId.ToString().ToUpper(), Encounter.DistanceCm / 100000.0), Yellow, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.82f, false);
+	TextY += 22.0f * Scale;
+	DrawText(FString::Printf(TEXT("ROLE %s  INTENT %s"), *Encounter.Role.ToString().ToUpper(), *Encounter.IntentType.ToString().ToUpper()), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.78f, false);
+	TextY += 22.0f * Scale;
+	DrawText(FString::Printf(TEXT("BEHAVIOR %s  COMMS %s"), *Encounter.BehaviorVariantId.ToString().ToUpper(), *Encounter.CommsVariantId.ToString().ToUpper()), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.66f, false);
+	TextY += 22.0f * Scale;
+	if (!Encounter.CommsLine.IsEmpty())
+	{
+		DrawText(Encounter.CommsLine, Cyan, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.68f, false);
+		TextY += 22.0f * Scale;
+	}
+	DrawText(FString::Printf(TEXT("STATE %s  CLOSING %.1f km"), *Encounter.LocalBehaviorStateId.ToString().ToUpper(), Encounter.DistanceTrendCm / 100000.0), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.66f, false);
+	TextY += 22.0f * Scale;
+
+	if (Encounter.bResolvedEncounter)
+	{
+		DrawText(FString::Printf(TEXT("RESOLVED  %s"), *Encounter.OutcomeType.ToString().ToUpper()), Green, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.86f, false);
+		return;
+	}
+
+	DrawText(FString::Printf(TEXT("TARGET %s  STATE %s"), *Encounter.TargetShipId.ToString().ToUpper(), *Encounter.TargetDurabilityState.ToString().ToUpper()), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.74f, false);
+	TextY += 22.0f * Scale;
+	DrawText(FString::Printf(TEXT("WEAPON %s  READY %.1fs"), *Encounter.PlayerWeaponItemId.ToString().ToUpper(), Encounter.PlayerWeaponCooldownRemainingSeconds), Encounter.bPlayerWeaponReady ? Green : Yellow, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.74f, false);
+	TextY += 22.0f * Scale;
+	DrawText(FString::Printf(TEXT("CAP %.0f/%.0f  COST %.0f"), Encounter.PlayerWeaponEnergy, Encounter.PlayerWeaponMaxEnergy, Encounter.PlayerWeaponEnergyCost), Encounter.bPlayerWeaponEnergyReady ? Green : Yellow, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.66f, false);
+	TextY += 22.0f * Scale;
+	DrawText(FString::Printf(TEXT("ALIGN %.3f/%.3f"), Encounter.PlayerWeaponAlignmentDot, Encounter.PlayerWeaponMinAlignment), Encounter.bPlayerWeaponAligned ? Green : Yellow, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.66f, false);
+	TextY += 22.0f * Scale;
+	if (!Encounter.PlayerFireSolutionText.IsEmpty())
+	{
+		DrawText(Encounter.PlayerFireSolutionText.ToUpper(), Encounter.bPlayerFireSolutionReady ? Green : Yellow, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.62f, false);
+		TextY += 22.0f * Scale;
+	}
+	if (!Encounter.PlayerWeaponStatId.IsNone())
+	{
+		DrawText(FString::Printf(TEXT("STAT %s  %.0f DMG  %.1fs"), *Encounter.PlayerWeaponStatId.ToString().ToUpper(), Encounter.PlayerWeaponDamageAmount, Encounter.PlayerWeaponCooldownSeconds), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.66f, false);
+		TextY += 22.0f * Scale;
+	}
+	if (!Encounter.HostileResponseStateId.IsNone())
+	{
+		DrawText(FString::Printf(TEXT("HOSTILE %s"), *Encounter.HostileResponseStateId.ToString().ToUpper()), Warning, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.74f, false);
+		TextY += 22.0f * Scale;
+	}
+	if (!Encounter.HostileManeuverStateId.IsNone())
+	{
+		DrawText(FString::Printf(TEXT("RESPONSE %s"), *Encounter.HostileManeuverStateId.ToString().ToUpper()), Warning, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.70f, false);
+		TextY += 22.0f * Scale;
+	}
+	if (!Encounter.ShotPresentationId.IsNone())
+	{
+		DrawText(FString::Printf(TEXT("SHOT %s  %s"), *Encounter.ShotPresentationType.ToString().ToUpper(), Encounter.bRenderedShotActive ? TEXT("RENDERED") : TEXT("FADED")), Cyan, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.70f, false);
+		TextY += 22.0f * Scale;
+	}
+	if (!Encounter.ProjectileState.IsNone())
+	{
+		DrawText(FString::Printf(TEXT("PROJECTILE %s  %.0f/%.0f"), *Encounter.ProjectileState.ToString().ToUpper(), Encounter.ProjectileTravelledCm, Encounter.ProjectileTargetDistanceCm), Cyan, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.70f, false);
+		TextY += 22.0f * Scale;
+	}
+	if (Encounter.bPlayerWeaponFireAccepted)
+	{
+		DrawText(FString::Printf(TEXT("FIRED %s  %.0f DMG"), *Encounter.PlayerWeaponItemId.ToString().ToUpper(), Encounter.PlayerWeaponDamageAmount), Yellow, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.74f, false);
+		TextY += 26.0f * Scale;
+	}
+	DrawText(TEXT("6 ESCAPE    7 SURRENDER    8 PATROL    9 FIRE"), Cyan, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.70f, false);
 }
 
 void APrototypeFlightHud::DrawRadarReserve(float ViewWidth, float ViewHeight, float Scale)

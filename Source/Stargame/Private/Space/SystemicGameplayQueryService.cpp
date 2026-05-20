@@ -55,9 +55,613 @@ namespace
 		}
 	}
 
+	bool ContainerHasStackId(const FContainerState& Container, FName StackId)
+	{
+		return Container.Stacks.ContainsByPredicate([StackId](const FItemStackState& Candidate)
+		{
+			return Candidate.StackId == StackId;
+		});
+	}
+
+	FName MakeUniqueStackId(const FContainerState& Container, FName StackIdPrefix)
+	{
+		for (int32 CandidateIndex = Container.Stacks.Num() + 1; CandidateIndex < TNumericLimits<int32>::Max(); ++CandidateIndex)
+		{
+			const FName CandidateId = FName(*FString::Printf(TEXT("%s_%03d"), *StackIdPrefix.ToString(), CandidateIndex));
+			if (!ContainerHasStackId(Container, CandidateId))
+			{
+				return CandidateId;
+			}
+		}
+
+		return FName(*FString::Printf(TEXT("%s_overflow"), *StackIdPrefix.ToString()));
+	}
+
 	bool HasNamedGameplayTag(const FGameplayTagContainer& Tags, const TCHAR* Token)
 	{
 		return Tags.ToStringSimple().Contains(Token, ESearchCase::IgnoreCase);
+	}
+
+	bool MissionObjectivesComplete(const FSystemicGameplayState& State, const FMissionInstanceState& Mission)
+	{
+		if (Mission.ObjectiveStateIds.IsEmpty())
+		{
+			return false;
+		}
+
+		for (const FName ObjectiveStateId : Mission.ObjectiveStateIds)
+		{
+			const FObjectiveState* Objective = FindConst(State.ObjectiveStates, [ObjectiveStateId](const FObjectiveState& Candidate)
+			{
+				return Candidate.ObjectiveStateId == ObjectiveStateId;
+			});
+			if (!Objective || Objective->State != FName(TEXT("completed")))
+			{
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	double ResolvePositiveCapacity(double AuthoredCapacity, double FallbackCapacity)
+	{
+		return AuthoredCapacity > UE_SMALL_NUMBER ? AuthoredCapacity : FallbackCapacity;
+	}
+
+	int64 CalculateServiceTotalCost(double Amount, int64 UnitPriceCredits)
+	{
+		return static_cast<int64>(FMath::RoundToDouble(Amount * static_cast<double>(UnitPriceCredits)));
+	}
+
+	void EnsureMissionDefinition(
+		FSystemicGameplayState& State,
+		FName MissionDefinitionId,
+		const TCHAR* Title,
+		const TCHAR* Summary,
+		const TCHAR* OfferDialog,
+		const TCHAR* InProgressDialog,
+		const TCHAR* TurnInDialog)
+	{
+		if (State.MissionDefinitions.ContainsByPredicate([MissionDefinitionId](const FMissionDefinition& MissionDefinition)
+		{
+			return MissionDefinition.MissionDefinitionId == MissionDefinitionId;
+		}))
+		{
+			return;
+		}
+
+		FMissionDefinition MissionDefinition;
+		MissionDefinition.MissionDefinitionId = MissionDefinitionId;
+		MissionDefinition.Title = FText::FromString(Title);
+		MissionDefinition.Summary = FText::FromString(Summary);
+		MissionDefinition.OfferDialog = FText::FromString(OfferDialog);
+		MissionDefinition.AcceptedDialog = FText::FromString(TEXT("Contract accepted. I will keep the channel open."));
+		MissionDefinition.InProgressDialog = FText::FromString(InProgressDialog);
+		MissionDefinition.TurnInDialog = FText::FromString(TurnInDialog);
+		State.MissionDefinitions.Add(MissionDefinition);
+	}
+
+	void EnsureHostileBoardingMissionFixture(FSystemicGameplayState& State)
+	{
+		EnsureMissionDefinition(
+			State,
+			TEXT("mission_m12_derelict_boarding"),
+			TEXT("Derelict Boarding"),
+			TEXT("Board the derelict outpost, clear the threat, and report back."),
+			TEXT("We have a dead outpost on the lane and no response from inside. Dock, sweep it, then return."),
+			TEXT("The outpost still needs clearing. Board the station and remove the hostile presence."),
+			TEXT("That clears the report. The escrow is ready for release."));
+
+		if (!State.CreditAccounts.ContainsByPredicate([](const FCreditAccountRecord& Account)
+		{
+			return Account.AccountId == FName(TEXT("account_wayfarer_mission_escrow"));
+		}))
+		{
+			FCreditAccountRecord Account;
+			Account.AccountId = TEXT("account_wayfarer_mission_escrow");
+			Account.OwnerType = TEXT("mission_escrow");
+			Account.OwnerId = TEXT("brink_watch");
+			Account.AvailableBalance = 50000;
+			State.CreditAccounts.Add(Account);
+		}
+
+		if (!State.MissionOffers.ContainsByPredicate([](const FMissionOfferRecord& Offer)
+		{
+			return Offer.OfferId == FName(TEXT("offer_m12_derelict_boarding_01"));
+		}))
+		{
+			FMissionOfferRecord Offer;
+			Offer.OfferId = TEXT("offer_m12_derelict_boarding_01");
+			Offer.MissionDefinitionId = TEXT("mission_m12_derelict_boarding");
+			Offer.SourceStationId = TEXT("brink_watch");
+			Offer.SourceServiceEndpointId = TEXT("service_brink_watch_mission_board");
+			Offer.IssuerFactionId = TEXT("frontier_local_authority");
+			Offer.GiverNpcId = TEXT("npc_brink_watch_dispatch");
+			Offer.RequiredStationTags = { TEXT("frontier_security") };
+			State.MissionOffers.Add(Offer);
+		}
+
+		if (!State.MissionInstances.ContainsByPredicate([](const FMissionInstanceState& Mission)
+		{
+			return Mission.MissionInstanceId == FName(TEXT("mission_m12_derelict_boarding_01"));
+		}))
+		{
+			FMissionInstanceState Mission;
+			Mission.MissionInstanceId = TEXT("mission_m12_derelict_boarding_01");
+			Mission.MissionDefinitionId = TEXT("mission_m12_derelict_boarding");
+			Mission.OfferId = TEXT("offer_m12_derelict_boarding_01");
+			Mission.OwnerId = TEXT("player");
+			Mission.IssuerFactionId = TEXT("frontier_local_authority");
+			Mission.CurrentState = TEXT("offered");
+			Mission.ObjectiveStateIds = { TEXT("objective_m12_derelict_reach"), TEXT("objective_m12_derelict_clear") };
+			Mission.RewardEscrowIds = { TEXT("escrow_m12_derelict_boarding_01") };
+			Mission.IdempotencyKey = TEXT("idem_m12_mission_derelict_boarding");
+			State.MissionInstances.Add(Mission);
+		}
+
+		if (!State.ObjectiveStates.ContainsByPredicate([](const FObjectiveState& Objective)
+		{
+			return Objective.ObjectiveStateId == FName(TEXT("objective_m12_derelict_reach"));
+		}))
+		{
+			FObjectiveState Objective;
+			Objective.ObjectiveStateId = TEXT("objective_m12_derelict_reach");
+			Objective.MissionInstanceId = TEXT("mission_m12_derelict_boarding_01");
+			Objective.ObjectiveType = TEXT("reach_station");
+			Objective.TargetType = TEXT("station");
+			Objective.TargetId = TEXT("derelict_outpost_01");
+			Objective.JurisdictionId = TEXT("frontier_local_authority");
+			Objective.State = TEXT("inactive");
+			State.ObjectiveStates.Add(Objective);
+		}
+
+		if (!State.ObjectiveStates.ContainsByPredicate([](const FObjectiveState& Objective)
+		{
+			return Objective.ObjectiveStateId == FName(TEXT("objective_m12_derelict_clear"));
+		}))
+		{
+			FObjectiveState Objective;
+			Objective.ObjectiveStateId = TEXT("objective_m12_derelict_clear");
+			Objective.MissionInstanceId = TEXT("mission_m12_derelict_boarding_01");
+			Objective.ObjectiveType = TEXT("clear_station_hostiles");
+			Objective.TargetType = TEXT("station");
+			Objective.TargetId = TEXT("derelict_outpost_01");
+			Objective.JurisdictionId = TEXT("frontier_local_authority");
+			Objective.State = TEXT("inactive");
+			State.ObjectiveStates.Add(Objective);
+		}
+
+		if (!State.EscrowHolds.ContainsByPredicate([](const FEscrowHoldRecord& Escrow)
+		{
+			return Escrow.EscrowId == FName(TEXT("escrow_m12_derelict_boarding_01"));
+		}))
+		{
+			FEscrowHoldRecord Escrow;
+			Escrow.EscrowId = TEXT("escrow_m12_derelict_boarding_01");
+			Escrow.HoldingAccountId = TEXT("account_wayfarer_mission_escrow");
+			Escrow.BeneficiaryAccountId = TEXT("account_player");
+			Escrow.Amount = 500;
+			Escrow.Reason = TEXT("m12_derelict_boarding_reward");
+			Escrow.SourceEventId = TEXT("event_m12_derelict_boarding_seed");
+			Escrow.IdempotencyKey = TEXT("idem_m12_escrow_derelict_boarding");
+			State.EscrowHolds.Add(Escrow);
+		}
+	}
+
+	void EnsureGodotMissionBreadthFixture(FSystemicGameplayState& State)
+	{
+		auto EnsureAccount = [&State](FName AccountId, FName OwnerType, FName OwnerId, int64 Balance)
+		{
+			if (!State.CreditAccounts.ContainsByPredicate([AccountId](const FCreditAccountRecord& Account)
+			{
+				return Account.AccountId == AccountId;
+			}))
+			{
+				FCreditAccountRecord Account;
+				Account.AccountId = AccountId;
+				Account.OwnerType = OwnerType;
+				Account.OwnerId = OwnerId;
+				Account.AvailableBalance = Balance;
+				State.CreditAccounts.Add(Account);
+			}
+		};
+		EnsureAccount(TEXT("account_wayfarer_mission_escrow"), TEXT("mission_escrow"), TEXT("wayfarer_depot"), 50000);
+
+		EnsureMissionDefinition(
+			State,
+			TEXT("mission_m12_frontier_feedstock"),
+			TEXT("Frontier Feedstock"),
+			TEXT("Move industrial feedstock from Brink Watch to Wayfarer Depot and return for payment."),
+			TEXT("Wayfarer Depot needs feedstock moved across the lane. Deliver the manifest and come back for settlement."),
+			TEXT("The feedstock run is still open. Get the cargo to Wayfarer Depot, then return to Brink Watch."),
+			TEXT("Feedstock delivery is confirmed. I can close the contract."));
+		EnsureMissionDefinition(
+			State,
+			TEXT("mission_m12_wayfarer_relief"),
+			TEXT("Wayfarer Relief"),
+			TEXT("Carry relief water from Wayfarer Depot back to Brink Watch."),
+			TEXT("Brink Watch is short on relief water. Take this manifest back across the lane and return here."),
+			TEXT("The relief run is active. Deliver the water to Brink Watch and return to Wayfarer Depot."),
+			TEXT("Relief delivery is logged. The depot can release your payment."));
+		EnsureMissionDefinition(
+			State,
+			TEXT("mission_m12_wayfarer_approach_sweep"),
+			TEXT("Wayfarer Approach Sweep"),
+			TEXT("Respond to hostile pressure near the trade lane and report back to Wayfarer Depot."),
+			TEXT("We have raiders probing the approach. Push them off the lane and return to me."),
+			TEXT("The approach sweep is still live. Resolve the hostile contact and come back to Wayfarer."),
+			TEXT("The approach is clear enough for traffic. I can close this out."));
+		EnsureMissionDefinition(
+			State,
+			TEXT("mission_m12_outpost_manifest"),
+			TEXT("Outpost Manifest"),
+			TEXT("Board the derelict outpost, recover its records, and return to Wayfarer Depot."),
+			TEXT("The derelict outpost may still have useful records. Board it, secure the site, and bring back what you find."),
+			TEXT("The manifest recovery is still open. Secure the derelict and return to Wayfarer Depot."),
+			TEXT("The outpost records are back in our hands. Payment is ready."));
+
+		if (!State.CommsEndpoints.ContainsByPredicate([](const FCommsEndpointDefinition& Endpoint)
+		{
+			return Endpoint.EndpointId == FName(TEXT("comms_wayfarer_depot"));
+		}))
+		{
+			FCommsEndpointDefinition Comms;
+			Comms.EndpointId = TEXT("comms_wayfarer_depot");
+			Comms.OwnerType = TEXT("station");
+			Comms.OwnerId = TEXT("wayfarer_depot");
+			Comms.AvailableChannels = { TEXT("cockpit_comms"), TEXT("docked_menu") };
+			Comms.AccessPolicyId = TEXT("frontier_open_access");
+			State.CommsEndpoints.Add(Comms);
+		}
+
+		if (!State.StationServiceEndpoints.ContainsByPredicate([](const FStationServiceEndpointDefinition& Endpoint)
+		{
+			return Endpoint.ServiceEndpointId == FName(TEXT("service_wayfarer_depot_mission_board"));
+		}))
+		{
+			FStationServiceEndpointDefinition Endpoint;
+			Endpoint.ServiceEndpointId = TEXT("service_wayfarer_depot_mission_board");
+			Endpoint.StationId = TEXT("wayfarer_depot");
+			Endpoint.ServiceType = TEXT("mission_board");
+			Endpoint.ProviderFactionId = TEXT("frontier_local_authority");
+			Endpoint.CommsEndpointId = TEXT("comms_wayfarer_depot");
+			Endpoint.CreditAccountId = TEXT("account_wayfarer_mission_escrow");
+			Endpoint.AccessPolicyId = TEXT("frontier_open_access");
+			Endpoint.PresentationModes = { TEXT("docked_menu"), TEXT("cockpit_comms"), TEXT("fps_counter") };
+			State.StationServiceEndpoints.Add(Endpoint);
+		}
+
+		auto AddEscrow = [&State](FName EscrowId, int64 Amount, FName Reason)
+		{
+			if (State.EscrowHolds.ContainsByPredicate([EscrowId](const FEscrowHoldRecord& Escrow)
+			{
+				return Escrow.EscrowId == EscrowId;
+			}))
+			{
+				return;
+			}
+
+			FEscrowHoldRecord Escrow;
+			Escrow.EscrowId = EscrowId;
+			Escrow.HoldingAccountId = TEXT("account_wayfarer_mission_escrow");
+			Escrow.BeneficiaryAccountId = TEXT("account_player");
+			Escrow.Amount = Amount;
+			Escrow.Reason = Reason;
+			Escrow.SourceEventId = MakeId(TEXT("event_seed"), EscrowId);
+			Escrow.IdempotencyKey = MakeId(TEXT("idem_seed"), EscrowId);
+			State.EscrowHolds.Add(Escrow);
+		};
+
+		auto AddOffer = [&State](FName OfferId, FName MissionDefinitionId, FName StationId, FName EndpointId, FName GiverNpcId, TArray<FName> RequiredTags)
+		{
+			if (State.MissionOffers.ContainsByPredicate([OfferId](const FMissionOfferRecord& Offer)
+			{
+				return Offer.OfferId == OfferId;
+			}))
+			{
+				return;
+			}
+
+			FMissionOfferRecord Offer;
+			Offer.OfferId = OfferId;
+			Offer.MissionDefinitionId = MissionDefinitionId;
+			Offer.SourceStationId = StationId;
+			Offer.SourceServiceEndpointId = EndpointId;
+			Offer.IssuerFactionId = TEXT("frontier_local_authority");
+			Offer.GiverNpcId = GiverNpcId;
+			Offer.RequiredStationTags = RequiredTags;
+			State.MissionOffers.Add(Offer);
+		};
+
+		auto AddMission = [&State](FName MissionInstanceId, FName MissionDefinitionId, FName OfferId, TArray<FName> ObjectiveIds, FName EscrowId)
+		{
+			if (State.MissionInstances.ContainsByPredicate([MissionInstanceId](const FMissionInstanceState& Mission)
+			{
+				return Mission.MissionInstanceId == MissionInstanceId;
+			}))
+			{
+				return;
+			}
+
+			FMissionInstanceState Mission;
+			Mission.MissionInstanceId = MissionInstanceId;
+			Mission.MissionDefinitionId = MissionDefinitionId;
+			Mission.OfferId = OfferId;
+			Mission.OwnerId = TEXT("player");
+			Mission.IssuerFactionId = TEXT("frontier_local_authority");
+			Mission.CurrentState = TEXT("offered");
+			Mission.ObjectiveStateIds = ObjectiveIds;
+			Mission.RewardEscrowIds = { EscrowId };
+			Mission.IdempotencyKey = MakeId(TEXT("idem_seed_mission"), MissionInstanceId);
+			State.MissionInstances.Add(Mission);
+		};
+
+		auto AddObjective = [&State](FName ObjectiveId, FName MissionInstanceId, FName ObjectiveType, FName TargetType, FName TargetId, FName ManifestId = NAME_None)
+		{
+			if (State.ObjectiveStates.ContainsByPredicate([ObjectiveId](const FObjectiveState& Objective)
+			{
+				return Objective.ObjectiveStateId == ObjectiveId;
+			}))
+			{
+				return;
+			}
+
+			FObjectiveState Objective;
+			Objective.ObjectiveStateId = ObjectiveId;
+			Objective.MissionInstanceId = MissionInstanceId;
+			Objective.ObjectiveType = ObjectiveType;
+			Objective.TargetType = TargetType;
+			Objective.TargetId = TargetId;
+			Objective.RouteSegmentIds = { TEXT("m7_brink_watch_wayfarer_trade") };
+			Objective.RequiredCargoManifestId = ManifestId;
+			Objective.JurisdictionId = TEXT("frontier_local_authority");
+			Objective.State = TEXT("inactive");
+			State.ObjectiveStates.Add(Objective);
+		};
+
+		auto AddCargoManifest = [&State](FName CargoManifestId, FName ManifestType, FName SourceId, FName DestinationId, TArray<FCargoManifestLine> Lines)
+		{
+			if (State.CargoManifests.ContainsByPredicate([CargoManifestId](const FCargoManifestDefinition& Manifest)
+			{
+				return Manifest.CargoManifestId == CargoManifestId;
+			}))
+			{
+				return;
+			}
+
+			FCargoManifestDefinition Manifest;
+			Manifest.CargoManifestId = CargoManifestId;
+			Manifest.ManifestType = ManifestType;
+			Manifest.SourceId = SourceId;
+			Manifest.DestinationId = DestinationId;
+			Manifest.Lines = Lines;
+			Manifest.State = TEXT("available");
+			State.CargoManifests.Add(Manifest);
+		};
+
+		auto MakeManifestLine = [](FName LineId, FName ItemId, FName CommodityId, int32 Quantity)
+		{
+			FCargoManifestLine Line;
+			Line.LineId = LineId;
+			Line.ItemId = ItemId;
+			Line.CommodityId = CommodityId;
+			Line.Quantity = Quantity;
+			return Line;
+		};
+
+		AddCargoManifest(TEXT("manifest_m12_wayfarer_security"), TEXT("delivery"), TEXT("brink_watch"), TEXT("wayfarer_depot"), {
+			MakeManifestLine(TEXT("line_m12_wayfarer_security_parts"), TEXT("synthetic_parts"), TEXT("synthetic_parts"), 4)
+		});
+		AddCargoManifest(TEXT("manifest_m12_frontier_feedstock"), TEXT("delivery"), TEXT("brink_watch"), TEXT("wayfarer_depot"), {
+			MakeManifestLine(TEXT("line_m12_feedstock_iron"), TEXT("iron"), TEXT("iron"), 16)
+		});
+		AddCargoManifest(TEXT("manifest_m12_wayfarer_relief"), TEXT("delivery"), TEXT("wayfarer_depot"), TEXT("brink_watch"), {
+			MakeManifestLine(TEXT("line_m12_relief_water"), TEXT("water"), TEXT("water"), 12)
+		});
+		AddCargoManifest(TEXT("manifest_m12_outpost_records"), TEXT("quest_recovery"), TEXT("derelict_outpost_01"), TEXT("wayfarer_depot"), {});
+
+		AddOffer(TEXT("offer_m12_frontier_feedstock_01"), TEXT("mission_m12_frontier_feedstock"), TEXT("brink_watch"), TEXT("service_brink_watch_mission_board"), TEXT("npc_brink_market_factor"), { TEXT("ore_trade") });
+		AddMission(TEXT("mission_m12_frontier_feedstock_01"), TEXT("mission_m12_frontier_feedstock"), TEXT("offer_m12_frontier_feedstock_01"), { TEXT("objective_m12_feedstock_deliver"), TEXT("objective_m12_feedstock_return") }, TEXT("escrow_m12_frontier_feedstock_01"));
+		AddObjective(TEXT("objective_m12_feedstock_deliver"), TEXT("mission_m12_frontier_feedstock_01"), TEXT("deliver_cargo"), TEXT("station"), TEXT("wayfarer_depot"), TEXT("manifest_m12_frontier_feedstock"));
+		AddObjective(TEXT("objective_m12_feedstock_return"), TEXT("mission_m12_frontier_feedstock_01"), TEXT("return_to_giver"), TEXT("station"), TEXT("brink_watch"));
+		AddEscrow(TEXT("escrow_m12_frontier_feedstock_01"), 700, TEXT("m12_frontier_feedstock_reward"));
+
+		AddOffer(TEXT("offer_m12_wayfarer_relief_01"), TEXT("mission_m12_wayfarer_relief"), TEXT("wayfarer_depot"), TEXT("service_wayfarer_depot_mission_board"), TEXT("npc_wayfarer_depot_master"), { TEXT("route_delivery"), TEXT("trade_lane") });
+		AddMission(TEXT("mission_m12_wayfarer_relief_01"), TEXT("mission_m12_wayfarer_relief"), TEXT("offer_m12_wayfarer_relief_01"), { TEXT("objective_m12_relief_deliver"), TEXT("objective_m12_relief_return") }, TEXT("escrow_m12_wayfarer_relief_01"));
+		AddObjective(TEXT("objective_m12_relief_deliver"), TEXT("mission_m12_wayfarer_relief_01"), TEXT("deliver_cargo"), TEXT("station"), TEXT("brink_watch"), TEXT("manifest_m12_wayfarer_relief"));
+		AddObjective(TEXT("objective_m12_relief_return"), TEXT("mission_m12_wayfarer_relief_01"), TEXT("return_to_giver"), TEXT("station"), TEXT("wayfarer_depot"));
+		AddEscrow(TEXT("escrow_m12_wayfarer_relief_01"), 650, TEXT("m12_wayfarer_relief_reward"));
+
+		AddOffer(TEXT("offer_m12_wayfarer_approach_sweep_01"), TEXT("mission_m12_wayfarer_approach_sweep"), TEXT("wayfarer_depot"), TEXT("service_wayfarer_depot_mission_board"), TEXT("npc_wayfarer_depot_master"), { TEXT("distress_response"), TEXT("trade_lane") });
+		AddMission(TEXT("mission_m12_wayfarer_approach_sweep_01"), TEXT("mission_m12_wayfarer_approach_sweep"), TEXT("offer_m12_wayfarer_approach_sweep_01"), { TEXT("objective_m12_wayfarer_sweep"), TEXT("objective_m12_wayfarer_sweep_return") }, TEXT("escrow_m12_wayfarer_approach_sweep_01"));
+		AddObjective(TEXT("objective_m12_wayfarer_sweep"), TEXT("mission_m12_wayfarer_approach_sweep_01"), TEXT("security_response"), TEXT("encounter"), TEXT("encounter_pirate_trade_lane_01"));
+		AddObjective(TEXT("objective_m12_wayfarer_sweep_return"), TEXT("mission_m12_wayfarer_approach_sweep_01"), TEXT("return_to_giver"), TEXT("station"), TEXT("wayfarer_depot"));
+		AddEscrow(TEXT("escrow_m12_wayfarer_approach_sweep_01"), 750, TEXT("m12_wayfarer_approach_sweep_reward"));
+
+		AddOffer(TEXT("offer_m12_outpost_manifest_01"), TEXT("mission_m12_outpost_manifest"), TEXT("wayfarer_depot"), TEXT("service_wayfarer_depot_mission_board"), TEXT("npc_wayfarer_depot_master"), { TEXT("distress_response"), TEXT("trade_lane") });
+		AddMission(TEXT("mission_m12_outpost_manifest_01"), TEXT("mission_m12_outpost_manifest"), TEXT("offer_m12_outpost_manifest_01"), { TEXT("objective_m12_manifest_board"), TEXT("objective_m12_manifest_secure"), TEXT("objective_m12_manifest_return") }, TEXT("escrow_m12_outpost_manifest_01"));
+		AddObjective(TEXT("objective_m12_manifest_board"), TEXT("mission_m12_outpost_manifest_01"), TEXT("reach_station"), TEXT("station"), TEXT("derelict_outpost_01"));
+		AddObjective(TEXT("objective_m12_manifest_secure"), TEXT("mission_m12_outpost_manifest_01"), TEXT("clear_station_hostiles"), TEXT("station"), TEXT("derelict_outpost_01"), TEXT("manifest_m12_outpost_records"));
+		AddObjective(TEXT("objective_m12_manifest_return"), TEXT("mission_m12_outpost_manifest_01"), TEXT("return_to_giver"), TEXT("station"), TEXT("wayfarer_depot"));
+		AddEscrow(TEXT("escrow_m12_outpost_manifest_01"), 900, TEXT("m12_outpost_manifest_reward"));
+	}
+
+	const FObjectiveState* FindFirstActiveMissionObjective(const FSystemicGameplayState& State, const FMissionInstanceState& Mission)
+	{
+		for (const FName ObjectiveStateId : Mission.ObjectiveStateIds)
+		{
+			const FObjectiveState* Objective = FindConst(State.ObjectiveStates, [ObjectiveStateId](const FObjectiveState& Candidate)
+			{
+				return Candidate.ObjectiveStateId == ObjectiveStateId;
+			});
+			if (Objective && Objective->State == FName(TEXT("active")))
+			{
+				return Objective;
+			}
+		}
+
+		return nullptr;
+	}
+
+	FString MakeReadableMissionId(FName Id)
+	{
+		FString Text = Id.IsNone() ? FString(TEXT("Mission")) : Id.ToString();
+		Text.RemoveFromStart(TEXT("mission_m12_"));
+		Text.ReplaceInline(TEXT("_"), TEXT(" "));
+		return Text;
+	}
+
+	FString DescribeObjective(const FObjectiveState& Objective)
+	{
+		const FString Target = Objective.TargetId.IsNone() ? FString(TEXT("target")) : Objective.TargetId.ToString();
+		if (Objective.ObjectiveType == FName(TEXT("deliver_cargo")))
+		{
+			return FString::Printf(TEXT("Deliver cargo to %s."), *Target);
+		}
+		if (Objective.ObjectiveType == FName(TEXT("return_to_giver")))
+		{
+			return FString::Printf(TEXT("Return to %s."), *Target);
+		}
+		if (Objective.ObjectiveType == FName(TEXT("security_response")))
+		{
+			return FString::Printf(TEXT("Resolve the hostile encounter near %s."), *Target);
+		}
+		if (Objective.ObjectiveType == FName(TEXT("reach_station")))
+		{
+			return FString::Printf(TEXT("Reach %s."), *Target);
+		}
+		if (Objective.ObjectiveType == FName(TEXT("clear_station_hostiles")))
+		{
+			return FString::Printf(TEXT("Board and clear hostiles at %s."), *Target);
+		}
+		return FString::Printf(TEXT("%s at %s."), *Objective.ObjectiveType.ToString(), *Target);
+	}
+
+	FString DescribeCargoManifest(const FSystemicGameplayState& State, FName CargoManifestId)
+	{
+		const FCargoManifestDefinition* Manifest = FindConst(State.CargoManifests, [CargoManifestId](const FCargoManifestDefinition& Candidate)
+		{
+			return Candidate.CargoManifestId == CargoManifestId;
+		});
+		if (!Manifest)
+		{
+			return FString();
+		}
+		if (Manifest->ManifestType == FName(TEXT("quest_recovery")))
+		{
+			return FString::Printf(TEXT("Recover payload from %s and return it to %s."), *Manifest->SourceId.ToString(), *Manifest->DestinationId.ToString());
+		}
+
+		TArray<FString> Lines;
+		for (const FCargoManifestLine& Line : Manifest->Lines)
+		{
+			FString ItemName = Line.ItemId.ToString();
+			if (const FItemDefinition* Item = FindConst(State.Items, [&Line](const FItemDefinition& Candidate)
+			{
+				return Candidate.ItemId == Line.ItemId;
+			}))
+			{
+				ItemName = Item->DisplayName.IsEmpty() ? Item->ItemId.ToString() : Item->DisplayName.ToString();
+			}
+			Lines.Add(FString::Printf(TEXT("%d %s"), Line.Quantity, *ItemName));
+		}
+		return Lines.IsEmpty()
+			? FString::Printf(TEXT("Cargo manifest %s."), *CargoManifestId.ToString())
+			: FString::Printf(TEXT("Cargo: %s."), *FString::Join(Lines, TEXT(", ")));
+	}
+
+	int64 ResolveMissionRewardCredits(const FSystemicGameplayState& State, const FMissionInstanceState& Mission)
+	{
+		int64 RewardCredits = 0;
+		for (const FName EscrowId : Mission.RewardEscrowIds)
+		{
+			if (const FEscrowHoldRecord* Escrow = FindConst(State.EscrowHolds, [EscrowId](const FEscrowHoldRecord& Candidate)
+			{
+				return Candidate.EscrowId == EscrowId;
+			}))
+			{
+				RewardCredits += Escrow->Amount;
+			}
+		}
+		return RewardCredits;
+	}
+
+	void FillMissionPresentation(const FSystemicGameplayState& State, const FMissionInstanceState& Mission, FMissionContactInteractionView& OutInteraction)
+	{
+		const FMissionDefinition* MissionDefinition = FindConst(State.MissionDefinitions, [&Mission](const FMissionDefinition& Candidate)
+		{
+			return Candidate.MissionDefinitionId == Mission.MissionDefinitionId;
+		});
+
+		OutInteraction.MissionTitle = MissionDefinition && !MissionDefinition->Title.IsEmpty()
+			? MissionDefinition->Title
+			: FText::FromString(MakeReadableMissionId(Mission.MissionDefinitionId));
+		OutInteraction.RewardCredits = ResolveMissionRewardCredits(State, Mission);
+		OutInteraction.RewardText = OutInteraction.RewardCredits > 0
+			? FString::Printf(TEXT("Reward: %lld credits."), static_cast<long long>(OutInteraction.RewardCredits))
+			: FString(TEXT("Reward: none listed."));
+
+		TArray<FString> ObjectiveLines;
+		TArray<FString> ManifestLines;
+		for (const FName ObjectiveStateId : Mission.ObjectiveStateIds)
+		{
+			const FObjectiveState* Objective = FindConst(State.ObjectiveStates, [ObjectiveStateId](const FObjectiveState& Candidate)
+			{
+				return Candidate.ObjectiveStateId == ObjectiveStateId;
+			});
+			if (!Objective)
+			{
+				continue;
+			}
+			ObjectiveLines.Add(DescribeObjective(*Objective));
+			const FString ManifestLine = DescribeCargoManifest(State, Objective->RequiredCargoManifestId);
+			if (!ManifestLine.IsEmpty())
+			{
+				ManifestLines.Add(ManifestLine);
+			}
+		}
+		OutInteraction.ObjectiveSummaryText = FString::Join(ObjectiveLines, TEXT("\n"));
+		OutInteraction.CargoManifestSummaryText = FString::Join(ManifestLines, TEXT("\n"));
+
+		TArray<FString> DialogLines;
+		if (OutInteraction.InteractionState == FName(TEXT("ready_to_turn_in")))
+		{
+			DialogLines.Add(MissionDefinition && !MissionDefinition->TurnInDialog.IsEmpty()
+				? MissionDefinition->TurnInDialog.ToString()
+				: FString(TEXT("Good work. The contract is ready to close.")));
+			DialogLines.Add(OutInteraction.RewardText);
+		}
+		else if (OutInteraction.InteractionState == FName(TEXT("in_progress")))
+		{
+			DialogLines.Add(MissionDefinition && !MissionDefinition->InProgressDialog.IsEmpty()
+				? MissionDefinition->InProgressDialog.ToString()
+				: FString(TEXT("The contract is active.")));
+			if (const FObjectiveState* Objective = FindFirstActiveMissionObjective(State, Mission))
+			{
+				DialogLines.Add(FString::Printf(TEXT("Objective: %s"), *DescribeObjective(*Objective)));
+			}
+		}
+		else
+		{
+			DialogLines.Add(MissionDefinition && !MissionDefinition->OfferDialog.IsEmpty()
+				? MissionDefinition->OfferDialog.ToString()
+				: FString(TEXT("I have a contract available.")));
+			if (MissionDefinition && !MissionDefinition->Summary.IsEmpty())
+			{
+				DialogLines.Add(MissionDefinition->Summary.ToString());
+			}
+			if (!OutInteraction.ObjectiveSummaryText.IsEmpty())
+			{
+				DialogLines.Add(FString::Printf(TEXT("Objective summary:\n%s"), *OutInteraction.ObjectiveSummaryText));
+			}
+			if (!OutInteraction.CargoManifestSummaryText.IsEmpty())
+			{
+				DialogLines.Add(OutInteraction.CargoManifestSummaryText);
+			}
+			DialogLines.Add(OutInteraction.RewardText);
+		}
+		OutInteraction.DialogText = FString::Join(DialogLines, TEXT("\n\n"));
 	}
 
 	void AddJournalEntry(FSystemicGameplayState& State, FName TransactionId, int32 Sequence, FName SideEffectType, FName SideEffectRefId, FName IdempotencyKey)
@@ -72,6 +676,260 @@ namespace
 		Entry.State = TEXT("applied");
 		Entry.IdempotencyKey = IdempotencyKey;
 		State.TransactionJournal.Add(Entry);
+	}
+
+	FStationInteriorCombatProfileDefinition MakeGodotHostileBoardingCombatProfile()
+	{
+		FStationInteriorCombatProfileDefinition Profile;
+		Profile.ProfileId = TEXT("profile_godot_hostile_boarding_basic");
+		Profile.DisplayName = FText::FromString(TEXT("Godot Hostile Boarding Basic"));
+		Profile.PlayerMaxHealth = 100.0;
+		Profile.PlayerWeaponDamage = 20.0;
+		Profile.PlayerWeaponRangeCm = 6000.0;
+		Profile.PlayerWeaponCooldownSeconds = 0.35;
+		Profile.HostileMaxHealth = 45.0;
+		Profile.HostileFireDamage = 8.0;
+		Profile.HostileDetectionRangeCm = 3500.0;
+		Profile.HostileFireRangeCm = 2800.0;
+		Profile.HostileFireCooldownSeconds = 1.3;
+		Profile.HostileInaccuracyDegrees = FMath::RadiansToDegrees(0.04);
+		Profile.HostileInitialFireDelaySeconds = 0.4;
+		Profile.HostileCount = 3;
+		return Profile;
+	}
+
+	void EnsureGodotHostileBoardingCombatProfile(FSystemicGameplayState& State)
+	{
+		const FName ProfileId(TEXT("profile_godot_hostile_boarding_basic"));
+		if (!State.StationInteriorCombatProfiles.ContainsByPredicate([ProfileId](const FStationInteriorCombatProfileDefinition& Candidate)
+		{
+			return Candidate.ProfileId == ProfileId;
+		}))
+		{
+			State.StationInteriorCombatProfiles.Add(MakeGodotHostileBoardingCombatProfile());
+		}
+	}
+
+	void EnsureGodotInventoryEquipmentFoundation(FSystemicGameplayState& State)
+	{
+		auto AddGodotItem = [&State](FName ItemId, const TCHAR* DisplayName, FName ItemType, int32 StackLimit, int64 BaseValue)
+		{
+			if (State.Items.ContainsByPredicate([ItemId](const FItemDefinition& Candidate)
+			{
+				return Candidate.ItemId == ItemId;
+			}))
+			{
+				return;
+			}
+
+			FItemDefinition Item;
+			Item.ItemId = ItemId;
+			Item.DisplayName = FText::FromString(DisplayName);
+			Item.ItemType = ItemType;
+			Item.StackLimit = StackLimit;
+			Item.MassPerUnitKg = ItemType == FName(TEXT("commodity")) ? 1.0 : 0.0;
+			Item.VolumePerUnitM3 = ItemType == FName(TEXT("commodity")) ? 1.0 : 0.0;
+			Item.BaseValue = BaseValue;
+			State.Items.Add(Item);
+		};
+		auto AddGodotCommodity = [&State](FName CommodityId, const TCHAR* DisplayName, int64 BasePrice, FName Category)
+		{
+			if (!State.Commodities.ContainsByPredicate([CommodityId](const FCommodityDefinition& Candidate)
+			{
+				return Candidate.CommodityId == CommodityId;
+			}))
+			{
+				FCommodityDefinition Commodity;
+				Commodity.CommodityId = CommodityId;
+				Commodity.DisplayName = FText::FromString(DisplayName);
+				Commodity.BasePrice = BasePrice;
+				Commodity.MassPerUnitKg = 1.0;
+				Commodity.VolumePerUnitM3 = 1.0;
+				Commodity.Category = Category;
+				State.Commodities.Add(Commodity);
+			}
+
+			const FName BridgeId(*FString::Printf(TEXT("bridge_%s"), *CommodityId.ToString()));
+			if (!State.CommodityItemBridges.ContainsByPredicate([BridgeId](const FCommodityItemBridge& Candidate)
+			{
+				return Candidate.CommodityItemBridgeId == BridgeId;
+			}))
+			{
+				FCommodityItemBridge Bridge;
+				Bridge.CommodityItemBridgeId = BridgeId;
+				Bridge.CommodityId = CommodityId;
+				Bridge.ItemId = CommodityId;
+				State.CommodityItemBridges.Add(Bridge);
+			}
+		};
+		AddGodotItem(TEXT("food"), TEXT("Food"), TEXT("commodity"), 999, 10);
+		AddGodotItem(TEXT("water"), TEXT("Water"), TEXT("commodity"), 999, 6);
+		AddGodotItem(TEXT("iron"), TEXT("Iron"), TEXT("commodity"), 999, 14);
+		AddGodotItem(TEXT("synthetic_parts"), TEXT("Synthetic Parts"), TEXT("commodity"), 999, 40);
+		AddGodotCommodity(TEXT("food"), TEXT("Food"), 10, TEXT("consumer"));
+		AddGodotCommodity(TEXT("water"), TEXT("Water"), 6, TEXT("life_support"));
+		AddGodotCommodity(TEXT("iron"), TEXT("Iron"), 14, TEXT("ore"));
+		AddGodotCommodity(TEXT("synthetic_parts"), TEXT("Synthetic Parts"), 40, TEXT("industrial"));
+		AddGodotItem(TEXT("pistol_basic"), TEXT("Basic Pistol"), TEXT("player_sidearm"), 1, 120);
+		AddGodotItem(TEXT("rifle_basic"), TEXT("Basic Rifle"), TEXT("player_weapon"), 1, 240);
+		AddGodotItem(TEXT("medkit"), TEXT("Medkit"), TEXT("consumable"), 10, 35);
+		AddGodotItem(TEXT("pulse_laser_mk1"), TEXT("Pulse Laser Mk1"), TEXT("ship_weapon"), 1, 600);
+		AddGodotItem(TEXT("hostile_pulse_laser_mk1"), TEXT("Hostile Pulse Laser Mk1"), TEXT("ship_weapon"), 1, 0);
+		AddGodotItem(TEXT("shield_basic"), TEXT("Basic Shield"), TEXT("ship_shield"), 1, 500);
+		AddGodotItem(TEXT("engine_basic"), TEXT("Basic Engine"), TEXT("ship_engine"), 1, 450);
+		AddGodotItem(TEXT("thrusters_basic"), TEXT("Basic Thrusters"), TEXT("ship_thrusters"), 1, 450);
+		AddGodotItem(TEXT("countermeasures_basic"), TEXT("Basic Countermeasures"), TEXT("ship_countermeasures"), 1, 180);
+		EnsureGodotHostileBoardingCombatProfile(State);
+
+		if (!State.ShipWeaponStats.ContainsByPredicate([](const FShipWeaponStatDefinition& Candidate)
+		{
+			return Candidate.WeaponStatId == FName(TEXT("weapon_stat_pulse_laser_mk1"));
+		}))
+		{
+			FShipWeaponStatDefinition PulseLaserStats;
+			PulseLaserStats.WeaponStatId = TEXT("weapon_stat_pulse_laser_mk1");
+			PulseLaserStats.ItemId = TEXT("pulse_laser_mk1");
+			PulseLaserStats.DamageType = TEXT("energy_weapon");
+			PulseLaserStats.DamageAmount = 14.0;
+			PulseLaserStats.CooldownSeconds = 0.18;
+			PulseLaserStats.EnergyCost = 9.0;
+			PulseLaserStats.EnergyRegenPerSecond = 30.0;
+			PulseLaserStats.MinAlignment = 0.955;
+			PulseLaserStats.RangeCm = 120000.0;
+			PulseLaserStats.ProjectileSpeedCmPerSec = 76000.0;
+			PulseLaserStats.ProjectileCollisionRadiusCm = 850.0;
+			PulseLaserStats.PresentationType = TEXT("projectile_bolt");
+			PulseLaserStats.DisplayName = FText::FromString(TEXT("Pulse Laser Mk1"));
+			State.ShipWeaponStats.Add(PulseLaserStats);
+		}
+		if (!State.ShipWeaponStats.ContainsByPredicate([](const FShipWeaponStatDefinition& Candidate)
+		{
+			return Candidate.WeaponStatId == FName(TEXT("weapon_stat_hostile_pulse_laser"));
+		}))
+		{
+			FShipWeaponStatDefinition HostilePulseLaserStats;
+			HostilePulseLaserStats.WeaponStatId = TEXT("weapon_stat_hostile_pulse_laser");
+			HostilePulseLaserStats.ItemId = TEXT("hostile_pulse_laser_mk1");
+			HostilePulseLaserStats.DamageType = TEXT("energy_weapon");
+			HostilePulseLaserStats.DamageAmount = 12.0;
+			HostilePulseLaserStats.CooldownSeconds = 0.35;
+			HostilePulseLaserStats.EnergyCost = 14.0;
+			HostilePulseLaserStats.EnergyRegenPerSecond = 28.0;
+			HostilePulseLaserStats.MinAlignment = 0.93;
+			HostilePulseLaserStats.RangeCm = 90000.0;
+			HostilePulseLaserStats.ProjectileSpeedCmPerSec = 70000.0;
+			HostilePulseLaserStats.ProjectileCollisionRadiusCm = 850.0;
+			HostilePulseLaserStats.PresentationType = TEXT("projectile_bolt");
+			HostilePulseLaserStats.DisplayName = FText::FromString(TEXT("Hostile Pulse Laser Mk1"));
+			State.ShipWeaponStats.Add(HostilePulseLaserStats);
+		}
+
+		if (!State.Containers.ContainsByPredicate([](const FContainerState& Candidate)
+		{
+			return Candidate.ContainerId == FName(TEXT("player_personal_inventory"));
+		}))
+		{
+			FContainerState PlayerInventory;
+			PlayerInventory.ContainerId = TEXT("player_personal_inventory");
+			PlayerInventory.OwnerId = TEXT("player");
+			PlayerInventory.LocationType = TEXT("player");
+			PlayerInventory.LocationId = TEXT("player");
+			PlayerInventory.CapacityMassKg = 120.0;
+			PlayerInventory.CapacityVolumeM3 = 120.0;
+			PlayerInventory.MaxSlotCount = 20;
+			State.Containers.Add(PlayerInventory);
+		}
+
+		auto AddEquipmentSlot = [&State](FName SlotId, FName OwnerId, FName SlotType, TArray<FName> AcceptedTypes, FName ItemId)
+		{
+			if (State.EquipmentSlots.ContainsByPredicate([SlotId](const FEquipmentSlotState& Candidate)
+			{
+				return Candidate.SlotId == SlotId;
+			}))
+			{
+				return;
+			}
+
+			FEquipmentSlotState Slot;
+			Slot.SlotId = SlotId;
+			Slot.OwnerId = OwnerId;
+			Slot.SlotType = SlotType;
+			Slot.AcceptedItemTypes = MoveTemp(AcceptedTypes);
+			if (!ItemId.IsNone())
+			{
+				Slot.EquippedStack.StackId = FName(*FString::Printf(TEXT("equipped_%s"), *SlotId.ToString()));
+				Slot.EquippedStack.ItemId = ItemId;
+				Slot.EquippedStack.Quantity = 1;
+			}
+			State.EquipmentSlots.Add(Slot);
+		};
+		AddEquipmentSlot(TEXT("player_primary_weapon"), TEXT("player"), TEXT("player_primary_weapon"), { TEXT("player_weapon") }, NAME_None);
+		AddEquipmentSlot(TEXT("player_secondary_sidearm"), TEXT("player"), TEXT("player_secondary_sidearm"), { TEXT("player_sidearm") }, TEXT("pistol_basic"));
+		AddEquipmentSlot(TEXT("ship_weapon_hardpoint_1"), TEXT("player_ship"), TEXT("ship_weapon_hardpoint"), { TEXT("ship_weapon") }, TEXT("pulse_laser_mk1"));
+		AddEquipmentSlot(TEXT("ship_weapon_hardpoint_2"), TEXT("player_ship"), TEXT("ship_weapon_hardpoint"), { TEXT("ship_weapon") }, NAME_None);
+		AddEquipmentSlot(TEXT("ship_shield"), TEXT("player_ship"), TEXT("ship_shield"), { TEXT("ship_shield") }, TEXT("shield_basic"));
+		AddEquipmentSlot(TEXT("ship_engine"), TEXT("player_ship"), TEXT("ship_engine"), { TEXT("ship_engine") }, TEXT("engine_basic"));
+		AddEquipmentSlot(TEXT("ship_thrusters"), TEXT("player_ship"), TEXT("ship_thrusters"), { TEXT("ship_thrusters") }, TEXT("thrusters_basic"));
+		AddEquipmentSlot(TEXT("ship_countermeasures"), TEXT("player_ship"), TEXT("ship_countermeasures"), { TEXT("ship_countermeasures") }, NAME_None);
+	}
+
+	void EnsureGodotFrontierMarketStock(FSystemicGameplayState& State)
+	{
+		FStationMarketState* Market = FindMutable(State.Markets, [](const FStationMarketState& Candidate)
+		{
+			return Candidate.MarketId == FName(TEXT("brink_watch"));
+		});
+		if (!Market)
+		{
+			return;
+		}
+
+		auto EnsureStock = [Market](FName CommodityId, int32 Stock, int32 MaxStock)
+		{
+			if (!Market->StockByCommodity.Contains(CommodityId))
+			{
+				Market->StockByCommodity.Add(CommodityId, Stock);
+			}
+			if (!Market->MaxStockByCommodity.Contains(CommodityId))
+			{
+				Market->MaxStockByCommodity.Add(CommodityId, MaxStock);
+			}
+		};
+		EnsureStock(TEXT("commodity_ember_ore"), 100, 200);
+		EnsureStock(TEXT("food"), 80, 120);
+		EnsureStock(TEXT("water"), 45, 100);
+		EnsureStock(TEXT("iron"), 160, 220);
+		EnsureStock(TEXT("synthetic_parts"), 18, 60);
+
+		FContainerState* MarketCargo = FindMutable(State.Containers, [](const FContainerState& Candidate)
+		{
+			return Candidate.ContainerId == FName(TEXT("brink_watch_market_inventory"));
+		});
+		if (!MarketCargo)
+		{
+			return;
+		}
+
+		auto EnsureStack = [MarketCargo](FName ItemId, int32 Quantity)
+		{
+			if (MarketCargo->Stacks.ContainsByPredicate([ItemId](const FItemStackState& Candidate)
+			{
+				return Candidate.ItemId == ItemId;
+			}))
+			{
+				return;
+			}
+			FItemStackState Stack;
+			Stack.StackId = FName(*FString::Printf(TEXT("stack_brink_%s_01"), *ItemId.ToString()));
+			Stack.ItemId = ItemId;
+			Stack.Quantity = Quantity;
+			Stack.OwnerFactionId = TEXT("frontier_local_authority");
+			MarketCargo->Stacks.Add(Stack);
+		};
+		EnsureStack(TEXT("food"), 80);
+		EnsureStack(TEXT("water"), 45);
+		EnsureStack(TEXT("iron"), 160);
+		EnsureStack(TEXT("synthetic_parts"), 18);
 	}
 
 	bool IsRestrictedCargo(const FSystemicGameplayState& State, FName CommodityId, FName CommodityItemBridgeId)
@@ -145,7 +1003,10 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM9FixtureState(const F
 {
 	if (!SystemDefinition.SystemicGameplay.Factions.IsEmpty())
 	{
-		return SystemDefinition.SystemicGameplay;
+		FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+		EnsureGodotInventoryEquipmentFoundation(State);
+		EnsureGodotFrontierMarketStock(State);
+		return State;
 	}
 
 	FSystemicGameplayState State;
@@ -214,6 +1075,73 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM9FixtureState(const F
 	OreItem.BaseValue = 100;
 	State.Items.Add(OreItem);
 
+	auto AddGodotItem = [&State](FName ItemId, const TCHAR* DisplayName, FName ItemType, int32 StackLimit, int64 BaseValue)
+	{
+		if (State.Items.ContainsByPredicate([ItemId](const FItemDefinition& Candidate)
+		{
+			return Candidate.ItemId == ItemId;
+		}))
+		{
+			return;
+		}
+
+		FItemDefinition Item;
+		Item.ItemId = ItemId;
+		Item.DisplayName = FText::FromString(DisplayName);
+		Item.ItemType = ItemType;
+		Item.StackLimit = StackLimit;
+		Item.MassPerUnitKg = ItemType == FName(TEXT("commodity")) ? 1.0 : 0.0;
+		Item.VolumePerUnitM3 = ItemType == FName(TEXT("commodity")) ? 1.0 : 0.0;
+		Item.BaseValue = BaseValue;
+		State.Items.Add(Item);
+	};
+	AddGodotItem(TEXT("food"), TEXT("Food"), TEXT("commodity"), 999, 10);
+	AddGodotItem(TEXT("water"), TEXT("Water"), TEXT("commodity"), 999, 6);
+	AddGodotItem(TEXT("iron"), TEXT("Iron"), TEXT("commodity"), 999, 14);
+	AddGodotItem(TEXT("synthetic_parts"), TEXT("Synthetic Parts"), TEXT("commodity"), 999, 40);
+	AddGodotItem(TEXT("pistol_basic"), TEXT("Basic Pistol"), TEXT("player_sidearm"), 1, 120);
+	AddGodotItem(TEXT("rifle_basic"), TEXT("Basic Rifle"), TEXT("player_weapon"), 1, 240);
+	AddGodotItem(TEXT("medkit"), TEXT("Medkit"), TEXT("consumable"), 10, 35);
+	AddGodotItem(TEXT("pulse_laser_mk1"), TEXT("Pulse Laser Mk1"), TEXT("ship_weapon"), 1, 600);
+	AddGodotItem(TEXT("hostile_pulse_laser_mk1"), TEXT("Hostile Pulse Laser Mk1"), TEXT("ship_weapon"), 1, 0);
+	AddGodotItem(TEXT("shield_basic"), TEXT("Basic Shield"), TEXT("ship_shield"), 1, 500);
+	AddGodotItem(TEXT("engine_basic"), TEXT("Basic Engine"), TEXT("ship_engine"), 1, 450);
+	AddGodotItem(TEXT("thrusters_basic"), TEXT("Basic Thrusters"), TEXT("ship_thrusters"), 1, 450);
+	AddGodotItem(TEXT("countermeasures_basic"), TEXT("Basic Countermeasures"), TEXT("ship_countermeasures"), 1, 180);
+
+	FShipWeaponStatDefinition PulseLaserStats;
+	PulseLaserStats.WeaponStatId = TEXT("weapon_stat_pulse_laser_mk1");
+	PulseLaserStats.ItemId = TEXT("pulse_laser_mk1");
+	PulseLaserStats.DamageType = TEXT("energy_weapon");
+	PulseLaserStats.DamageAmount = 14.0;
+	PulseLaserStats.CooldownSeconds = 0.18;
+	PulseLaserStats.EnergyCost = 9.0;
+	PulseLaserStats.EnergyRegenPerSecond = 30.0;
+	PulseLaserStats.MinAlignment = 0.955;
+	PulseLaserStats.RangeCm = 120000.0;
+	PulseLaserStats.ProjectileSpeedCmPerSec = 76000.0;
+	PulseLaserStats.ProjectileCollisionRadiusCm = 850.0;
+	PulseLaserStats.PresentationType = TEXT("projectile_bolt");
+	PulseLaserStats.DisplayName = FText::FromString(TEXT("Pulse Laser Mk1"));
+	State.ShipWeaponStats.Add(PulseLaserStats);
+
+	FShipWeaponStatDefinition HostilePulseLaserStats;
+	HostilePulseLaserStats.WeaponStatId = TEXT("weapon_stat_hostile_pulse_laser");
+	HostilePulseLaserStats.ItemId = TEXT("hostile_pulse_laser_mk1");
+	HostilePulseLaserStats.DamageType = TEXT("energy_weapon");
+	HostilePulseLaserStats.DamageAmount = 12.0;
+	HostilePulseLaserStats.CooldownSeconds = 0.35;
+	HostilePulseLaserStats.EnergyCost = 14.0;
+	HostilePulseLaserStats.EnergyRegenPerSecond = 28.0;
+	HostilePulseLaserStats.MinAlignment = 0.93;
+	HostilePulseLaserStats.RangeCm = 90000.0;
+	HostilePulseLaserStats.ProjectileSpeedCmPerSec = 70000.0;
+	HostilePulseLaserStats.ProjectileCollisionRadiusCm = 850.0;
+	HostilePulseLaserStats.PresentationType = TEXT("projectile_bolt");
+	HostilePulseLaserStats.DisplayName = FText::FromString(TEXT("Hostile Pulse Laser Mk1"));
+	State.ShipWeaponStats.Add(HostilePulseLaserStats);
+	State.StationInteriorCombatProfiles.Add(MakeGodotHostileBoardingCombatProfile());
+
 	FCommodityDefinition OreCommodity;
 	OreCommodity.CommodityId = TEXT("commodity_ember_ore");
 	OreCommodity.DisplayName = OreItem.DisplayName;
@@ -237,6 +1165,40 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM9FixtureState(const F
 	PlayerCargo.CapacityMassKg = 10000.0;
 	PlayerCargo.CapacityVolumeM3 = 1000.0;
 	State.Containers.Add(PlayerCargo);
+
+	FContainerState PlayerInventory;
+	PlayerInventory.ContainerId = TEXT("player_personal_inventory");
+	PlayerInventory.OwnerId = TEXT("player");
+	PlayerInventory.LocationType = TEXT("player");
+	PlayerInventory.LocationId = TEXT("player");
+	PlayerInventory.CapacityMassKg = 120.0;
+	PlayerInventory.CapacityVolumeM3 = 120.0;
+	PlayerInventory.MaxSlotCount = 20;
+	State.Containers.Add(PlayerInventory);
+
+	auto AddEquipmentSlot = [&State](FName SlotId, FName OwnerId, FName SlotType, TArray<FName> AcceptedTypes, FName ItemId)
+	{
+		FEquipmentSlotState Slot;
+		Slot.SlotId = SlotId;
+		Slot.OwnerId = OwnerId;
+		Slot.SlotType = SlotType;
+		Slot.AcceptedItemTypes = MoveTemp(AcceptedTypes);
+		if (!ItemId.IsNone())
+		{
+			Slot.EquippedStack.StackId = FName(*FString::Printf(TEXT("equipped_%s"), *SlotId.ToString()));
+			Slot.EquippedStack.ItemId = ItemId;
+			Slot.EquippedStack.Quantity = 1;
+		}
+		State.EquipmentSlots.Add(Slot);
+	};
+	AddEquipmentSlot(TEXT("player_primary_weapon"), TEXT("player"), TEXT("player_primary_weapon"), { TEXT("player_weapon") }, NAME_None);
+	AddEquipmentSlot(TEXT("player_secondary_sidearm"), TEXT("player"), TEXT("player_secondary_sidearm"), { TEXT("player_sidearm") }, TEXT("pistol_basic"));
+	AddEquipmentSlot(TEXT("ship_weapon_hardpoint_1"), TEXT("player_ship"), TEXT("ship_weapon_hardpoint"), { TEXT("ship_weapon") }, TEXT("pulse_laser_mk1"));
+	AddEquipmentSlot(TEXT("ship_weapon_hardpoint_2"), TEXT("player_ship"), TEXT("ship_weapon_hardpoint"), { TEXT("ship_weapon") }, NAME_None);
+	AddEquipmentSlot(TEXT("ship_shield"), TEXT("player_ship"), TEXT("ship_shield"), { TEXT("ship_shield") }, TEXT("shield_basic"));
+	AddEquipmentSlot(TEXT("ship_engine"), TEXT("player_ship"), TEXT("ship_engine"), { TEXT("ship_engine") }, TEXT("engine_basic"));
+	AddEquipmentSlot(TEXT("ship_thrusters"), TEXT("player_ship"), TEXT("ship_thrusters"), { TEXT("ship_thrusters") }, TEXT("thrusters_basic"));
+	AddEquipmentSlot(TEXT("ship_countermeasures"), TEXT("player_ship"), TEXT("ship_countermeasures"), { TEXT("ship_countermeasures") }, NAME_None);
 
 	FContainerState MarketCargo;
 	MarketCargo.ContainerId = TEXT("brink_watch_market_inventory");
@@ -271,7 +1233,9 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM9FixtureState(const F
 	Market.StationId = TEXT("brink_watch");
 	Market.MarketProfileId = TEXT("frontier_basic_market");
 	Market.StockByCommodity.Add(OreCommodity.CommodityId, 100);
+	Market.MaxStockByCommodity.Add(OreCommodity.CommodityId, 200);
 	State.Markets.Add(Market);
+	EnsureGodotFrontierMarketStock(State);
 
 	FCommsEndpointDefinition Comms;
 	Comms.EndpointId = TEXT("comms_brink_watch");
@@ -302,12 +1266,23 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM9FixtureState(const F
 	Message.TextKey = TEXT("frontier.market.quote");
 	State.MessageDefinitions.Add(Message);
 
+	EnsureMissionDefinition(
+		State,
+		TEXT("mission_ore_delivery_basic"),
+		TEXT("Ore Delivery"),
+		TEXT("Deliver ore from Brink Watch to Wayfarer Depot."),
+		TEXT("Wayfarer Depot needs ore. Take the shipment out and report back when it is delivered."),
+		TEXT("The ore delivery is still active. Get the cargo to Wayfarer Depot."),
+		TEXT("Ore delivery confirmed. Payment is ready."));
+
 	FMissionOfferRecord Offer;
 	Offer.OfferId = TEXT("offer_brink_ore_delivery_01");
 	Offer.MissionDefinitionId = TEXT("mission_ore_delivery_basic");
 	Offer.SourceStationId = TEXT("brink_watch");
 	Offer.SourceServiceEndpointId = MarketEndpoint.ServiceEndpointId;
 	Offer.IssuerFactionId = Authority.FactionId;
+	Offer.GiverNpcId = TEXT("npc_brink_market_factor");
+	Offer.RequiredStationTags = { TEXT("ore_trade") };
 	State.MissionOffers.Add(Offer);
 
 	FMissionInstanceState Mission;
@@ -557,7 +1532,9 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM10_5FixtureState(cons
 		Durability.DurabilityId = MakeId(TEXT("durability"), ShipId);
 		Durability.CombatantId = ShipId;
 		Durability.Shield = 100.0;
+		Durability.MaxShield = 100.0;
 		Durability.Hull = 100.0;
+		Durability.MaxHull = 100.0;
 		Durability.State = TEXT("active");
 		Durability.bCanSurrender = ShipId == FName(TEXT("trader_brink_01"));
 		Durability.bCanEscape = ShipId == FName(TEXT("trader_brink_01"));
@@ -732,14 +1709,40 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM11FixtureState(const 
 
 FSystemicGameplayState USystemicGameplayQueryService::MakeM12FixtureState(const FStarSystemDefinition& SystemDefinition)
 {
+	auto ApplyM12EndpointUnitPrices = [](FSystemicGameplayState& State)
+	{
+		for (FStationServiceEndpointDefinition& Endpoint : State.StationServiceEndpoints)
+		{
+			if (Endpoint.ServiceEndpointId == FName(TEXT("service_brink_watch_repair")) || Endpoint.ServiceType == FName(TEXT("repair")))
+			{
+				Endpoint.UnitPriceCredits = 10;
+			}
+			else if (Endpoint.ServiceEndpointId == FName(TEXT("service_brink_watch_refuel")) || Endpoint.ServiceType == FName(TEXT("refuel")))
+			{
+				Endpoint.UnitPriceCredits = 2;
+			}
+			else if (Endpoint.ServiceEndpointId == FName(TEXT("service_brink_watch_rearm")) || Endpoint.ServiceType == FName(TEXT("rearm")))
+			{
+				Endpoint.UnitPriceCredits = 5;
+			}
+		}
+	};
+
 	if (!SystemDefinition.SystemicGameplay.ShipResourceStates.IsEmpty() ||
 		!SystemDefinition.SystemicGameplay.StationServiceResults.IsEmpty() ||
 		!SystemDefinition.SystemicGameplay.FollowUpOpportunities.IsEmpty())
 	{
-		return SystemDefinition.SystemicGameplay;
+		FSystemicGameplayState State = SystemDefinition.SystemicGameplay;
+		EnsureGodotInventoryEquipmentFoundation(State);
+		EnsureHostileBoardingMissionFixture(State);
+		EnsureGodotMissionBreadthFixture(State);
+		ApplyM12EndpointUnitPrices(State);
+		return State;
 	}
 
 	FSystemicGameplayState State = MakeM11FixtureState(SystemDefinition);
+	EnsureGodotInventoryEquipmentFoundation(State);
+	EnsureGodotFrontierMarketStock(State);
 
 	auto EnsureAccount = [&State](FName AccountId, FName OwnerType, FName OwnerId, int64 Balance)
 	{
@@ -759,12 +1762,17 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM12FixtureState(const 
 	EnsureAccount(TEXT("account_brink_watch_services"), TEXT("service"), TEXT("brink_watch"), 250000);
 	EnsureAccount(TEXT("account_wayfarer_mission_escrow"), TEXT("mission_escrow"), TEXT("wayfarer_depot"), 50000);
 
-	auto EnsureEndpoint = [&State](FName EndpointId, FName ServiceType, FName AccountId)
+	auto EnsureEndpoint = [&State](FName EndpointId, FName ServiceType, FName AccountId, int64 UnitPriceCredits)
 	{
-		if (!State.StationServiceEndpoints.ContainsByPredicate([EndpointId](const FStationServiceEndpointDefinition& Endpoint)
+		if (FStationServiceEndpointDefinition* ExistingEndpoint = State.StationServiceEndpoints.FindByPredicate([EndpointId](const FStationServiceEndpointDefinition& Endpoint)
 		{
 			return Endpoint.ServiceEndpointId == EndpointId;
 		}))
+		{
+			ExistingEndpoint->UnitPriceCredits = UnitPriceCredits;
+			return;
+		}
+		else
 		{
 			FStationServiceEndpointDefinition Endpoint;
 			Endpoint.ServiceEndpointId = EndpointId;
@@ -775,16 +1783,18 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM12FixtureState(const 
 			Endpoint.MarketId = TEXT("brink_watch");
 			Endpoint.InventoryContainerId = TEXT("brink_watch_market_inventory");
 			Endpoint.CreditAccountId = AccountId;
+			Endpoint.UnitPriceCredits = UnitPriceCredits;
 			Endpoint.AccessPolicyId = TEXT("frontier_open_access");
 			Endpoint.LegalPolicyId = TEXT("frontier_law_basic");
 			Endpoint.PresentationModes = { TEXT("docked_menu"), TEXT("cockpit_comms") };
 			State.StationServiceEndpoints.Add(Endpoint);
 		}
 	};
-	EnsureEndpoint(TEXT("service_brink_watch_repair"), TEXT("repair"), TEXT("account_brink_watch_services"));
-	EnsureEndpoint(TEXT("service_brink_watch_refuel"), TEXT("refuel"), TEXT("account_brink_watch_services"));
-	EnsureEndpoint(TEXT("service_brink_watch_rearm"), TEXT("rearm"), TEXT("account_brink_watch_services"));
-	EnsureEndpoint(TEXT("service_brink_watch_mission_board"), TEXT("mission_board"), TEXT("account_wayfarer_mission_escrow"));
+	EnsureEndpoint(TEXT("service_brink_watch_repair"), TEXT("repair"), TEXT("account_brink_watch_services"), 10);
+	EnsureEndpoint(TEXT("service_brink_watch_refuel"), TEXT("refuel"), TEXT("account_brink_watch_services"), 2);
+	EnsureEndpoint(TEXT("service_brink_watch_rearm"), TEXT("rearm"), TEXT("account_brink_watch_services"), 5);
+	EnsureEndpoint(TEXT("service_brink_watch_mission_board"), TEXT("mission_board"), TEXT("account_wayfarer_mission_escrow"), 0);
+	ApplyM12EndpointUnitPrices(State);
 
 	if (!State.Items.ContainsByPredicate([](const FItemDefinition& Item) { return Item.ItemId == FName(TEXT("item_restricted_artifacts")); }))
 	{
@@ -843,7 +1853,9 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM12FixtureState(const 
 		PlayerDurability.DurabilityId = TEXT("durability_player_ship");
 		PlayerDurability.CombatantId = TEXT("player_ship");
 		PlayerDurability.Shield = 65.0;
+		PlayerDurability.MaxShield = 100.0;
 		PlayerDurability.Hull = 70.0;
+		PlayerDurability.MaxHull = 100.0;
 		PlayerDurability.State = TEXT("damaged");
 		PlayerDurability.IdempotencyKey = TEXT("idem_m12_durability_player_ship");
 		State.ShipDurabilityStates.Add(PlayerDurability);
@@ -859,12 +1871,23 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM12FixtureState(const 
 	Resources.IdempotencyKey = TEXT("idem_m12_resources_player_ship");
 	State.ShipResourceStates.Add(Resources);
 
+	EnsureMissionDefinition(
+		State,
+		TEXT("mission_m12_route_security_cargo"),
+		TEXT("Wayfarer Security Cargo"),
+		TEXT("Deliver security cargo to Wayfarer Depot, respond to trouble on the lane, and return."),
+		TEXT("Take this security cargo to Wayfarer Depot. If the lane flares up, handle it and come back."),
+		TEXT("The Wayfarer security cargo contract is active. Finish the delivery and patrol response."),
+		TEXT("Wayfarer confirmed the delivery and the patrol report. Escrow is ready."));
+
 	FMissionOfferRecord M12Offer;
 	M12Offer.OfferId = TEXT("offer_m12_wayfarer_security_01");
 	M12Offer.MissionDefinitionId = TEXT("mission_m12_route_security_cargo");
 	M12Offer.SourceStationId = TEXT("brink_watch");
 	M12Offer.SourceServiceEndpointId = TEXT("service_brink_watch_mission_board");
 	M12Offer.IssuerFactionId = TEXT("frontier_local_authority");
+	M12Offer.GiverNpcId = TEXT("npc_brink_watch_dispatch");
+	M12Offer.RequiredStationTags = { TEXT("convoy_defense"), TEXT("frontier_security") };
 	State.MissionOffers.Add(M12Offer);
 
 	FMissionInstanceState M12Mission;
@@ -936,6 +1959,9 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM12FixtureState(const 
 	SeedTrace.IdempotencyKey = TEXT("idem_m12_seed_trace");
 	State.ProgressionDebugLedger.Add(SeedTrace);
 
+	EnsureHostileBoardingMissionFixture(State);
+	EnsureGodotMissionBreadthFixture(State);
+
 	return State;
 }
 
@@ -997,9 +2023,11 @@ bool USystemicGameplayQueryService::ValidateSystemicGameplayState(const FStarSys
 		RouteIds.Add(Route.RouteSegmentId);
 	}
 	TSet<FName> StationIds;
+	TMap<FName, const FStationDefinition*> StationsById;
 	for (const FStationDefinition& Station : SystemDefinition.Stations)
 	{
 		StationIds.Add(Station.StationId);
+		StationsById.Add(Station.StationId, &Station);
 	}
 	for (const FFactionRelationshipRecord& Relationship : State.FactionRelationships)
 	{
@@ -1036,6 +2064,7 @@ bool USystemicGameplayQueryService::ValidateSystemicGameplayState(const FStarSys
 	}
 
 	TSet<FName> ContainerIds;
+	TSet<FName> StackIds;
 	for (const FContainerState& Container : State.Containers)
 	{
 		if (Container.ContainerId.IsNone() || ContainerIds.Contains(Container.ContainerId))
@@ -1052,7 +2081,12 @@ bool USystemicGameplayQueryService::ValidateSystemicGameplayState(const FStarSys
 		}
 		for (const FItemStackState& Stack : Container.Stacks)
 		{
-			if (Stack.StackId.IsNone() || !ItemIds.Contains(Stack.ItemId) || Stack.Quantity < 0)
+			const FItemDefinition* StackItem = FindConst(State.Items, [&Stack](const FItemDefinition& Candidate)
+			{
+				return Candidate.ItemId == Stack.ItemId;
+			});
+			if (Stack.StackId.IsNone() || StackIds.Contains(Stack.StackId) || !StackItem || Stack.Quantity <= 0 ||
+				StackItem->StackLimit <= 0 || Stack.Quantity > StackItem->StackLimit)
 			{
 				return Fail(FString::Printf(TEXT("Container '%s' has an invalid cargo stack '%s'."), *Container.ContainerId.ToString(), *Stack.StackId.ToString()));
 			}
@@ -1060,8 +2094,34 @@ bool USystemicGameplayQueryService::ValidateSystemicGameplayState(const FStarSys
 			{
 				return Fail(FString::Printf(TEXT("Cargo stack '%s' owner faction does not resolve."), *Stack.StackId.ToString()));
 			}
+			StackIds.Add(Stack.StackId);
 		}
 		ContainerIds.Add(Container.ContainerId);
+	}
+
+	TSet<FName> EquipmentSlotIds;
+	for (const FEquipmentSlotState& Slot : State.EquipmentSlots)
+	{
+		if (Slot.SlotId.IsNone() || EquipmentSlotIds.Contains(Slot.SlotId) || Slot.OwnerId.IsNone() || Slot.AcceptedItemTypes.IsEmpty())
+		{
+			return Fail(FString::Printf(TEXT("Equipment slot '%s' is incomplete or duplicated."), *Slot.SlotId.ToString()));
+		}
+		if (!Slot.EquippedStack.ItemId.IsNone())
+		{
+			const FItemDefinition* EquippedItem = FindConst(State.Items, [&Slot](const FItemDefinition& Candidate)
+			{
+				return Candidate.ItemId == Slot.EquippedStack.ItemId;
+			});
+			if (!EquippedItem || Slot.EquippedStack.StackId.IsNone() || Slot.EquippedStack.Quantity <= 0 ||
+				EquippedItem->StackLimit <= 0 || Slot.EquippedStack.Quantity > EquippedItem->StackLimit ||
+				!Slot.AcceptedItemTypes.Contains(EquippedItem->ItemType))
+			{
+				return Fail(FString::Printf(TEXT("Equipment slot '%s' has an invalid equipped item '%s'."),
+					*Slot.SlotId.ToString(),
+					*Slot.EquippedStack.ItemId.ToString()));
+			}
+		}
+		EquipmentSlotIds.Add(Slot.SlotId);
 	}
 
 	TSet<FName> CommodityIds;
@@ -1072,6 +2132,32 @@ bool USystemicGameplayQueryService::ValidateSystemicGameplayState(const FStarSys
 			return Fail(FString::Printf(TEXT("Systemic state has an empty or duplicate commodity ID '%s'."), *Commodity.CommodityId.ToString()));
 		}
 		CommodityIds.Add(Commodity.CommodityId);
+	}
+
+	TSet<FName> CargoManifestIds;
+	for (const FCargoManifestDefinition& Manifest : State.CargoManifests)
+	{
+		if (Manifest.CargoManifestId.IsNone() || CargoManifestIds.Contains(Manifest.CargoManifestId) || Manifest.ManifestType.IsNone() || Manifest.State.IsNone())
+		{
+			return Fail(FString::Printf(TEXT("Cargo manifest '%s' has invalid durable IDs or state."), *Manifest.CargoManifestId.ToString()));
+		}
+		if (Manifest.ManifestType == FName(TEXT("delivery")) && Manifest.Lines.IsEmpty())
+		{
+			return Fail(FString::Printf(TEXT("Delivery cargo manifest '%s' has no cargo lines."), *Manifest.CargoManifestId.ToString()));
+		}
+		TSet<FName> LineIds;
+		for (const FCargoManifestLine& Line : Manifest.Lines)
+		{
+			if (Line.LineId.IsNone() || LineIds.Contains(Line.LineId) || Line.Quantity <= 0 ||
+				(Line.ItemId.IsNone() && Line.CommodityId.IsNone()) ||
+				(!Line.ItemId.IsNone() && !ItemIds.Contains(Line.ItemId)) ||
+				(!Line.CommodityId.IsNone() && !CommodityIds.Contains(Line.CommodityId)))
+			{
+				return Fail(FString::Printf(TEXT("Cargo manifest '%s' has invalid line '%s'."), *Manifest.CargoManifestId.ToString(), *Line.LineId.ToString()));
+			}
+			LineIds.Add(Line.LineId);
+		}
+		CargoManifestIds.Add(Manifest.CargoManifestId);
 	}
 
 	TSet<FName> BridgedCommodityIds;
@@ -1162,6 +2248,18 @@ bool USystemicGameplayQueryService::ValidateSystemicGameplayState(const FStarSys
 		}
 	}
 
+	TSet<FName> MissionDefinitionIds;
+	for (const FMissionDefinition& MissionDefinition : State.MissionDefinitions)
+	{
+		if (MissionDefinition.MissionDefinitionId.IsNone() ||
+			MissionDefinitionIds.Contains(MissionDefinition.MissionDefinitionId) ||
+			MissionDefinition.Title.IsEmpty())
+		{
+			return Fail(FString::Printf(TEXT("Mission definition '%s' has invalid durable IDs or presentation fields."), *MissionDefinition.MissionDefinitionId.ToString()));
+		}
+		MissionDefinitionIds.Add(MissionDefinition.MissionDefinitionId);
+	}
+
 	for (const FCreditLedgerEntry& Ledger : State.CreditLedger)
 	{
 		if (Ledger.LedgerEntryId.IsNone() || !AccountIds.Contains(Ledger.DebitAccountId) || !AccountIds.Contains(Ledger.CreditAccountId) || Ledger.Amount <= 0 || Ledger.IdempotencyKey.IsNone())
@@ -1214,12 +2312,31 @@ bool USystemicGameplayQueryService::ValidateSystemicGameplayState(const FStarSys
 	TSet<FName> MissionOfferIds;
 	for (const FMissionOfferRecord& Offer : State.MissionOffers)
 	{
+		const FStationDefinition* SourceStation = StationsById.FindRef(Offer.SourceStationId);
 		if (Offer.OfferId.IsNone() || MissionOfferIds.Contains(Offer.OfferId) ||
-			!StationIds.Contains(Offer.SourceStationId) ||
+			!MissionDefinitionIds.Contains(Offer.MissionDefinitionId) ||
+			!SourceStation ||
 			!ServiceEndpointIds.Contains(Offer.SourceServiceEndpointId) ||
 			!FactionIds.Contains(Offer.IssuerFactionId))
 		{
-			return Fail(FString::Printf(TEXT("Mission offer '%s' has unresolved station, service, or faction references."), *Offer.OfferId.ToString()));
+			return Fail(FString::Printf(TEXT("Mission offer '%s' has unresolved definition, station, service, or faction references."), *Offer.OfferId.ToString()));
+		}
+		if (!Offer.GiverNpcId.IsNone() && !SourceStation->QuestGiverNpcIds.Contains(Offer.GiverNpcId))
+		{
+			return Fail(FString::Printf(TEXT("Mission offer '%s' references giver '%s' that is not authored on station '%s'."),
+				*Offer.OfferId.ToString(),
+				*Offer.GiverNpcId.ToString(),
+				*Offer.SourceStationId.ToString()));
+		}
+		for (const FName RequiredTag : Offer.RequiredStationTags)
+		{
+			if (RequiredTag.IsNone() || !SourceStation->MissionTags.Contains(RequiredTag))
+			{
+				return Fail(FString::Printf(TEXT("Mission offer '%s' requires missing station tag '%s' on station '%s'."),
+					*Offer.OfferId.ToString(),
+					*RequiredTag.ToString(),
+					*Offer.SourceStationId.ToString()));
+			}
 		}
 		MissionOfferIds.Add(Offer.OfferId);
 	}
@@ -1229,11 +2346,12 @@ bool USystemicGameplayQueryService::ValidateSystemicGameplayState(const FStarSys
 	for (const FMissionInstanceState& Mission : State.MissionInstances)
 	{
 		if (Mission.MissionInstanceId.IsNone() || MissionInstanceIds.Contains(Mission.MissionInstanceId) ||
+			!MissionDefinitionIds.Contains(Mission.MissionDefinitionId) ||
 			!MissionOfferIds.Contains(Mission.OfferId) ||
 			!FactionIds.Contains(Mission.IssuerFactionId) ||
 			Mission.IdempotencyKey.IsNone())
 		{
-			return Fail(FString::Printf(TEXT("Mission instance '%s' has unresolved offer, faction, or durable IDs."), *Mission.MissionInstanceId.ToString()));
+			return Fail(FString::Printf(TEXT("Mission instance '%s' has unresolved definition, offer, faction, or durable IDs."), *Mission.MissionInstanceId.ToString()));
 		}
 		for (const FName ObjectiveStateId : Mission.ObjectiveStateIds)
 		{
@@ -1258,6 +2376,12 @@ bool USystemicGameplayQueryService::ValidateSystemicGameplayState(const FStarSys
 			{
 				return Fail(FString::Printf(TEXT("Objective state '%s' references missing route '%s'."), *Objective.ObjectiveStateId.ToString(), *RouteId.ToString()));
 			}
+		}
+		if (!Objective.RequiredCargoManifestId.IsNone() && !CargoManifestIds.Contains(Objective.RequiredCargoManifestId))
+		{
+			return Fail(FString::Printf(TEXT("Objective state '%s' references missing cargo manifest '%s'."),
+				*Objective.ObjectiveStateId.ToString(),
+				*Objective.RequiredCargoManifestId.ToString()));
 		}
 		ObjectiveStateIds.Add(Objective.ObjectiveStateId);
 	}
@@ -1642,9 +2766,11 @@ bool USystemicGameplayQueryService::ValidateCombatDamageThreatState(const FStarS
 	{
 		if (Durability.DurabilityId.IsNone() || DurabilityIds.Contains(Durability.DurabilityId) ||
 			Durability.IdempotencyKey.IsNone() || DurabilityIdempotencyKeys.Contains(Durability.IdempotencyKey) ||
-			!CombatantIds.Contains(Durability.CombatantId) || Durability.Shield < 0.0 || Durability.Hull < 0.0)
+			!CombatantIds.Contains(Durability.CombatantId) || Durability.MaxShield <= 0.0 || Durability.MaxHull <= 0.0 ||
+			Durability.Shield < 0.0 || Durability.Shield - Durability.MaxShield > UE_SMALL_NUMBER ||
+			Durability.Hull < 0.0 || Durability.Hull - Durability.MaxHull > UE_SMALL_NUMBER)
 		{
-			return Fail(FString::Printf(TEXT("M10.5 durability '%s' must resolve to a player, logical NPC, or realized combatant with shield/hull state."), *Durability.DurabilityId.ToString()));
+			return Fail(FString::Printf(TEXT("M10.5 durability '%s' must resolve to a player, logical NPC, or realized combatant with authored shield/hull capacity."), *Durability.DurabilityId.ToString()));
 		}
 		DurabilityIds.Add(Durability.DurabilityId);
 		DurabilityIdempotencyKeys.Add(Durability.IdempotencyKey);
@@ -2002,9 +3128,11 @@ bool USystemicGameplayQueryService::ValidateRealizedAISliceState(const FStarSyst
 		const bool bKnownCombatant = ShipIds.Contains(Durability.CombatantId) || Durability.CombatantId == FName(TEXT("player_ship"));
 		if (Durability.DurabilityId.IsNone() || DurabilityIds.Contains(Durability.DurabilityId) ||
 			Durability.IdempotencyKey.IsNone() || DurabilityIdempotencyKeys.Contains(Durability.IdempotencyKey) ||
-			!bKnownCombatant || Durability.Shield < 0.0 || Durability.Hull < 0.0)
+			!bKnownCombatant || Durability.MaxShield <= 0.0 || Durability.MaxHull <= 0.0 ||
+			Durability.Shield < 0.0 || Durability.Shield - Durability.MaxShield > UE_SMALL_NUMBER ||
+			Durability.Hull < 0.0 || Durability.Hull - Durability.MaxHull > UE_SMALL_NUMBER)
 		{
-			return Fail(FString::Printf(TEXT("M11 durability '%s' must resolve to a logical or realized combatant."), *Durability.DurabilityId.ToString()));
+			return Fail(FString::Printf(TEXT("M11 durability '%s' must resolve to a logical or realized combatant with authored capacity."), *Durability.DurabilityId.ToString()));
 		}
 		DurabilityIds.Add(Durability.DurabilityId);
 		DurabilityIdempotencyKeys.Add(Durability.IdempotencyKey);
@@ -2059,9 +3187,11 @@ bool USystemicGameplayQueryService::ValidateM12GameplayState(const FStarSystemDe
 		RouteIds.Add(Route.RouteSegmentId);
 	}
 	TSet<FName> StationIds;
+	TMap<FName, const FStationDefinition*> StationsById;
 	for (const FStationDefinition& Station : SystemDefinition.Stations)
 	{
 		StationIds.Add(Station.StationId);
+		StationsById.Add(Station.StationId, &Station);
 	}
 	TSet<FName> FactionIds;
 	for (const FFactionDefinition& Faction : State.Factions)
@@ -2072,6 +3202,29 @@ bool USystemicGameplayQueryService::ValidateM12GameplayState(const FStarSystemDe
 	for (const FCreditAccountRecord& Account : State.CreditAccounts)
 	{
 		AccountIds.Add(Account.AccountId);
+	}
+	TSet<FName> CargoManifestIds;
+	for (const FCargoManifestDefinition& Manifest : State.CargoManifests)
+	{
+		if (Manifest.CargoManifestId.IsNone() || CargoManifestIds.Contains(Manifest.CargoManifestId) || Manifest.ManifestType.IsNone() || Manifest.State.IsNone())
+		{
+			return Fail(FString::Printf(TEXT("M12 cargo manifest '%s' has invalid durable IDs or state."), *Manifest.CargoManifestId.ToString()));
+		}
+		CargoManifestIds.Add(Manifest.CargoManifestId);
+	}
+	TSet<FName> MissionDefinitionIds;
+	for (const FMissionDefinition& MissionDefinition : State.MissionDefinitions)
+	{
+		if (MissionDefinition.MissionDefinitionId.IsNone() ||
+			MissionDefinitionIds.Contains(MissionDefinition.MissionDefinitionId) ||
+			MissionDefinition.Title.IsEmpty() ||
+			MissionDefinition.OfferDialog.IsEmpty() ||
+			MissionDefinition.InProgressDialog.IsEmpty() ||
+			MissionDefinition.TurnInDialog.IsEmpty())
+		{
+			return Fail(FString::Printf(TEXT("M12 mission definition '%s' must provide stable presentation text."), *MissionDefinition.MissionDefinitionId.ToString()));
+		}
+		MissionDefinitionIds.Add(MissionDefinition.MissionDefinitionId);
 	}
 	TSet<FName> LedgerIds;
 	for (const FCreditLedgerEntry& Ledger : State.CreditLedger)
@@ -2125,18 +3278,30 @@ bool USystemicGameplayQueryService::ValidateM12GameplayState(const FStarSystemDe
 	TSet<FName> OfferIds;
 	for (const FMissionOfferRecord& Offer : State.MissionOffers)
 	{
-		if (!ServiceEndpointIds.Contains(Offer.SourceServiceEndpointId) || !FactionIds.Contains(Offer.IssuerFactionId))
+		const FStationDefinition* SourceStation = StationsById.FindRef(Offer.SourceStationId);
+		if (!MissionDefinitionIds.Contains(Offer.MissionDefinitionId) || !SourceStation || !ServiceEndpointIds.Contains(Offer.SourceServiceEndpointId) || !FactionIds.Contains(Offer.IssuerFactionId))
 		{
-			return Fail(FString::Printf(TEXT("M12 mission offer '%s' does not resolve service and faction references."), *Offer.OfferId.ToString()));
+			return Fail(FString::Printf(TEXT("M12 mission offer '%s' does not resolve definition, station, service, and faction references."), *Offer.OfferId.ToString()));
+		}
+		if (Offer.GiverNpcId.IsNone() || !SourceStation->QuestGiverNpcIds.Contains(Offer.GiverNpcId))
+		{
+			return Fail(FString::Printf(TEXT("M12 mission offer '%s' must resolve a station-authored giver NPC."), *Offer.OfferId.ToString()));
+		}
+		for (const FName RequiredTag : Offer.RequiredStationTags)
+		{
+			if (RequiredTag.IsNone() || !SourceStation->MissionTags.Contains(RequiredTag))
+			{
+				return Fail(FString::Printf(TEXT("M12 mission offer '%s' requires missing station tag '%s'."), *Offer.OfferId.ToString(), *RequiredTag.ToString()));
+			}
 		}
 		OfferIds.Add(Offer.OfferId);
 	}
 	TSet<FName> MissionIds;
 	for (const FMissionInstanceState& Mission : State.MissionInstances)
 	{
-		if (!OfferIds.Contains(Mission.OfferId) || !FactionIds.Contains(Mission.IssuerFactionId) || Mission.IdempotencyKey.IsNone())
+		if (!MissionDefinitionIds.Contains(Mission.MissionDefinitionId) || !OfferIds.Contains(Mission.OfferId) || !FactionIds.Contains(Mission.IssuerFactionId) || Mission.IdempotencyKey.IsNone())
 		{
-			return Fail(FString::Printf(TEXT("M12 mission '%s' has unresolved offer, faction, or idempotency references."), *Mission.MissionInstanceId.ToString()));
+			return Fail(FString::Printf(TEXT("M12 mission '%s' has unresolved definition, offer, faction, or idempotency references."), *Mission.MissionInstanceId.ToString()));
 		}
 		MissionIds.Add(Mission.MissionInstanceId);
 	}
@@ -2152,6 +3317,12 @@ bool USystemicGameplayQueryService::ValidateM12GameplayState(const FStarSystemDe
 			{
 				return Fail(FString::Printf(TEXT("M12 objective '%s' references a missing route."), *Objective.ObjectiveStateId.ToString()));
 			}
+		}
+		if (!Objective.RequiredCargoManifestId.IsNone() && !CargoManifestIds.Contains(Objective.RequiredCargoManifestId))
+		{
+			return Fail(FString::Printf(TEXT("M12 objective '%s' references a missing cargo manifest '%s'."),
+				*Objective.ObjectiveStateId.ToString(),
+				*Objective.RequiredCargoManifestId.ToString()));
 		}
 	}
 
@@ -2470,7 +3641,7 @@ bool USystemicGameplayQueryService::ApplyDamageEventOnce(
 		{
 			TargetDurability->State = TEXT("destroyed");
 		}
-		else if (TargetDurability->Hull <= 15.0)
+		else if (TargetDurability->Hull <= ResolvePositiveCapacity(TargetDurability->MaxHull, 100.0) * 0.15)
 		{
 			TargetDurability->State = TEXT("disabled");
 		}
@@ -2655,6 +3826,11 @@ bool USystemicGameplayQueryService::TransferCargo(FSystemicGameplayState& InOutS
 		OutResult.RejectedReason = TEXT("Requested cargo item does not resolve.");
 		return false;
 	}
+	if (SourceItem->StackLimit <= 0)
+	{
+		OutResult.RejectedReason = TEXT("Requested cargo item has an invalid stack limit.");
+		return false;
+	}
 	if (!Request.LegalContextId.IsNone() && !FindConst(InOutState.Jurisdictions, [&Request](const FJurisdictionDefinition& Candidate)
 	{
 		return Candidate.LawProfileId == Request.LegalContextId;
@@ -2687,24 +3863,294 @@ bool USystemicGameplayQueryService::TransferCargo(FSystemicGameplayState& InOutS
 		OutResult.RejectedReason = TEXT("Destination container capacity would be exceeded.");
 		return false;
 	}
+	const int32 NeededNewStacks = FMath::DivideAndRoundUp(Request.Quantity, SourceItem->StackLimit);
+	if (Destination->MaxSlotCount > 0 && Destination->Stacks.Num() + NeededNewStacks > Destination->MaxSlotCount)
+	{
+		OutResult.RejectedReason = TEXT("Destination container slot count would be exceeded.");
+		return false;
+	}
 
 	const FName SourceStackId = SourceStack->StackId;
 	const FName SourceItemId = SourceStack->ItemId;
 	const FGameplayTagContainer SourceFlags = SourceStack->Flags;
 	const FName SourceOwnerFactionId = SourceStack->OwnerFactionId;
 	SourceStack->Quantity -= Request.Quantity;
-	FItemStackState NewStack;
-	NewStack.StackId = FName(*FString::Printf(TEXT("%s_%s_%d"), *Destination->ContainerId.ToString(), *SourceItemId.ToString(), Destination->Stacks.Num() + 1));
-	NewStack.ItemId = SourceItemId;
-	NewStack.Quantity = Request.Quantity;
-	NewStack.Flags = SourceFlags;
-	NewStack.OwnerFactionId = SourceOwnerFactionId;
-	Destination->Stacks.Add(NewStack);
+	if (SourceStack->Quantity <= 0)
+	{
+		Source->Stacks.RemoveAll([SourceStackId](const FItemStackState& Candidate)
+		{
+			return Candidate.StackId == SourceStackId;
+		});
+	}
+
+	int32 RemainingQuantity = Request.Quantity;
+	while (RemainingQuantity > 0)
+	{
+		FItemStackState NewStack;
+		NewStack.StackId = MakeUniqueStackId(*Destination, FName(*FString::Printf(TEXT("%s_%s"), *Destination->ContainerId.ToString(), *SourceItemId.ToString())));
+		NewStack.ItemId = SourceItemId;
+		NewStack.Quantity = FMath::Min(SourceItem->StackLimit, RemainingQuantity);
+		NewStack.Flags = SourceFlags;
+		NewStack.OwnerFactionId = SourceOwnerFactionId;
+		Destination->Stacks.Add(NewStack);
+		OutResult.CreatedStackIds.Add(NewStack.StackId);
+		RemainingQuantity -= NewStack.Quantity;
+	}
 
 	OutResult.Result = ESystemicActionResult::Accepted;
 	OutResult.MovedStackIds.Add(SourceStackId);
-	OutResult.CreatedStackIds.Add(NewStack.StackId);
 	InOutState.CargoTransferResults.Add(OutResult);
+	return true;
+}
+
+bool USystemicGameplayQueryService::AddItemToContainerStacking(
+	FSystemicGameplayState& InOutState,
+	FName ContainerId,
+	FName ItemId,
+	int32 Quantity,
+	FName StackIdPrefix,
+	FString& OutFailureReason)
+{
+	if (ContainerId.IsNone() || ItemId.IsNone() || Quantity <= 0 || StackIdPrefix.IsNone())
+	{
+		OutFailureReason = TEXT("Inventory add requires container, item, positive quantity, and stack ID prefix.");
+		return false;
+	}
+
+	FContainerState* Container = FindMutable(InOutState.Containers, [ContainerId](const FContainerState& Candidate)
+	{
+		return Candidate.ContainerId == ContainerId;
+	});
+	const FItemDefinition* Item = FindConst(InOutState.Items, [ItemId](const FItemDefinition& Candidate)
+	{
+		return Candidate.ItemId == ItemId;
+	});
+	if (!Container || !Item || Item->StackLimit <= 0)
+	{
+		OutFailureReason = TEXT("Inventory add container or item does not resolve.");
+		return false;
+	}
+
+	double CurrentMass = 0.0;
+	double CurrentVolume = 0.0;
+	GetContainerLoad(InOutState, *Container, CurrentMass, CurrentVolume);
+	if (CurrentMass + Item->MassPerUnitKg * Quantity > Container->CapacityMassKg ||
+		CurrentVolume + Item->VolumePerUnitM3 * Quantity > Container->CapacityVolumeM3)
+	{
+		OutFailureReason = TEXT("Inventory add would exceed container capacity.");
+		return false;
+	}
+
+	int32 Remaining = Quantity;
+	for (FItemStackState& Stack : Container->Stacks)
+	{
+		if (Stack.ItemId != ItemId || Stack.Quantity >= Item->StackLimit)
+		{
+			continue;
+		}
+
+		const int32 ToAdd = FMath::Min(Item->StackLimit - Stack.Quantity, Remaining);
+		Stack.Quantity += ToAdd;
+		Remaining -= ToAdd;
+		if (Remaining <= 0)
+		{
+			OutFailureReason.Reset();
+			return true;
+		}
+	}
+
+	const int32 NeededNewStacks = FMath::DivideAndRoundUp(Remaining, Item->StackLimit);
+	if (Container->MaxSlotCount > 0 && Container->Stacks.Num() + NeededNewStacks > Container->MaxSlotCount)
+	{
+		OutFailureReason = TEXT("Inventory add would exceed container slot count.");
+		return false;
+	}
+
+	while (Remaining > 0)
+	{
+		FItemStackState NewStack;
+		NewStack.StackId = MakeUniqueStackId(*Container, StackIdPrefix);
+		NewStack.ItemId = ItemId;
+		NewStack.Quantity = FMath::Min(Item->StackLimit, Remaining);
+		Container->Stacks.Add(NewStack);
+		Remaining -= NewStack.Quantity;
+	}
+
+	OutFailureReason.Reset();
+	return true;
+}
+
+bool USystemicGameplayQueryService::EquipItemFromContainer(
+	FSystemicGameplayState& InOutState,
+	FName ContainerId,
+	FName StackId,
+	FName SlotId,
+	FString& OutFailureReason)
+{
+	if (ContainerId.IsNone() || StackId.IsNone() || SlotId.IsNone())
+	{
+		OutFailureReason = TEXT("Equip requires container, stack, and slot IDs.");
+		return false;
+	}
+
+	FContainerState* Container = FindMutable(InOutState.Containers, [ContainerId](const FContainerState& Candidate)
+	{
+		return Candidate.ContainerId == ContainerId;
+	});
+	FEquipmentSlotState* Slot = FindMutable(InOutState.EquipmentSlots, [SlotId](const FEquipmentSlotState& Candidate)
+	{
+		return Candidate.SlotId == SlotId;
+	});
+	if (!Container || !Slot)
+	{
+		OutFailureReason = TEXT("Equip container or slot does not resolve.");
+		return false;
+	}
+
+	const int32 StackIndex = Container->Stacks.IndexOfByPredicate([StackId](const FItemStackState& Candidate)
+	{
+		return Candidate.StackId == StackId;
+	});
+	if (StackIndex == INDEX_NONE || Container->Stacks[StackIndex].Quantity <= 0)
+	{
+		OutFailureReason = TEXT("Equip stack does not resolve.");
+		return false;
+	}
+
+	const FItemStackState SourceStack = Container->Stacks[StackIndex];
+	const FItemDefinition* Item = FindConst(InOutState.Items, [&SourceStack](const FItemDefinition& Candidate)
+	{
+		return Candidate.ItemId == SourceStack.ItemId;
+	});
+	if (!Item || !Slot->AcceptedItemTypes.Contains(Item->ItemType))
+	{
+		OutFailureReason = TEXT("Item cannot be equipped in the requested slot.");
+		return false;
+	}
+
+	const FItemStackState PreviousEquippedStack = Slot->EquippedStack;
+	if (!PreviousEquippedStack.ItemId.IsNone() && PreviousEquippedStack.Quantity > 0)
+	{
+		FSystemicGameplayState CapacityCheckState = InOutState;
+		FContainerState* CapacityCheckContainer = FindMutable(CapacityCheckState.Containers, [ContainerId](const FContainerState& Candidate)
+		{
+			return Candidate.ContainerId == ContainerId;
+		});
+		if (!CapacityCheckContainer)
+		{
+			OutFailureReason = TEXT("Equip capacity check container does not resolve.");
+			return false;
+		}
+		const int32 CapacityCheckStackIndex = CapacityCheckContainer->Stacks.IndexOfByPredicate([StackId](const FItemStackState& Candidate)
+		{
+			return Candidate.StackId == StackId;
+		});
+		if (CapacityCheckStackIndex == INDEX_NONE)
+		{
+			OutFailureReason = TEXT("Equip capacity check stack does not resolve.");
+			return false;
+		}
+		CapacityCheckContainer->Stacks[CapacityCheckStackIndex].Quantity -= 1;
+		if (CapacityCheckContainer->Stacks[CapacityCheckStackIndex].Quantity <= 0)
+		{
+			CapacityCheckContainer->Stacks.RemoveAt(CapacityCheckStackIndex);
+		}
+		FString CapacityFailureReason;
+		if (!AddItemToContainerStacking(
+			CapacityCheckState,
+			ContainerId,
+			PreviousEquippedStack.ItemId,
+			PreviousEquippedStack.Quantity,
+			TEXT("returned_equipped"),
+			CapacityFailureReason))
+		{
+			OutFailureReason = FString::Printf(TEXT("Equipping would fail to return previous equipment: %s"), *CapacityFailureReason);
+			return false;
+		}
+	}
+
+	Slot->EquippedStack.StackId = FName(*FString::Printf(TEXT("equipped_%s"), *SlotId.ToString()));
+	Slot->EquippedStack.ItemId = SourceStack.ItemId;
+	Slot->EquippedStack.Quantity = 1;
+	Container->Stacks[StackIndex].Quantity -= 1;
+	if (Container->Stacks[StackIndex].Quantity <= 0)
+	{
+		Container->Stacks.RemoveAt(StackIndex);
+	}
+	if (!PreviousEquippedStack.ItemId.IsNone() && PreviousEquippedStack.Quantity > 0)
+	{
+		if (!AddItemToContainerStacking(
+			InOutState,
+			ContainerId,
+			PreviousEquippedStack.ItemId,
+			PreviousEquippedStack.Quantity,
+			TEXT("returned_equipped"),
+			OutFailureReason))
+		{
+			return false;
+		}
+	}
+
+	OutFailureReason.Reset();
+	return true;
+}
+
+bool USystemicGameplayQueryService::UnequipItemToContainer(
+	FSystemicGameplayState& InOutState,
+	FName SlotId,
+	FName ContainerId,
+	FName StackIdPrefix,
+	FString& OutFailureReason)
+{
+	if (SlotId.IsNone() || ContainerId.IsNone() || StackIdPrefix.IsNone())
+	{
+		OutFailureReason = TEXT("Unequip requires slot, container, and stack ID prefix.");
+		return false;
+	}
+
+	FEquipmentSlotState* Slot = FindMutable(InOutState.EquipmentSlots, [SlotId](const FEquipmentSlotState& Candidate)
+	{
+		return Candidate.SlotId == SlotId;
+	});
+	if (!Slot)
+	{
+		OutFailureReason = TEXT("Unequip slot does not resolve.");
+		return false;
+	}
+	if (Slot->EquippedStack.ItemId.IsNone() || Slot->EquippedStack.Quantity <= 0)
+	{
+		OutFailureReason = TEXT("Unequip slot is already empty.");
+		return false;
+	}
+
+	FSystemicGameplayState CapacityCheckState = InOutState;
+	FString CapacityFailureReason;
+	if (!AddItemToContainerStacking(
+		CapacityCheckState,
+		ContainerId,
+		Slot->EquippedStack.ItemId,
+		Slot->EquippedStack.Quantity,
+		StackIdPrefix,
+		CapacityFailureReason))
+	{
+		OutFailureReason = FString::Printf(TEXT("Unequip would fail to store equipment: %s"), *CapacityFailureReason);
+		return false;
+	}
+
+	const FItemStackState EquippedStack = Slot->EquippedStack;
+	if (!AddItemToContainerStacking(
+		InOutState,
+		ContainerId,
+		EquippedStack.ItemId,
+		EquippedStack.Quantity,
+		StackIdPrefix,
+		OutFailureReason))
+	{
+		return false;
+	}
+
+	Slot->EquippedStack = FItemStackState();
+	OutFailureReason.Reset();
 	return true;
 }
 
@@ -2741,8 +4187,9 @@ bool USystemicGameplayQueryService::ExecuteMarketTransaction(FSystemicGameplaySt
 		return false;
 	}
 
+	const bool bPlayerSellingToMarket = Request.SellerId == FName(TEXT("player"));
 	const int32* Stock = Market->StockByCommodity.Find(Request.CommodityId);
-	if (!Stock || *Stock < Request.Quantity)
+	if (!bPlayerSellingToMarket && (!Stock || *Stock < Request.Quantity))
 	{
 		OutResult.RejectionReason = TEXT("Market stock is unavailable.");
 		return false;
@@ -2773,7 +4220,8 @@ bool USystemicGameplayQueryService::ExecuteMarketTransaction(FSystemicGameplaySt
 		return false;
 	}
 
-	Market->StockByCommodity.FindOrAdd(Request.CommodityId) -= Request.Quantity;
+	int32& MutableStock = Market->StockByCommodity.FindOrAdd(Request.CommodityId);
+	MutableStock += bPlayerSellingToMarket ? Request.Quantity : -Request.Quantity;
 	Debit->AvailableBalance -= TotalPrice;
 	Credit->AvailableBalance += TotalPrice;
 
@@ -2782,7 +4230,7 @@ bool USystemicGameplayQueryService::ExecuteMarketTransaction(FSystemicGameplaySt
 	Ledger.DebitAccountId = Debit->AccountId;
 	Ledger.CreditAccountId = Credit->AccountId;
 	Ledger.Amount = TotalPrice;
-	Ledger.Reason = TEXT("market_buy");
+	Ledger.Reason = bPlayerSellingToMarket ? FName(TEXT("market_sell")) : FName(TEXT("market_buy"));
 	Ledger.SourceEventId = Request.SourceEventId;
 	Ledger.SourceTransactionId = Request.TransactionId;
 	Ledger.IdempotencyKey = MakeId(TEXT("ledger"), Request.IdempotencyKey);
@@ -2796,7 +4244,7 @@ bool USystemicGameplayQueryService::ExecuteMarketTransaction(FSystemicGameplaySt
 	Transaction.TransactionType = TEXT("market_trade");
 	Transaction.SourceEventId = Request.SourceEventId;
 	Transaction.InitiatorType = TEXT("player");
-	Transaction.InitiatorId = Request.BuyerId;
+	Transaction.InitiatorId = bPlayerSellingToMarket ? Request.SellerId : Request.BuyerId;
 	Transaction.TargetType = TEXT("market");
 	Transaction.TargetId = Request.MarketId;
 	Transaction.State = TEXT("committed");
@@ -2810,8 +4258,8 @@ bool USystemicGameplayQueryService::ExecuteMarketTransaction(FSystemicGameplaySt
 	OutResult.Result = ESystemicActionResult::Accepted;
 	OutResult.AppliedQuantity = Request.Quantity;
 	OutResult.UnitPrice = Request.QuotedUnitPrice;
-	OutResult.StockDelta = -Request.Quantity;
-	OutResult.DisplayCreditDelta = -TotalPrice;
+	OutResult.StockDelta = bPlayerSellingToMarket ? Request.Quantity : -Request.Quantity;
+	OutResult.DisplayCreditDelta = bPlayerSellingToMarket ? TotalPrice : -TotalPrice;
 	OutResult.LedgerEntryIds.Add(Ledger.LedgerEntryId);
 	OutResult.CargoTransferResultId = CargoResult.TransferId;
 	InOutState.MarketTransactionResults.Add(OutResult);
@@ -2929,6 +4377,19 @@ bool USystemicGameplayQueryService::ExecuteStationServiceRequestOnce(
 		OutFailureReason = OutResult.RejectionReason;
 		return false;
 	}
+	if (Endpoint->UnitPriceCredits <= 0)
+	{
+		OutResult.RejectionReason = TEXT("Station service endpoint requires a positive unit price.");
+		OutFailureReason = OutResult.RejectionReason;
+		return false;
+	}
+	const int64 ExpectedTotalCost = CalculateServiceTotalCost(Request.Amount, Endpoint->UnitPriceCredits);
+	if (Request.TotalCost != ExpectedTotalCost)
+	{
+		OutResult.RejectionReason = FString::Printf(TEXT("Station service quoted total %lld does not match endpoint unit price quote %lld."), Request.TotalCost, ExpectedTotalCost);
+		OutFailureReason = OutResult.RejectionReason;
+		return false;
+	}
 
 	FShipDurabilityState* RepairDurability = nullptr;
 	FShipResourceState* ResourceState = nullptr;
@@ -2965,6 +4426,50 @@ bool USystemicGameplayQueryService::ExecuteStationServiceRequestOnce(
 		return false;
 	}
 
+	double AppliedServiceAmount = 0.0;
+	double RepairedHull = 0.0;
+	double RepairedShield = 0.0;
+	if (Request.ServiceType == FName(TEXT("repair")))
+	{
+		const double MaxHull = ResolvePositiveCapacity(RepairDurability->MaxHull, 100.0);
+		const double MaxShield = ResolvePositiveCapacity(RepairDurability->MaxShield, 100.0);
+		RepairedHull = FMath::Min(MaxHull, RepairDurability->Hull + Request.Amount);
+		RepairedShield = FMath::Min(MaxShield, RepairDurability->Shield + Request.Amount);
+		AppliedServiceAmount = FMath::Max(RepairedHull - RepairDurability->Hull, RepairedShield - RepairDurability->Shield);
+	}
+	else if (Request.ServiceType == FName(TEXT("refuel")))
+	{
+		if (ResourceState->MaxFuel <= 0.0)
+		{
+			OutResult.RejectionReason = TEXT("Refuel target has invalid fuel capacity.");
+			OutFailureReason = OutResult.RejectionReason;
+			return false;
+		}
+		AppliedServiceAmount = FMath::Min(ResourceState->MaxFuel, ResourceState->Fuel + Request.Amount) - ResourceState->Fuel;
+	}
+	else if (Request.ServiceType == FName(TEXT("rearm")))
+	{
+		if (ResourceState->MaxAmmo <= 0.0)
+		{
+			OutResult.RejectionReason = TEXT("Rearm target has invalid ammo capacity.");
+			OutFailureReason = OutResult.RejectionReason;
+			return false;
+		}
+		AppliedServiceAmount = FMath::Min(ResourceState->MaxAmmo, ResourceState->Ammo + Request.Amount) - ResourceState->Ammo;
+	}
+	if (AppliedServiceAmount <= UE_SMALL_NUMBER)
+	{
+		OutResult.RejectionReason = TEXT("Station service would not change the target ship state.");
+		OutFailureReason = OutResult.RejectionReason;
+		return false;
+	}
+	if (AppliedServiceAmount + UE_SMALL_NUMBER < Request.Amount)
+	{
+		OutResult.RejectionReason = TEXT("Station service request exceeds the target ship's remaining service capacity.");
+		OutFailureReason = OutResult.RejectionReason;
+		return false;
+	}
+
 	FName LedgerId = MakeId(TEXT("ledger"), Request.RequestId);
 	Debit->AvailableBalance -= Request.TotalCost;
 	Credit->AvailableBalance += Request.TotalCost;
@@ -2984,19 +4489,19 @@ bool USystemicGameplayQueryService::ExecuteStationServiceRequestOnce(
 
 	if (Request.ServiceType == FName(TEXT("repair")))
 	{
-		RepairDurability->Hull = FMath::Min(100.0, RepairDurability->Hull + Request.Amount);
-		RepairDurability->Shield = FMath::Min(100.0, RepairDurability->Shield + Request.Amount);
+		RepairDurability->Hull = RepairedHull;
+		RepairDurability->Shield = RepairedShield;
 		RepairDurability->State = TEXT("active");
 	}
 	else if (Request.ServiceType == FName(TEXT("refuel")) || Request.ServiceType == FName(TEXT("rearm")))
 	{
 		if (Request.ServiceType == FName(TEXT("refuel")))
 		{
-			ResourceState->Fuel = FMath::Min(ResourceState->MaxFuel, ResourceState->Fuel + Request.Amount);
+			ResourceState->Fuel += AppliedServiceAmount;
 		}
 		else
 		{
-			ResourceState->Ammo = FMath::Min(ResourceState->MaxAmmo, ResourceState->Ammo + Request.Amount);
+			ResourceState->Ammo += AppliedServiceAmount;
 		}
 		ResourceState->LastServiceResultId = OutResult.ResultId;
 	}
@@ -3017,7 +4522,8 @@ bool USystemicGameplayQueryService::ExecuteStationServiceRequestOnce(
 	AddJournalEntry(InOutState, Request.RequestId, 2, TEXT("service_resource"), OutResult.ResultId, Request.IdempotencyKey);
 
 	OutResult.Result = ESystemicActionResult::Accepted;
-	OutResult.AppliedAmount = Request.Amount;
+	OutResult.AppliedAmount = AppliedServiceAmount;
+	OutResult.UnitPriceCredits = Endpoint->UnitPriceCredits;
 	OutResult.AppliedCost = Request.TotalCost;
 	OutResult.LedgerEntryId = Ledger.LedgerEntryId;
 	InOutState.StationServiceResults.Add(OutResult);
@@ -3121,6 +4627,159 @@ bool USystemicGameplayQueryService::AcceptMissionOfferOnce(
 	return true;
 }
 
+bool USystemicGameplayQueryService::ResolveMissionContactInteraction(
+	const FStarSystemDefinition& SystemDefinition,
+	const FSystemicGameplayState& State,
+	FName StationId,
+	FName GiverNpcId,
+	FMissionContactInteractionView& OutInteraction)
+{
+	OutInteraction = FMissionContactInteractionView();
+	OutInteraction.StationId = StationId;
+	OutInteraction.GiverNpcId = GiverNpcId;
+
+	if (StationId.IsNone() || GiverNpcId.IsNone())
+	{
+		OutInteraction.DebugReason = TEXT("Mission contact lookup requires station and giver NPC IDs.");
+		return false;
+	}
+
+	const FStationDefinition* Station = FindConst(SystemDefinition.Stations, [StationId](const FStationDefinition& Candidate)
+	{
+		return Candidate.StationId == StationId;
+	});
+	if (!Station)
+	{
+		OutInteraction.DebugReason = TEXT("Mission contact station does not resolve.");
+		return false;
+	}
+	if (!Station->QuestGiverNpcIds.Contains(GiverNpcId))
+	{
+		OutInteraction.DebugReason = TEXT("Mission contact NPC is not authored on this station.");
+		return false;
+	}
+
+	for (const FMissionOfferRecord& Offer : State.MissionOffers)
+	{
+		if (Offer.SourceStationId != StationId || Offer.GiverNpcId != GiverNpcId)
+		{
+			continue;
+		}
+
+		bool bStationTagsSatisfied = true;
+		for (const FName RequiredTag : Offer.RequiredStationTags)
+		{
+			if (RequiredTag.IsNone() || !Station->MissionTags.Contains(RequiredTag))
+			{
+				bStationTagsSatisfied = false;
+				break;
+			}
+		}
+		if (!bStationTagsSatisfied)
+		{
+			continue;
+		}
+
+		const FMissionInstanceState* Mission = FindConst(State.MissionInstances, [&Offer](const FMissionInstanceState& Candidate)
+		{
+			return Candidate.OfferId == Offer.OfferId;
+		});
+		if (!Mission || Mission->CurrentState == FName(TEXT("completed")) || Mission->CurrentState == FName(TEXT("failed")))
+		{
+			continue;
+		}
+		if (Mission->CurrentState != FName(TEXT("active")))
+		{
+			const bool bHasActiveMissionForContact = State.MissionOffers.ContainsByPredicate([&State, StationId, GiverNpcId, Station](const FMissionOfferRecord& OtherOffer)
+			{
+				if (OtherOffer.SourceStationId != StationId || OtherOffer.GiverNpcId != GiverNpcId)
+				{
+					return false;
+				}
+				for (const FName RequiredTag : OtherOffer.RequiredStationTags)
+				{
+					if (RequiredTag.IsNone() || !Station->MissionTags.Contains(RequiredTag))
+					{
+						return false;
+					}
+				}
+				const FMissionInstanceState* OtherMission = FindConst(State.MissionInstances, [&OtherOffer](const FMissionInstanceState& Candidate)
+				{
+					return Candidate.OfferId == OtherOffer.OfferId;
+				});
+				return OtherMission && OtherMission->CurrentState == FName(TEXT("active"));
+			});
+			if (bHasActiveMissionForContact)
+			{
+				continue;
+			}
+		}
+
+		OutInteraction.bHasMission = true;
+		OutInteraction.OfferId = Offer.OfferId;
+		OutInteraction.MissionDefinitionId = Offer.MissionDefinitionId;
+		OutInteraction.MissionInstanceId = Mission->MissionInstanceId;
+		OutInteraction.IssuerFactionId = Offer.IssuerFactionId;
+		OutInteraction.RegionName = Station->RegionName;
+		OutInteraction.RequiredStationTags = Offer.RequiredStationTags;
+
+		if (const FFactionDefinition* Faction = FindConst(State.Factions, [&Offer](const FFactionDefinition& Candidate)
+		{
+			return Candidate.FactionId == Offer.IssuerFactionId;
+		}))
+		{
+			OutInteraction.IssuerFactionDisplayName = Faction->DisplayName;
+		}
+
+		TArray<FString> ContextLines;
+		if (!OutInteraction.RegionName.IsNone())
+		{
+			ContextLines.Add(FString::Printf(TEXT("Region: %s"), *OutInteraction.RegionName.ToString()));
+		}
+		if (!OutInteraction.IssuerFactionId.IsNone())
+		{
+			const FString Issuer = OutInteraction.IssuerFactionDisplayName.IsEmpty()
+				? OutInteraction.IssuerFactionId.ToString()
+				: OutInteraction.IssuerFactionDisplayName.ToString();
+			ContextLines.Add(FString::Printf(TEXT("Issuer: %s"), *Issuer));
+		}
+		OutInteraction.ContextText = FString::Join(ContextLines, TEXT("\n"));
+
+		if (MissionObjectivesComplete(State, *Mission))
+		{
+			OutInteraction.InteractionState = TEXT("ready_to_turn_in");
+			OutInteraction.AvailableCommand = TEXT("turn_in");
+			FillMissionPresentation(State, *Mission, OutInteraction);
+			OutInteraction.DebugReason = TEXT("Mission objectives are complete; contact can turn in the mission.");
+			return true;
+		}
+
+		if (Mission->CurrentState == FName(TEXT("active")))
+		{
+			if (const FObjectiveState* Objective = FindFirstActiveMissionObjective(State, *Mission))
+			{
+				OutInteraction.ActiveObjectiveStateId = Objective->ObjectiveStateId;
+				OutInteraction.ActiveObjectiveType = Objective->ObjectiveType;
+				OutInteraction.ActiveObjectiveTargetId = Objective->TargetId;
+			}
+			OutInteraction.InteractionState = TEXT("in_progress");
+			OutInteraction.AvailableCommand = TEXT("continue");
+			FillMissionPresentation(State, *Mission, OutInteraction);
+			OutInteraction.DebugReason = TEXT("Mission is active; contact returns current objective context.");
+			return true;
+		}
+
+		OutInteraction.InteractionState = TEXT("offer");
+		OutInteraction.AvailableCommand = TEXT("accept");
+		FillMissionPresentation(State, *Mission, OutInteraction);
+		OutInteraction.DebugReason = TEXT("Station-authored contact has an available mission offer.");
+		return true;
+	}
+
+	OutInteraction.DebugReason = TEXT("No eligible mission offer for this station contact.");
+	return false;
+}
+
 bool USystemicGameplayQueryService::CompleteMissionOnce(
 	FSystemicGameplayState& InOutState,
 	FName MissionInstanceId,
@@ -3153,6 +4812,11 @@ bool USystemicGameplayQueryService::CompleteMissionOnce(
 	if (!Mission || Mission->CurrentState != FName(TEXT("active")))
 	{
 		OutFailureReason = TEXT("Mission instance does not resolve or is not completable.");
+		return false;
+	}
+	if (!MissionObjectivesComplete(InOutState, *Mission))
+	{
+		OutFailureReason = TEXT("Mission objectives are not complete.");
 		return false;
 	}
 
@@ -3575,6 +5239,176 @@ bool USystemicGameplayQueryService::ReservePatrolForRoute(
 	return true;
 }
 
+bool USystemicGameplayQueryService::ReservePatrolForBestScoredRoute(
+	const FStarSystemDefinition& SystemDefinition,
+	FSystemicGameplayState& InOutState,
+	FName SourceEventId,
+	double ExpiresAtTimeSeconds,
+	const FSimulationClockSnapshot& ClockSnapshot,
+	double SimulationTimeSeconds,
+	FPatrolReservationRecord& OutReservation,
+	FString& OutFailureReason)
+{
+	OutReservation = FPatrolReservationRecord();
+	TArray<FRouteEncounterScoreRecord> Scores;
+	if (!ScorePatrolAndAmbushRoutes(SystemDefinition, InOutState, ClockSnapshot, SimulationTimeSeconds, Scores, OutFailureReason))
+	{
+		return false;
+	}
+
+	Scores.Sort([](const FRouteEncounterScoreRecord& Left, const FRouteEncounterScoreRecord& Right)
+	{
+		if (!FMath::IsNearlyEqual(Left.PatrolScore, Right.PatrolScore))
+		{
+			return Left.PatrolScore > Right.PatrolScore;
+		}
+		return Left.RouteSegmentId.LexicalLess(Right.RouteSegmentId);
+	});
+
+	for (const FRouteEncounterScoreRecord& Score : Scores)
+	{
+		if (Score.PatrolScore <= 0.0)
+		{
+			continue;
+		}
+
+		if (!ReservePatrolForRoute(SystemDefinition, InOutState, Score.RouteSegmentId, SourceEventId, ExpiresAtTimeSeconds, OutReservation, OutFailureReason))
+		{
+			continue;
+		}
+
+		OutReservation.RouteSample = Score.RouteSample;
+		OutReservation.DynamicPatrolScore = Score.PatrolScore;
+		OutReservation.SelectionDebugReason = Score.DebugReason;
+		if (FPatrolReservationRecord* StoredReservation = FindMutable(InOutState.PatrolReservations, [&OutReservation](const FPatrolReservationRecord& Candidate)
+		{
+			return Candidate.ReservationId == OutReservation.ReservationId;
+		}))
+		{
+			StoredReservation->RouteSample = OutReservation.RouteSample;
+			StoredReservation->DynamicPatrolScore = OutReservation.DynamicPatrolScore;
+			StoredReservation->SelectionDebugReason = OutReservation.SelectionDebugReason;
+		}
+		OutFailureReason.Reset();
+		return true;
+	}
+
+	OutFailureReason = TEXT("No scored patrol route could reserve an available patrol asset.");
+	return false;
+}
+
+bool USystemicGameplayQueryService::ScorePatrolAndAmbushRoutes(
+	const FStarSystemDefinition& SystemDefinition,
+	const FSystemicGameplayState& State,
+	const FSimulationClockSnapshot& ClockSnapshot,
+	double SimulationTimeSeconds,
+	TArray<FRouteEncounterScoreRecord>& OutScores,
+	FString& OutFailureReason)
+{
+	OutScores.Reset();
+	for (const FTrafficRouteSegmentDefinition& Route : SystemDefinition.TrafficRoutes)
+	{
+		if (!Route.bSupportsPatrolCoverage && !Route.bSupportsPirateAmbush)
+		{
+			continue;
+		}
+
+		const FRouteSecuritySnapshot* Security = FindConst(State.RouteSecuritySnapshots, [&Route](const FRouteSecuritySnapshot& Candidate)
+		{
+			return Candidate.RouteSegmentId == Route.RouteSegmentId;
+		});
+		if (!Security)
+		{
+			continue;
+		}
+
+		const double RoutePhase = FMath::Abs(static_cast<double>(GetTypeHash(Route.RouteSegmentId) % 997)) / 997.0;
+		const double SampleProgress = FMath::Fmod(0.25 + RoutePhase + SimulationTimeSeconds / 900.0, 0.5) + 0.25;
+		FRouteSample RouteSample;
+		if (!UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, Route.RouteSegmentId, SampleProgress, ClockSnapshot, SimulationTimeSeconds, RouteSample))
+		{
+			continue;
+		}
+
+		double CriminalPressure = 0.0;
+		for (const FCriminalRecord& CriminalRecord : State.CriminalRecords)
+		{
+			if (CriminalRecord.JurisdictionId == Security->JurisdictionId)
+			{
+				CriminalPressure += static_cast<double>(CriminalRecord.WantedLevel) * 0.18;
+			}
+		}
+		for (const FOffenseEvent& Offense : State.Offenses)
+		{
+			if (Offense.JurisdictionId == Security->JurisdictionId && SimulationTimeSeconds - Offense.OccurredTimeSeconds <= 900.0)
+			{
+				CriminalPressure += 0.08;
+			}
+		}
+		CriminalPressure = FMath::Clamp(CriminalPressure, 0.0, 1.0);
+
+		double MissionPressure = 0.0;
+		for (const FObjectiveState& Objective : State.ObjectiveStates)
+		{
+			if ((Objective.State == FName(TEXT("active")) || Objective.State == FName(TEXT("ready_to_turn_in"))) &&
+				(Objective.RouteSegmentIds.Contains(Route.RouteSegmentId) || Objective.TargetId == Route.RouteSegmentId))
+			{
+				MissionPressure = 1.0;
+				break;
+			}
+		}
+
+		const double SecurityPressure = FMath::Clamp(1.0 - FMath::Max(Security->SecurityRating, Route.SecurityRating), 0.0, 1.0);
+		const double RouteValuePressure = FMath::Clamp(FMath::Max(Security->RouteValue, Route.RouteValue) / 1000.0, 0.0, 1.0);
+		const double TimePressure = 0.5 + 0.5 * FMath::Sin(SimulationTimeSeconds / 90.0 + RoutePhase * 2.0 * UE_DOUBLE_PI);
+
+		FRouteEncounterScoreRecord Score;
+		Score.RouteSegmentId = Route.RouteSegmentId;
+		Score.JurisdictionId = Security->JurisdictionId;
+		Score.SimulationTimeSeconds = SimulationTimeSeconds;
+		Score.SecurityPressure = SecurityPressure;
+		Score.CriminalPressure = CriminalPressure;
+		Score.MissionPressure = MissionPressure;
+		Score.RouteValuePressure = RouteValuePressure;
+		Score.TimePressure = TimePressure;
+		Score.RouteSample = RouteSample;
+		Score.PatrolScore = Route.bSupportsPatrolCoverage
+			? FMath::Clamp(SecurityPressure * 0.25 + Security->PirateRiskScore * 0.25 + CriminalPressure * 0.25 + MissionPressure * 0.15 + TimePressure * 0.10 - Security->PatrolCoverageScore * 0.15, 0.0, 1.0)
+			: 0.0;
+		Score.PirateAmbushScore = Route.bSupportsPirateAmbush
+			? FMath::Clamp(Security->PirateRiskScore * 0.35 + RouteValuePressure * 0.20 + CriminalPressure * 0.10 + MissionPressure * 0.15 + TimePressure * 0.15 - Security->PatrolCoverageScore * 0.20, 0.0, 1.0)
+			: 0.0;
+		Score.DebugReason = FString::Printf(
+			TEXT("Route=%s SecurityPressure=%.2f CriminalPressure=%.2f MissionPressure=%.2f RouteValue=%.2f TimePressure=%.2f Patrol=%.2f Ambush=%.2f"),
+			*Score.RouteSegmentId.ToString(),
+			Score.SecurityPressure,
+			Score.CriminalPressure,
+			Score.MissionPressure,
+			Score.RouteValuePressure,
+			Score.TimePressure,
+			Score.PatrolScore,
+			Score.PirateAmbushScore);
+		OutScores.Add(Score);
+	}
+
+	OutScores.Sort([](const FRouteEncounterScoreRecord& Left, const FRouteEncounterScoreRecord& Right)
+	{
+		if (!FMath::IsNearlyEqual(Left.PirateAmbushScore, Right.PirateAmbushScore))
+		{
+			return Left.PirateAmbushScore > Right.PirateAmbushScore;
+		}
+		return Left.RouteSegmentId.LexicalLess(Right.RouteSegmentId);
+	});
+	if (OutScores.IsEmpty())
+	{
+		OutFailureReason = TEXT("No patrol or ambush route scores could be computed.");
+		return false;
+	}
+
+	OutFailureReason.Reset();
+	return true;
+}
+
 bool USystemicGameplayQueryService::SelectPirateInterdictionHazard(
 	const FStarSystemDefinition& SystemDefinition,
 	const FSystemicGameplayState& State,
@@ -3607,6 +5441,15 @@ bool USystemicGameplayQueryService::SelectPirateInterdictionHazard(
 	{
 		return Candidate.RouteSegmentId == RouteSegmentId;
 	});
+	TArray<FRouteEncounterScoreRecord> Scores;
+	if (!ScorePatrolAndAmbushRoutes(SystemDefinition, State, ClockSnapshot, SimulationTimeSeconds, Scores, OutFailureReason))
+	{
+		return false;
+	}
+	const FRouteEncounterScoreRecord* RouteScore = FindConst(Scores, [RouteSegmentId](const FRouteEncounterScoreRecord& Candidate)
+	{
+		return Candidate.RouteSegmentId == RouteSegmentId && Candidate.PirateAmbushScore > 0.0;
+	});
 	FSystemicDecisionInputSnapshot Snapshot;
 	const bool bInputsResolve = BuildSystemicDecisionInputSnapshot(SystemDefinition, State, RouteSegmentId, Snapshot) && Snapshot.bValid;
 	const bool bHostilePirateFaction = State.FactionRelationships.ContainsByPredicate([](const FFactionRelationshipRecord& Candidate)
@@ -3624,10 +5467,10 @@ bool USystemicGameplayQueryService::SelectPirateInterdictionHazard(
 		const int32* Stock = Candidate.StockByCommodity.Find(FName(TEXT("commodity_ember_ore")));
 		return Stock && *Stock > 0;
 	});
-	if (!PirateGroup || !TargetShip || !Security || !bInputsResolve || !bHostilePirateFaction || !bCargoTargetHasValue || !bMarketHasRouteCommodity ||
-		Security->JurisdictionId != Snapshot.JurisdictionId || Security->PirateRiskScore <= Security->PatrolCoverageScore || Route->RouteValue <= 0.0)
+	if (!PirateGroup || !TargetShip || !Security || !RouteScore || !bInputsResolve || !bHostilePirateFaction || !bCargoTargetHasValue || !bMarketHasRouteCommodity ||
+		Security->JurisdictionId != Snapshot.JurisdictionId || Route->RouteValue <= 0.0)
 	{
-		OutFailureReason = TEXT("Pirate ambush policy requires M9 decision inputs, hostile faction/legal context, valued cargo/market data, and risk above patrol coverage.");
+		OutFailureReason = TEXT("Pirate ambush policy requires M9 decision inputs, hostile faction/legal context, valued cargo/market data, and positive dynamic ambush pressure.");
 		return false;
 	}
 
@@ -3640,11 +5483,9 @@ bool USystemicGameplayQueryService::SelectPirateInterdictionHazard(
 	OutHazard.ExpiresAtTimeSeconds = SimulationTimeSeconds + 600.0;
 	OutHazard.SaveLoadEventId = Security->SourceEventId;
 	OutHazard.IdempotencyKey = FName(*FString::Printf(TEXT("idem_m10_hazard_%s_%s"), *PirateGroup->GroupId.ToString(), *RouteSegmentId.ToString()));
-	if (!UOrbitRouteFrameQueryService::EvaluateRoute(SystemDefinition, RouteSegmentId, 0.55, ClockSnapshot, SimulationTimeSeconds, OutHazard.RouteSample))
-	{
-		OutFailureReason = TEXT("Pirate ambush policy could not sample the moving route.");
-		return false;
-	}
+	OutHazard.RouteSample = RouteScore->RouteSample;
+	OutHazard.DynamicPirateAmbushScore = RouteScore->PirateAmbushScore;
+	OutHazard.SelectionDebugReason = RouteScore->DebugReason;
 
 	OutFailureReason.Reset();
 	return true;
@@ -3733,6 +5574,17 @@ bool USystemicGameplayQueryService::ResolveLogicalEncounterOnce(
 	FLogicalEncounterResolutionResult& OutResult,
 	FString& OutFailureReason)
 {
+	return ResolveLogicalEncounterOnceWithOutcome(InOutState, EncounterId, AppliedTimeSeconds, NAME_None, OutResult, OutFailureReason);
+}
+
+bool USystemicGameplayQueryService::ResolveLogicalEncounterOnceWithOutcome(
+	FSystemicGameplayState& InOutState,
+	FName EncounterId,
+	double AppliedTimeSeconds,
+	FName RuntimeOutcomeType,
+	FLogicalEncounterResolutionResult& OutResult,
+	FString& OutFailureReason)
+{
 	OutResult = FLogicalEncounterResolutionResult();
 	OutResult.EncounterId = EncounterId;
 
@@ -3806,74 +5658,85 @@ bool USystemicGameplayQueryService::ResolveLogicalEncounterOnce(
 		return false;
 	}
 
-	FCargoTransferRequest CargoRequest;
-	CargoRequest.RequestId = MakeId(TEXT("cargo_loot"), Encounter->EncounterId);
-	CargoRequest.SourceContainerId = TEXT("trader_brink_cargo");
-	CargoRequest.DestinationContainerId = TEXT("pirate_raider_cargo");
-	CargoRequest.ExpectedSourceOwnerId = TEXT("trader_brink_01");
-	CargoRequest.ExpectedDestinationOwnerId = TEXT("pirate_raider_01");
-	CargoRequest.ItemId = TEXT("item_ember_ore");
-	CargoRequest.Quantity = 1;
-	CargoRequest.Reason = TEXT("pirate_loot");
-	CargoRequest.SourceEventId = Encounter->SourceEventId;
-	CargoRequest.LegalContextId = Jurisdiction ? Jurisdiction->LawProfileId : FName();
-	CargoRequest.IdempotencyKey = MakeId(TEXT("idem_m10_cargo_loot"), Encounter->EncounterId);
-	FCargoTransferResult CargoResult;
-	if (!TransferCargo(InOutState, CargoRequest, CargoResult))
+	const FName ResolutionOutcomeType = RuntimeOutcomeType.IsNone() ? FName(TEXT("distress_patrol_response")) : RuntimeOutcomeType;
+	const bool bApplyPirateLootAndRansom = ResolutionOutcomeType != FName(TEXT("escape"));
+	TArray<FName> CargoTransferResultIds;
+	TArray<FName> GameplayTransactionIds;
+	TArray<FName> CreditLedgerEntryIds;
+	if (bApplyPirateLootAndRansom)
 	{
-		OutFailureReason = CargoResult.RejectedReason;
-		OutResult.OutcomeType = TEXT("rejected");
-		return false;
+		FCargoTransferRequest CargoRequest;
+		CargoRequest.RequestId = MakeId(TEXT("cargo_loot"), Encounter->EncounterId);
+		CargoRequest.SourceContainerId = TEXT("trader_brink_cargo");
+		CargoRequest.DestinationContainerId = TEXT("pirate_raider_cargo");
+		CargoRequest.ExpectedSourceOwnerId = TEXT("trader_brink_01");
+		CargoRequest.ExpectedDestinationOwnerId = TEXT("pirate_raider_01");
+		CargoRequest.ItemId = TEXT("item_ember_ore");
+		CargoRequest.Quantity = 1;
+		CargoRequest.Reason = TEXT("pirate_loot");
+		CargoRequest.SourceEventId = Encounter->SourceEventId;
+		CargoRequest.LegalContextId = Jurisdiction ? Jurisdiction->LawProfileId : FName();
+		CargoRequest.IdempotencyKey = MakeId(TEXT("idem_m10_cargo_loot"), Encounter->EncounterId);
+		FCargoTransferResult CargoResult;
+		if (!TransferCargo(InOutState, CargoRequest, CargoResult))
+		{
+			OutFailureReason = CargoResult.RejectedReason;
+			OutResult.OutcomeType = TEXT("rejected");
+			return false;
+		}
+		CargoTransferResultIds.Add(CargoResult.TransferId);
+
+		FCreditAccountRecord* TraderAccount = FindMutable(InOutState.CreditAccounts, [](const FCreditAccountRecord& Candidate)
+		{
+			return Candidate.AccountId == FName(TEXT("account_trader_brink_01"));
+		});
+		FCreditAccountRecord* PirateAccount = FindMutable(InOutState.CreditAccounts, [](const FCreditAccountRecord& Candidate)
+		{
+			return Candidate.AccountId == FName(TEXT("account_pirate_raider_01"));
+		});
+		if (!TraderAccount || !PirateAccount || TraderAccount->AvailableBalance < 25)
+		{
+			OutFailureReason = TEXT("Pirate encounter economy accounts do not resolve or cannot pay the abstract ransom.");
+			OutResult.OutcomeType = TEXT("rejected");
+			return false;
+		}
+
+		const FName EconomyTransactionId = MakeId(TEXT("tx_pirate_economy"), Encounter->EncounterId);
+		const FName LedgerId = MakeId(TEXT("ledger_pirate_economy"), Encounter->EncounterId);
+		const FName EconomyIdempotencyKey = MakeId(TEXT("idem_m10_economy"), Encounter->EncounterId);
+		TraderAccount->AvailableBalance -= 25;
+		PirateAccount->AvailableBalance += 25;
+		FCreditLedgerEntry Ledger;
+		Ledger.LedgerEntryId = LedgerId;
+		Ledger.DebitAccountId = TraderAccount->AccountId;
+		Ledger.CreditAccountId = PirateAccount->AccountId;
+		Ledger.Amount = 25;
+		Ledger.Reason = TEXT("pirate_ransom_abstract");
+		Ledger.SourceEventId = Encounter->SourceEventId;
+		Ledger.SourceTransactionId = EconomyTransactionId;
+		Ledger.IdempotencyKey = MakeId(TEXT("ledger"), EconomyIdempotencyKey);
+		Ledger.State = TEXT("applied");
+		InOutState.CreditLedger.Add(Ledger);
+		TraderAccount->LastLedgerEntryId = Ledger.LedgerEntryId;
+		PirateAccount->LastLedgerEntryId = Ledger.LedgerEntryId;
+
+		FGameplayTransactionRecord EconomyTransaction;
+		EconomyTransaction.TransactionId = EconomyTransactionId;
+		EconomyTransaction.TransactionType = TEXT("pirate_abstract_economy");
+		EconomyTransaction.SourceEventId = Encounter->SourceEventId;
+		EconomyTransaction.InitiatorType = TEXT("ship");
+		EconomyTransaction.InitiatorId = TEXT("pirate_raider_01");
+		EconomyTransaction.TargetType = TEXT("ship");
+		EconomyTransaction.TargetId = TEXT("trader_brink_01");
+		EconomyTransaction.State = TEXT("committed");
+		EconomyTransaction.IdempotencyKey = EconomyIdempotencyKey;
+		EconomyTransaction.DebugReason = TEXT("Pirate encounter cargo and ransom economy side effects committed without actors.");
+		InOutState.Transactions.Add(EconomyTransaction);
+		GameplayTransactionIds.Add(EconomyTransactionId);
+		CreditLedgerEntryIds.Add(Ledger.LedgerEntryId);
+		AddJournalEntry(InOutState, EconomyTransactionId, 1, TEXT("cargo_transfer"), CargoResult.TransferId, EconomyIdempotencyKey);
+		AddJournalEntry(InOutState, EconomyTransactionId, 2, TEXT("ledger"), Ledger.LedgerEntryId, EconomyIdempotencyKey);
 	}
-
-	FCreditAccountRecord* TraderAccount = FindMutable(InOutState.CreditAccounts, [](const FCreditAccountRecord& Candidate)
-	{
-		return Candidate.AccountId == FName(TEXT("account_trader_brink_01"));
-	});
-	FCreditAccountRecord* PirateAccount = FindMutable(InOutState.CreditAccounts, [](const FCreditAccountRecord& Candidate)
-	{
-		return Candidate.AccountId == FName(TEXT("account_pirate_raider_01"));
-	});
-	if (!TraderAccount || !PirateAccount || TraderAccount->AvailableBalance < 25)
-	{
-		OutFailureReason = TEXT("Pirate encounter economy accounts do not resolve or cannot pay the abstract ransom.");
-		OutResult.OutcomeType = TEXT("rejected");
-		return false;
-	}
-
-	const FName EconomyTransactionId = MakeId(TEXT("tx_pirate_economy"), Encounter->EncounterId);
-	const FName LedgerId = MakeId(TEXT("ledger_pirate_economy"), Encounter->EncounterId);
-	const FName EconomyIdempotencyKey = MakeId(TEXT("idem_m10_economy"), Encounter->EncounterId);
-	TraderAccount->AvailableBalance -= 25;
-	PirateAccount->AvailableBalance += 25;
-	FCreditLedgerEntry Ledger;
-	Ledger.LedgerEntryId = LedgerId;
-	Ledger.DebitAccountId = TraderAccount->AccountId;
-	Ledger.CreditAccountId = PirateAccount->AccountId;
-	Ledger.Amount = 25;
-	Ledger.Reason = TEXT("pirate_ransom_abstract");
-	Ledger.SourceEventId = Encounter->SourceEventId;
-	Ledger.SourceTransactionId = EconomyTransactionId;
-	Ledger.IdempotencyKey = MakeId(TEXT("ledger"), EconomyIdempotencyKey);
-	Ledger.State = TEXT("applied");
-	InOutState.CreditLedger.Add(Ledger);
-	TraderAccount->LastLedgerEntryId = Ledger.LedgerEntryId;
-	PirateAccount->LastLedgerEntryId = Ledger.LedgerEntryId;
-
-	FGameplayTransactionRecord EconomyTransaction;
-	EconomyTransaction.TransactionId = EconomyTransactionId;
-	EconomyTransaction.TransactionType = TEXT("pirate_abstract_economy");
-	EconomyTransaction.SourceEventId = Encounter->SourceEventId;
-	EconomyTransaction.InitiatorType = TEXT("ship");
-	EconomyTransaction.InitiatorId = TEXT("pirate_raider_01");
-	EconomyTransaction.TargetType = TEXT("ship");
-	EconomyTransaction.TargetId = TEXT("trader_brink_01");
-	EconomyTransaction.State = TEXT("committed");
-	EconomyTransaction.IdempotencyKey = EconomyIdempotencyKey;
-	EconomyTransaction.DebugReason = TEXT("Pirate encounter cargo and ransom economy side effects committed without actors.");
-	InOutState.Transactions.Add(EconomyTransaction);
-	AddJournalEntry(InOutState, EconomyTransactionId, 1, TEXT("cargo_transfer"), CargoResult.TransferId, EconomyIdempotencyKey);
-	AddJournalEntry(InOutState, EconomyTransactionId, 2, TEXT("ledger"), Ledger.LedgerEntryId, EconomyIdempotencyKey);
 
 	FAbstractEngagementRecord Engagement;
 	Engagement.EngagementId = Encounter->EngagementId.IsNone() ? MakeId(TEXT("engagement"), Encounter->EncounterId) : Encounter->EngagementId;
@@ -3881,10 +5744,10 @@ bool USystemicGameplayQueryService::ResolveLogicalEncounterOnce(
 	Engagement.EncounterId = Encounter->EncounterId;
 	Engagement.AttackerId = Offense.OffenderId;
 	Engagement.DefenderId = Offense.VictimId;
-	Engagement.OutcomeType = TEXT("distress_patrol_response");
-	Engagement.CargoTransferResultIds = { CargoResult.TransferId };
-	Engagement.GameplayTransactionIds = { EconomyTransactionId };
-	Engagement.CreditLedgerEntryIds = { Ledger.LedgerEntryId };
+	Engagement.OutcomeType = ResolutionOutcomeType;
+	Engagement.CargoTransferResultIds = CargoTransferResultIds;
+	Engagement.GameplayTransactionIds = GameplayTransactionIds;
+	Engagement.CreditLedgerEntryIds = CreditLedgerEntryIds;
 	Engagement.OffenseIds = { Offense.OffenseId };
 	Engagement.EvidenceIds = { Evidence.EvidenceId };
 	Engagement.CriminalRecordIds = { CriminalRecord.CriminalRecordId };
@@ -3929,7 +5792,9 @@ bool USystemicGameplayQueryService::ResolveLogicalEncounterOnce(
 	OutResult.ResultEventId = Encounter->SourceEventId;
 	OutResult.OutcomeType = EventResult.OutcomeType == FName(TEXT("duplicate")) ? FName(TEXT("duplicate")) : FName(TEXT("resolved"));
 	OutResult.bDuplicate = EventResult.OutcomeType == FName(TEXT("duplicate"));
-	OutResult.DebugReason = TEXT("Logical pirate encounter resolved through M9 event, legal, evidence, message, and abstract engagement contracts without actors.");
+	OutResult.DebugReason = bApplyPirateLootAndRansom
+		? TEXT("Logical pirate encounter resolved through M9 event, legal, evidence, message, cargo, economy, and abstract engagement contracts without actors.")
+		: TEXT("Logical pirate encounter resolved as runtime escape; legal, evidence, distress, and abstract engagement contracts were recorded without loot or ransom side effects.");
 	OutFailureReason.Reset();
 	return true;
 }

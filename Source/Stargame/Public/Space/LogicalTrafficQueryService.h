@@ -61,6 +61,16 @@ public:
 		double RequestedSimulationTimeSeconds,
 		FActiveTrafficSimulationState& InOutTrafficState);
 
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Traffic AI")
+	static void ApplyPlayerRelevanceRealization(
+		const FStarSystemDefinition& SystemDefinition,
+		const FSystemicGameplayState& SystemicState,
+		FName ActorBudgetProfileId,
+		const FVector& ObserverPositionCm,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double RequestedSimulationTimeSeconds,
+		FActiveTrafficSimulationState& InOutTrafficState);
+
 	UFUNCTION(BlueprintPure, Category = "Stargame|Traffic AI")
 	static EShipGoalExecutionResult CanExecuteAutonomousGoal(const FShipGoalState& Goal, FString& OutReason);
 

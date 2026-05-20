@@ -8,10 +8,10 @@
 class USpringArmComponent;
 class UCameraComponent;
 class USceneComponent;
-class UStaticMeshComponent;
 class UBoxComponent;
-class UInstancedStaticMeshComponent;
 class UShipFlightModeComponent;
+class UStarSystemSubsystem;
+class UStargameSessionSubsystem;
 
 UCLASS()
 class STARGAME_API ASpaceFlightPawn : public APawn
@@ -83,6 +83,9 @@ public:
 	UFUNCTION(Exec)
 	void RequestSupercruise();
 
+	UFUNCTION(Exec)
+	void InteractWithSelectedTarget();
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
@@ -99,6 +102,8 @@ private:
 	void StopPrimaryMouse();
 	void StartSecondaryMouse();
 	void StopSecondaryMouse();
+	void RequestDockingWithSelectedStation(UStargameSessionSubsystem* Session, const UStarSystemSubsystem* StarSystem);
+	void RequestGateTransitionWithSelectedGate(UStargameSessionSubsystem* Session, const UStarSystemSubsystem* StarSystem);
 	void UpdateThrottle(float DeltaSeconds);
 	void UpdateSteering(float DeltaSeconds);
 	void UpdateNormalFlight(float DeltaSeconds);
@@ -106,23 +111,18 @@ private:
 	void UpdateDocking(float DeltaSeconds);
 	void UpdateShipVisuals(float DeltaSeconds);
 	void UpdateCameraResponse(float DeltaSeconds, const FVector& PreviousVelocity);
-	void InitializeAtmosphericDust();
-	void UpdateAtmosphericDust(float DeltaSeconds);
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<UBoxComponent> CollisionRoot;
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
-	TObjectPtr<UStaticMeshComponent> ShipMesh;
+	TObjectPtr<USceneComponent> ShipVisualRoot;
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<USpringArmComponent> CameraBoom;
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<UCameraComponent> Camera;
-
-	UPROPERTY(VisibleAnywhere, Category = "Components")
-	TObjectPtr<UInstancedStaticMeshComponent> AtmosphericDust;
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<UShipFlightModeComponent> FlightModeComponent;
@@ -205,27 +205,6 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Flight|Visuals", meta = (ClampMin = "0.0"))
 	float VisualRotationInterpSpeed = 7.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "0"))
-	int32 AtmosphericDustCount = 90;
-
-	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "1.0", Units = "cm/s"))
-	float AtmosphericDustMinSpeed = 3000.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "1.0", Units = "cm"))
-	float AtmosphericDustForwardRange = 2600.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "1.0", Units = "cm"))
-	float AtmosphericDustRearRange = 700.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "1.0", Units = "cm"))
-	float AtmosphericDustHorizontalSpread = 1150.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "1.0", Units = "cm"))
-	float AtmosphericDustVerticalSpread = 560.0f;
-
-	UPROPERTY(EditAnywhere, Category = "Flight|Local Particles", meta = (ClampMin = "0.0"))
-	float AtmosphericDustTravelMultiplier = 1.25f;
-
 	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
 	float ThrottlePercent = 0.0f;
 
@@ -286,9 +265,4 @@ private:
 	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
 	FVector CurrentCameraTargetOffset = FVector::ZeroVector;
 
-	UPROPERTY()
-	TArray<FVector> AtmosphericDustPositions;
-
-	UPROPERTY()
-	TArray<float> AtmosphericDustSizeFactors;
 };

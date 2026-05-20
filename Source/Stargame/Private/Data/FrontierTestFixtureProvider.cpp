@@ -116,6 +116,17 @@ bool FFrontierTestFixtureProvider::ResolveSystemDefinition(FName SystemId, FStar
 	Station.FrameType = SystemFrameType;
 	Station.Transform = FTransform(FRotator(0.0, 25.0, 0.0), FVector(230000.0, 180000.0, 25000.0));
 	Station.VisualRadiusCm = 12000.0;
+	Station.OwnerFactionId = TEXT("frontier_local_authority");
+	Station.StationRole = TEXT("frontier_security_market");
+	Station.RegionName = TEXT("brink_orbital_corridor");
+	Station.SecurityProfile = TEXT("low_to_moderate_frontier_security");
+	Station.MarketProfileId = TEXT("brink_watch_market");
+	Station.MissionTags = { TEXT("convoy_defense"), TEXT("patrol_response"), TEXT("ore_trade"), TEXT("frontier_security") };
+	Station.QuestGiverNpcIds = { TEXT("npc_brink_watch_dispatch"), TEXT("npc_brink_market_factor") };
+	Station.QuestGivers = {
+		{ TEXT("npc_brink_watch_dispatch"), FText::FromString(TEXT("Brink Watch Dispatch")), FVector(-320.0, -180.0, 10.0) },
+		{ TEXT("npc_brink_market_factor"), FText::FromString(TEXT("Brink Market Factor")), FVector(-320.0, 220.0, 10.0) }
+	};
 	Station.NavigationTarget = MakeNavigationTarget(Station.StationId, TEXT("Brink Watch"), TEXT("station"));
 
 	FGateDefinition Gate;

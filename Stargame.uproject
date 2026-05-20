@@ -41,6 +41,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "ProceduralMeshComponent",
+			"Enabled": true
+		},
+		{
 			"Name": "McpAutomationBridge",
 			"Enabled": true,
 			"TargetAllowList": [

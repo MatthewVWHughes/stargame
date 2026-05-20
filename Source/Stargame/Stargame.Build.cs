@@ -13,12 +13,15 @@ public class Stargame : ModuleRules
 			"Engine",
 			"EnhancedInput",
 			"GameplayTags",
-			"InputCore"
+			"InputCore",
+			"ProceduralMeshComponent"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
 			"AssetRegistry",
+			"Slate",
+			"SlateCore",
 			"UMG"
 		});
 	}

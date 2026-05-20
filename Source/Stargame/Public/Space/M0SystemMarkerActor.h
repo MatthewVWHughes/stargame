@@ -4,7 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "M0SystemMarkerActor.generated.h"
 
-class UStaticMeshComponent;
+class USceneComponent;
 
 UCLASS()
 class STARGAME_API AM0SystemMarkerActor : public AActor
@@ -22,9 +22,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stargame|M0")
 	FName GetEntityType() const { return EntityType; }
 
+protected:
+	UFUNCTION(BlueprintImplementableEvent, Category = "Stargame|M0")
+	void OnMarkerInitialized(FName InGameplayId, FName InEntityType, double VisualRadiusCm);
+
 private:
 	UPROPERTY(VisibleAnywhere, Category = "Components")
-	TObjectPtr<UStaticMeshComponent> MarkerMesh;
+	TObjectPtr<USceneComponent> SceneRoot;
 
 	UPROPERTY(VisibleAnywhere, Category = "Stargame|M0")
 	FName GameplayId;
