@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "factions": [
+    {
+      "id": "uce_navy",
+      "display_name": "United Commonwealth of Earth Navy",
+      "short_name": "Earth Navy",
+      "type": "government",
+      "home_system_id": "sol",
+      "home_body": "Earth",
+      "territory_role": "Core Sol security, inner-system patrols, naval shipyards, anti-piracy operations.",
+      "visual_identity": {
+        "shape_language": [
+          "long horizontal hulls",
+          "slab armor",
+          "stepped superstructure",
+          "wedge or spearhead bows",
+          "recessed hangars",
+          "symmetrical naval-industrial silhouettes"
+        ],
+        "colors": [
+          "naval white",
+          "graphite gray",
+          "dark blue-black",
+          "subtle blue lights"
+        ],
+        "materials": [
+          "matte armor",
+          "dark recessed machinery",
+          "restrained emissive strips"
+        ],
+        "prompt_prefix": "United Commonwealth of Earth Navy hard-surface spacecraft, disciplined naval military design, angular slab armor, broad flat panels, wedge bow, symmetrical hull, graphite gray and naval white plating, dark blue accent lights, clean low-poly game-ready placeholder, sharp bevels, planar geometry"
+      },
+      "fleet_roles": [
+        "battleship",
+        "cruiser",
+        "destroyer",
+        "corvette",
+        "fighter",
+        "bomber",
+        "support_craft"
+      ],
+      "relationships": {
+        "trappist_federation": -0.65,
+        "civilian": 0.4,
+        "pirates_generic": -1.0
+      }
+    },
+    {
+      "id": "trappist_federation",
+      "display_name": "TRAPPIST Federation",
+      "short_name": "TRAPPIST",
+      "type": "breakaway_government",
+      "home_system_id": "trappist_1",
+      "home_body": "TRAPPIST-1e",
+      "territory_role": "Deep breakaway polity with contested approaches, defended colony worlds, and independent navy doctrine.",
+      "design_note": "TRAPPIST-1 is selected as a gameplay/narrative anchor because it is deeper than the immediate Solar neighborhood and supports multi-world territory control fiction.",
+      "visual_identity": {
+        "shape_language": [
+          "compact armored cores",
+          "external mission modules",
+          "vertical radiator fins",
+          "reinforced trusses",
+          "replaceable fuel and cargo pods",
+          "rugged repairable silhouettes"
+        ],
+        "colors": [
+          "pale ceramic gray",
+          "burnt titanium",
+          "muted red-orange",
+          "amber lights"
+        ],
+        "materials": [
+          "ceramic armor",
+          "exposed structural metal",
+          "field-replaceable modules"
+        ],
+        "prompt_prefix": "TRAPPIST Federation hard-surface spacecraft, rugged breakaway colony navy design, compact armored core, modular external mission pods, vertical radiator fins, reinforced truss structure, pale ceramic gray and burnt titanium armor, muted red orange accents, clean low-poly game-ready placeholder, sharp bevels, planar geometry"
+      },
+      "fleet_roles": [
+        "battleship",
+        "cruiser",
+        "destroyer",
+        "corvette",
+        "fighter",
+        "bomber",
+        "support_craft"
+      ],
+      "relationships": {
+        "uce_navy": -0.65,
+        "civilian": 0.15,
+        "pirates_generic": -0.75
+      }
+    },
+    {
+      "id": "civilian",
+      "display_name": "Civilian Shipping",
+      "short_name": "Civilian",
+      "type": "civilian",
+      "home_system_id": "multiple",
+      "home_body": "",
+      "territory_role": "Commercial traffic, miners, passenger lines, refineries, haulers, repair craft, and station logistics.",
+      "visual_identity": {
+        "shape_language": [
+          "function-first silhouettes",
+          "visible cargo modules",
+          "spine-and-container freighters",
+          "cylindrical tanker bodies",
+          "exposed industrial equipment"
+        ],
+        "colors": [
+          "industrial white",
+          "faded yellow",
+          "safety orange",
+          "bare metal",
+          "green and amber lights"
+        ],
+        "materials": [
+          "painted industrial panels",
+          "exposed machinery",
+          "minimal armor"
+        ],
+        "prompt_prefix": "civilian industrial spacecraft, practical non-military hard-surface design, visible functional modules, broad flat panels, exposed cargo equipment, worn industrial white and safety orange paint, clean low-poly game-ready placeholder, sharp bevels, planar geometry"
+      },
+      "fleet_roles": [
+        "small_trader",
+        "large_trader",
+        "gas_hauler",
+        "miner",
+        "passenger_liner",
+        "support_craft"
+      ],
+      "relationships": {
+        "uce_navy": 0.4,
+        "trappist_federation": 0.15,
+        "pirates_generic": -0.8
+      }
+    },
+    {
+      "id": "pirates_generic",
+      "display_name": "Independent Pirate Clans",
+      "short_name": "Pirates",
+      "type": "criminal",
+      "home_system_id": "multiple",
+      "home_body": "",
+      "territory_role": "Raiders, smugglers, hijackers, and scavenger groups operating along weakly patrolled routes.",
+      "visual_identity": {
+        "shape_language": [
+          "modified civilian hulls",
+          "welded armor plates",
+          "asymmetric repairs",
+          "external weapons",
+          "oversized engines",
+          "salvage equipment"
+        ],
+        "colors": [
+          "dark primer",
+          "bare metal",
+          "rusted panels",
+          "patched paint",
+          "red hazard lights"
+        ],
+        "materials": [
+          "mismatched armor",
+          "exposed weapons",
+          "field repairs"
+        ],
+        "prompt_prefix": "pirate raider spacecraft, modified civilian hard-surface hull, welded armor plates, exposed weapons, mismatched repair panels, extra engine pods, dark bare metal and patched paint, red hazard lights, clean low-poly game-ready placeholder, sharp bevels, planar geometry"
+      },
+      "fleet_roles": [
+        "pirate_raider",
+        "pirate_frigate",
+        "small_trader",
+        "large_trader"
+      ],
+      "relationships": {
+        "uce_navy": -1.0,
+        "trappist_federation": -0.75,
+        "civilian": -0.8
+      }
+    }
+  ]
+}
+

@@ -2,17 +2,42 @@
 
 Architecture and game contracts for Stargame.
 
-The current foundation is an authored frontier slice: a non-Sol start profile, a minimal boot new/continue flow, one active source system, a destination arrival system reached by gate transition, deterministic frame/scale queries, normal flight, supercruise, docking, generated physical-system support, logical traffic, systemic gameplay records, logical encounters, combat/threat state, realized AI hooks, and a first service-level systemic progression loop. It is engineering-playable and validation-backed, but the player-facing mission, service, market, comms, ledger, and reputation surfaces are still thin.
+The current foundation is an authored frontier slice: a non-Sol start profile, a
+minimal boot new/continue flow, one primary source system, a minimal
+gate-arrival fixture, deterministic frame/scale queries, normal flight,
+supercruise, docking, generated physical-system support, logical traffic,
+systemic gameplay records, logical encounters, combat/threat state, realized AI
+hooks, early station interiors, and first-pass service, market, mission,
+inventory/equipment, comms, UI, and combat-feedback surfaces. It is
+engineering-playable and validation-backed, but many player-facing surfaces are
+still prototype or foundation-level rather than final presentation.
 
-The docs are authoritative for gameplay and data contracts. Code should be brought up to the docs when a contract is already documented. When the docs still describe staging history, prefer migrating them toward what the game is instead of adding more chronology.
+The docs are authoritative for Unreal gameplay and data contracts. Code should
+be brought up to the docs when a contract is already documented. The Starlight
+Godot project is behavioral evidence for the player loop and useful source
+intent, but it does not override the current Stargame direction or Unreal-native
+contracts. When docs describe staging history, prefer migrating durable rules
+into the domain docs and leaving roadmaps as status or implementation history.
+
+Document roles:
+
+- `stargame-direction-understanding.md` captures high-level taste, scope, and
+  default product direction.
+- The canonical docs below own runtime/data/system contracts.
+- `playable-parity-roadmap.md` owns current implementation status and migration
+  gaps. It is not the source of truth for runtime/data contracts.
+- Supporting architecture docs describe future-compatible shapes; they should
+  not override the current foundation contract.
+- Historical planning docs are snapshots only.
 
 ## Current Contract
 
 - Startup resolves `frontier_test_start` into `frontier_test_01`; no runtime path may silently substitute `sol`.
 - Active systems are built from stable gameplay IDs, data assets, and native validation, not actor names or level-script ownership.
-- `frontier_gate_a` transitions to `frontier_arrival_test_01` through catalog data, route-edge data, a destination gate, and a gate-relative arrival marker.
+- `frontier_gate_a` transitions to the deliberately small `frontier_arrival_test_01` fixture through catalog data, route-edge data, a destination gate, and a gate-relative arrival marker.
 - Save/load stores logical session state, player ship location, clock state, traffic/systemic state, and pending arrival state through C++ owned structs.
 - Spaceflight is intentionally between Freelancer and KSP: approachable controls and combat, but believable scale, deterministic frames, and data-owned systems.
+- The content target is one primary playable, fiction-first frontier sector. The gate-arrival fixture is validation support, not permission to expand broad sector content.
 - Sol is legacy reference content only. It is not a default, substitution path, required fixture, or foundation target.
 
 ## Read Order
@@ -41,7 +66,6 @@ The historical build sequence remains in [Build Roadmap](build-roadmap.md), but 
 - [Space AI And Dynamic Orbits](space-ai-and-dynamic-orbits.md)
 - [Systemic Gameplay Foundations](systemic-gameplay-foundations.md)
 - [C++ And Blueprint Ownership](cpp-blueprint-ownership.md)
-- [Playable Parity Roadmap](playable-parity-roadmap.md)
 
 ## Supporting Architecture
 
@@ -49,6 +73,12 @@ The historical build sequence remains in [Build Roadmap](build-roadmap.md), but 
 - [Future Systems Support](future-systems-support.md)
 - [Legal And Crime System](legal-crime-system.md)
 - [Planet Rendering Direction](planet-rendering-direction.md)
+
+## Execution And Status
+
+- [Playable Parity Roadmap](playable-parity-roadmap.md)
+- [Starlight Preservation Audit](starlight-preservation-audit.md)
+- [Starlight Recreation Reference](starlight-recreation-reference.md)
 
 ## Tooling
 
@@ -75,9 +105,11 @@ Change `AudioOutputDeviceId` in `Config/DefaultEditor.ini` when intentionally ro
 
 - [Build Roadmap](build-roadmap.md)
 - [Startup Implementation Plan](implementation-plan-m0.md)
+- [Phase 1 Foundation Review Snapshot](phase_1/README.md)
 
 ## Archive
 
 - [Legacy Gas Giant Scale](archive/legacy-gas-giant-scale.md)
 - [Unreal Platform Research Snapshot](archive/unreal-platform-research-2026-05-16.md)
 - [Legacy Godot Source Review](archive/legacy-godot-source-review.md)
+- [Archived Starlight Reference](archive/starlight/README.md)

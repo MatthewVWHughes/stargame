@@ -2,9 +2,11 @@
 
 #include "Components/CapsuleComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/CollisionProfile.h"
 #include "Station/StationInteriorPawn.h"
 #include "Station/StationInteriorRoomActor.h"
+#include "UObject/ConstructorHelpers.h"
 
 AStationInteriorHostileActor::AStationInteriorHostileActor()
 {
@@ -19,6 +21,18 @@ AStationInteriorHostileActor::AStationInteriorHostileActor()
 	CollisionCapsule->SetCapsuleRadius(45.0f);
 	CollisionCapsule->SetCapsuleHalfHeight(100.0f);
 	CollisionCapsule->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
+
+	HostileMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HostileMesh"));
+	HostileMesh->SetupAttachment(SceneRoot);
+	HostileMesh->SetRelativeLocation(FVector(0.0, 0.0, 95.0));
+	HostileMesh->SetRelativeScale3D(FVector(0.55, 0.55, 1.9));
+	HostileMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderMesh(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	if (CylinderMesh.Succeeded())
+	{
+		HostileMesh->SetStaticMesh(CylinderMesh.Object);
+	}
 }
 
 void AStationInteriorHostileActor::ConfigureHostile(AStationInteriorRoomActor* InRoom, AStationInteriorPawn* InPlayer, FName InHostileId)
@@ -30,7 +44,9 @@ void AStationInteriorHostileActor::ConfigureHostile(AStationInteriorRoomActor* I
 	bAlive = true;
 	OnHostileConfigured(HostileId);
 	OnHostileHealthChanged(Health, MaxHealth);
+#if WITH_EDITOR
 	SetActorLabel(FString::Printf(TEXT("StationHostile_%s"), *HostileId.ToString()));
+#endif
 }
 
 void AStationInteriorHostileActor::ApplyCombatProfile(const FStationInteriorCombatProfileDefinition& Profile)
@@ -175,6 +191,10 @@ void AStationInteriorHostileActor::Die()
 	if (CollisionCapsule)
 	{
 		CollisionCapsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+	if (HostileMesh)
+	{
+		HostileMesh->SetVisibility(false, true);
 	}
 	OnHostileDied();
 

@@ -1,0 +1,38 @@
+[gd_scene load_steps=3 format=3]
+
+[sub_resource type="BoxMesh" id="1_body"]
+size = Vector3(50, 50, 50)
+
+[sub_resource type="StandardMaterial3D" id="2_body_mat"]
+albedo_color = Color(0.85, 0.9, 1, 1)
+emission_enabled = true
+emission = Color(0.85, 0.9, 1, 1)
+emission_energy_multiplier = 0.35
+
+[node name="BasicStation" type="Node3D"]
+
+[node name="Hull" type="MeshInstance3D" parent="."]
+mesh = SubResource("1_body")
+material_override = SubResource("2_body_mat")
+
+[node name="DockApproach" type="Marker3D" parent="."]
+position = Vector3(0, 0, 120)
+
+[node name="DockFinal" type="Marker3D" parent="."]
+position = Vector3(0, 0, 70)
+
+[node name="LaunchPoint" type="Marker3D" parent="."]
+position = Vector3(0, 0, 150)
+
+[node name="StationLight" type="OmniLight3D" parent="."]
+light_energy = 1.0
+omni_range = 220.0
+omni_attenuation = 1.0
+light_color = Color(0.85, 0.9, 1, 1)
+
+[node name="Label3D" type="Label3D" parent="."]
+position = Vector3(0, 35, 0)
+billboard = 1
+text = "Station"
+font_size = 40
+modulate = Color(0.95, 0.98, 1, 0.9)

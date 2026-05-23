@@ -5,6 +5,7 @@
 #include "M0SystemMarkerActor.generated.h"
 
 class USceneComponent;
+class UStaticMeshComponent;
 
 UCLASS()
 class STARGAME_API AM0SystemMarkerActor : public AActor
@@ -29,6 +30,9 @@ protected:
 private:
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<USceneComponent> SceneRoot;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> VisualMesh;
 
 	UPROPERTY(VisibleAnywhere, Category = "Stargame|M0")
 	FName GameplayId;

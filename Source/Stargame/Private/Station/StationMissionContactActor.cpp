@@ -2,6 +2,8 @@
 
 #include "Components/CapsuleComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "UObject/ConstructorHelpers.h"
 
 namespace
 {
@@ -21,6 +23,18 @@ AStationMissionContactActor::AStationMissionContactActor()
 	TalkArea->SetCapsuleRadius(90.0f);
 	TalkArea->SetCapsuleHalfHeight(110.0f);
 	TalkArea->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
+
+	ContactMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ContactMesh"));
+	ContactMesh->SetupAttachment(SceneRoot);
+	ContactMesh->SetRelativeLocation(FVector(0.0, 0.0, 95.0));
+	ContactMesh->SetRelativeScale3D(FVector(0.45, 0.45, 1.9));
+	ContactMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderMesh(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	if (CylinderMesh.Succeeded())
+	{
+		ContactMesh->SetStaticMesh(CylinderMesh.Object);
+	}
 }
 
 void AStationMissionContactActor::ConfigureContact(FName InStationId, const FStationQuestGiverDefinition& InDefinition)
@@ -32,7 +46,9 @@ void AStationMissionContactActor::ConfigureContact(FName InStationId, const FSta
 		ContactDefinition.DisplayName = FText::FromName(ContactDefinition.NpcId);
 	}
 	OnContactConfigured(StationId, ContactDefinition);
+#if WITH_EDITOR
 	SetActorLabel(FString::Printf(TEXT("NPC_%s"), *ContactDefinition.NpcId.ToString()));
+#endif
 }
 
 FString AStationMissionContactActor::GetTalkActionId() const

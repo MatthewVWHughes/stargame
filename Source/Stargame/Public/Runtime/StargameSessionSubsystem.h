@@ -625,6 +625,39 @@ struct STARGAME_API FDockedInventoryEquipmentPanelView
 };
 
 USTRUCT(BlueprintType)
+struct STARGAME_API FResolvedShipEquipmentStats
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Ship Equipment")
+	bool bResolved = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Ship Equipment")
+	double BaseMaxShield = 100.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Ship Equipment")
+	double MaxShieldBonus = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Ship Equipment")
+	double ResolvedMaxShield = 100.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Ship Equipment")
+	double NormalMaxSpeedMultiplier = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Ship Equipment")
+	double ThrustAccelerationMultiplier = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Ship Equipment")
+	double StrafeAccelerationMultiplier = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Ship Equipment")
+	TArray<FName> EquippedItemIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Ship Equipment")
+	FString DebugReason;
+};
+
+USTRUCT(BlueprintType)
 struct STARGAME_API FMissionWaypointViewModel
 {
 	GENERATED_BODY()
@@ -700,6 +733,9 @@ struct STARGAME_API FRuntimeEncounterViewModel
 
 	UPROPERTY(BlueprintReadOnly, Category = "Encounter")
 	FName LocalBehaviorStateId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Encounter")
+	FName HostileAIStateId;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Encounter")
 	FString CommsLine;
@@ -1347,6 +1383,9 @@ struct STARGAME_API FRuntimeEncounterState
 	FName HostileManeuverStateId;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Encounter")
+	FName HostileAIStateId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Encounter")
 	double LastHostileWeaponFireTimeSeconds = -1.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Encounter")
@@ -1486,6 +1525,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Session")
 	bool SaveDevelopmentSlot();
 
+	UFUNCTION(BlueprintPure, Category = "Stargame|Session")
+	FString GetLastAutosaveStatus() const { return LastAutosaveStatus; }
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Session")
+	bool WasLastAutosaveSuccessful() const { return bLastAutosaveSuccessful; }
+
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Session")
 	bool LoadDevelopmentSlot();
 
@@ -1526,7 +1571,10 @@ public:
 	FSystemicGameplayState GetSystemicGameplayState() const { return SystemicGameplayState; }
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Session")
-	void SetSystemicGameplayState(const FSystemicGameplayState& NewSystemicState) { SystemicGameplayState = NewSystemicState; }
+	void SetSystemicGameplayState(const FSystemicGameplayState& NewSystemicState);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Ship Equipment")
+	FResolvedShipEquipmentStats ResolvePlayerShipEquipmentStats() const;
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Station")
 	bool GetDockedStationContext(FDockedStationContext& OutContext) const;
@@ -1639,6 +1687,10 @@ private:
 	bool ResolveGateArrivalLocation(const FStarSystemDefinition& SystemDefinition, const FShipSaveLocation& GateArrivalLocation, FTransform& OutTransform, FVector& OutVelocityCmPerSec, FString& OutError) const;
 	bool ResolveCurrentDockedStation(FDockedStationContext& OutContext, ASpaceFlightPawn** OutFlightPawn = nullptr) const;
 	bool RejectDockedStationCommand(const FString& FailureReason, FDockedStationCommandResult& OutCommandResult) const;
+	bool SaveDockedAutosave(const TCHAR* Reason);
+	void RefreshPlayerShipEquipmentEffects();
+	void ApplyPlayerShipEquipmentEffectsToDurability(const FResolvedShipEquipmentStats& Stats);
+	void ApplyPlayerShipEquipmentEffectsToPawn(const FResolvedShipEquipmentStats& Stats);
 	bool ResolveActiveMissionAndPrimaryObjective(const FMissionInstanceState*& OutMission, const FObjectiveState*& OutObjective) const;
 	bool ResolveMutableActiveMissionAndPrimaryObjective(FMissionInstanceState*& OutMission, FObjectiveState*& OutObjective);
 	bool IsMissionReadyForTurnIn(FName MissionInstanceId) const;
@@ -1703,4 +1755,10 @@ private:
 
 	EStartSessionResult LastStartSessionResult = EStartSessionResult::ValidationFailed;
 	FString LastSessionError;
+	FString LastAutosaveStatus;
+	bool bLastAutosaveSuccessful = false;
+	static constexpr double RuntimePresentationUpdateIntervalSeconds = 0.10;
+	static constexpr double MissionProgressUpdateIntervalSeconds = 0.20;
+	double RuntimePresentationAccumulatorSeconds = RuntimePresentationUpdateIntervalSeconds;
+	double MissionProgressAccumulatorSeconds = MissionProgressUpdateIntervalSeconds;
 };

@@ -1,10 +1,16 @@
-# Phase 1 Foundation Review
+# Phase 1 Foundation Review Snapshot
 
-This note records the current state of the Unreal foundation without using staged build labels as the organizing structure.
+This note records a foundation snapshot without using staged build labels as the
+organizing structure. It is not the live status tracker; use
+`../README.md` for the current contract and `../playable-parity-roadmap.md` for
+current implementation status.
 
 ## Summary
 
-The current Unreal implementation is a non-Sol, data-owned foundation for a Freelancer-like space game with more believable scale and stronger simulation contracts. It is engineering-playable and validation-backed, but it is not yet a complete player-facing vertical slice.
+The Unreal implementation is a non-Sol, data-owned foundation for a
+Freelancer-like space game with more believable scale and stronger simulation
+contracts. It is engineering-playable and validation-backed, but still has
+prototype/foundation-level player-facing presentation in several areas.
 
 The foundation includes:
 
@@ -18,6 +24,8 @@ The foundation includes:
 - logical traffic and promotion/demotion hooks
 - systemic gameplay records for faction, legal, inventory, market, service, comms, mission, transaction, and ledger flows
 - logical encounter, combat/threat, and realized AI contracts
+- first-pass service, market, mission, inventory/equipment, comms, UI, station
+  interior, and combat-feedback surfaces
 - service-level progression tests and debug traces
 
 ## Non-Sol Policy
@@ -30,13 +38,18 @@ Current active validation is `frontier_test_01` through `frontier_test_start`. S
 
 The Unreal implementation has stronger data contracts, validation gates, save/load discipline, stable IDs, transaction journals, systemic records, and automation coverage.
 
-The Godot version had more immediate playable breadth: menus, save/continue, Sol-sector flight, supercruise, interdiction, visible combat, docking/launch, station interaction spaces, trading, repair, inventory/equipment display, and mission flow.
+The Godot version originally had more immediate playable breadth: menus,
+save/continue, Sol-sector flight, supercruise, interdiction, visible combat,
+docking/launch, station interaction spaces, trading, repair,
+inventory/equipment display, and mission flow.
 
-The Unreal version is structurally stronger. The Godot version was more visibly playable.
+The Unreal version is structurally stronger and has migrated much of that shape
+into foundation-level systems, but the Godot version remains the reference for
+player-loop intent where Unreal presentation is still thin.
 
-## Current Readiness
+## Readiness Gate
 
-The foundation is ready to build player-facing Phase 1 work on top of it when these gates are green:
+Player-facing work remains valid only while these gates are green:
 
 - editor module builds
 - full `Stargame` automation namespace passes
@@ -44,27 +57,33 @@ The foundation is ready to build player-facing Phase 1 work on top of it when th
 - no runtime path silently substitutes missing systems, spawn zones, start profiles, systemic state, or route data
 - no automation test treats missing runtime context as a pass
 
-The next work should make the existing validated systems visible, usable, and repeatable as a player-facing loop.
+New work should keep making the validated systems visible, usable, and
+repeatable as a player-facing loop.
 
-## Next Work
+## Snapshot Recommended Work
 
-The next phase should be player-facing loop integration, not another backend-only stage.
+The next phase should remain player-facing loop integration, not another
+backend-only stage.
 
 Recommended target: Non-Sol Playable Loop Integration.
 
 Goal:
 
-Make the validated systems usable by a player in `frontier_test_01` without requiring direct test harness calls.
+Improve the validated systems as player-facing flows in `frontier_test_01`
+without requiring direct test harness calls.
 
 Scope:
 
-- gate transition and arrival as a normal gameplay interaction
-- thin mission board or dev panel backed by mission records
-- station service UI for repair, refuel, rearm, and market transaction calls
-- basic cargo buy/sell through the existing market, cargo, ledger, and legality services
-- visible comms/message arbitration for service, encounter, police, and distress messages
-- one pirate/distress/patrol scenario that surfaces through normal UI/debug flow
-- save/reload through the player-facing loop
+- keep gate transition and arrival as normal gameplay interactions
+- replace remaining prototype station/service/market/mission surfaces with
+  coherent UI flows
+- keep cargo buy/sell, service, mission, inventory/equipment, ledger, legality,
+  and save/load paths using shared systemic records
+- make comms/message arbitration visible for service, encounter, police, and
+  distress messages
+- deepen one pirate/distress/patrol scenario only when it advances the
+  player-facing loop
+- preserve save/reload through the player-facing loop
 - keep all of this on `frontier_test_01`, not Sol
 
 Done means:

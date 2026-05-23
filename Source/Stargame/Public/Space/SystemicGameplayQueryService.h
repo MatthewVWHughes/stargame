@@ -198,6 +198,22 @@ public:
 		FName RouteSegmentId,
 		FSystemicDecisionInputSnapshot& OutSnapshot);
 
+	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
+	static bool BuildStationGameplaySnapshot(
+		const FStarSystemDefinition& SystemDefinition,
+		const FSystemicGameplayState& State,
+		FName StationId,
+		FSystemicStationGameplaySnapshot& OutSnapshot);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Systemic")
+	static bool BuildRouteGameplaySnapshot(
+		const FStarSystemDefinition& SystemDefinition,
+		const FSystemicGameplayState& State,
+		FName RouteSegmentId,
+		const FSimulationClockSnapshot& ClockSnapshot,
+		double SimulationTimeSeconds,
+		FSystemicRouteGameplaySnapshot& OutSnapshot);
+
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Systemic")
 	static bool ReservePatrolForRoute(
 		const FStarSystemDefinition& SystemDefinition,

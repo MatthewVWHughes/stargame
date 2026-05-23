@@ -130,6 +130,90 @@ void AStargamePlayerController::RecordDockedStationCommandResult(const FDockedSt
 	bHasLastDockedStationCommandResult = true;
 }
 
+void AStargamePlayerController::NewGame()
+{
+	UStargameSessionSubsystem* Session = ResolveSession(this);
+	if (!Session)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("NewGame rejected: session subsystem is unavailable."));
+		return;
+	}
+
+	const EStartSessionResult Result = Session->StartNewSession();
+	UE_LOG(LogTemp, Display, TEXT("NewGame %s System=%s Spawn=%s Reason=%s"),
+		Result == EStartSessionResult::Success ? TEXT("accepted") : TEXT("rejected"),
+		*Session->GetCurrentSystemId().ToString(),
+		*Session->GetCurrentSpawnZoneId().ToString(),
+		*Session->GetLastSessionError());
+
+	if (Result == EStartSessionResult::Success)
+	{
+		FInputModeGameOnly InputMode;
+		SetInputMode(InputMode);
+		SetIgnoreLookInput(false);
+		SetIgnoreMoveInput(false);
+		bShowMouseCursor = false;
+		SyncFlightHUDForPossessedPawn();
+	}
+}
+
+void AStargamePlayerController::ContinueGame()
+{
+	UStargameSessionSubsystem* Session = ResolveSession(this);
+	if (!Session)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ContinueGame rejected: session subsystem is unavailable."));
+		return;
+	}
+
+	const bool bLoaded = Session->LoadDevelopmentSlot();
+	UE_LOG(LogTemp, Display, TEXT("ContinueGame %s System=%s Spawn=%s Reason=%s"),
+		bLoaded ? TEXT("accepted") : TEXT("rejected"),
+		*Session->GetCurrentSystemId().ToString(),
+		*Session->GetCurrentSpawnZoneId().ToString(),
+		*Session->GetLastSessionError());
+
+	if (bLoaded)
+	{
+		FInputModeGameOnly InputMode;
+		SetInputMode(InputMode);
+		SetIgnoreLookInput(false);
+		SetIgnoreMoveInput(false);
+		bShowMouseCursor = false;
+		SyncFlightHUDForPossessedPawn();
+	}
+}
+
+void AStargamePlayerController::SaveGame()
+{
+	UStargameSessionSubsystem* Session = ResolveSession(this);
+	if (!Session)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SaveGame rejected: session subsystem is unavailable."));
+		return;
+	}
+
+	const bool bSaved = Session->SaveDevelopmentSlot();
+	UE_LOG(LogTemp, Display, TEXT("SaveGame %s Status=%s Reason=%s"),
+		bSaved ? TEXT("accepted") : TEXT("rejected"),
+		*Session->GetLastAutosaveStatus(),
+		*Session->GetLastSessionError());
+}
+
+void AStargamePlayerController::EnterStation()
+{
+	UStargameSessionSubsystem* Session = ResolveSession(this);
+	if (!Session)
+	{
+		return;
+	}
+
+	FDockedStationCommandResult CommandResult;
+	const bool bAccepted = Session->EnterDockedStationInterior(CommandResult);
+	RecordDockedStationCommandResult(CommandResult);
+	LogStationCommandResult(TEXT("EnterStation"), bAccepted, CommandResult);
+}
+
 bool AStargamePlayerController::AllowDebugStationHotkey(const TCHAR* CommandName)
 {
 	if (CVarDebugStationHotkeys.GetValueOnGameThread() != 0)
@@ -272,7 +356,7 @@ void AStargamePlayerController::TogglePauseMenu()
 
 	if (PauseMenuWidget)
 	{
-		PauseMenuWidget->TogglePauseMenu(EStargamePauseMenuTab::Inventory);
+		PauseMenuWidget->TogglePauseMenu(EStargamePauseMenuTab::Settings);
 	}
 }
 

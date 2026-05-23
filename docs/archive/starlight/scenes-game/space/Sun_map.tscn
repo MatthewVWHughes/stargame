@@ -1,0 +1,59 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Shader" path="res://shaders/SunSurface.gdshader" id="1_sun_surf"]
+[ext_resource type="Shader" path="res://shaders/SunHalo.gdshader" id="2_sun_halo"]
+[ext_resource type="Script" path="res://scripts/star/Star.cs" id="3_star"]
+
+[sub_resource type="SphereMesh" id="1_body_mesh"]
+radius = 1.0
+height = 2.0
+radial_segments = 24
+rings = 12
+
+[sub_resource type="ShaderMaterial" id="2_body_mat"]
+resource_local_to_scene = true
+shader = ExtResource("1_sun_surf")
+shader_parameter/core_color = Color(1, 0.85, 0.4, 1)
+shader_parameter/hot_color = Color(1, 0.5, 0.1, 1)
+shader_parameter/sunspot_color = Color(0.45, 0.14, 0.03, 1)
+shader_parameter/emission_strength = 3.8
+shader_parameter/flow_speed = 0.12
+shader_parameter/churn_strength = 1.2
+shader_parameter/granulation_scale = 18.0
+shader_parameter/patch_scale = 3.5
+shader_parameter/sunspot_scale = 6.0
+shader_parameter/sunspot_threshold = 0.76
+shader_parameter/limb_darkening = 0.35
+shader_parameter/surface_displacement = 0.005
+shader_parameter/displacement_scale = 3.5
+shader_parameter/displacement_speed = 0.03
+
+[sub_resource type="QuadMesh" id="3_halo_mesh"]
+size = Vector2(3.5, 3.5)
+
+[sub_resource type="ShaderMaterial" id="4_halo_mat"]
+resource_local_to_scene = true
+shader = ExtResource("2_sun_halo")
+shader_parameter/flame_color = Color(1, 0.78, 0.3, 1)
+shader_parameter/hot_color = Color(1, 0.95, 0.7, 1)
+shader_parameter/emission_strength = 1.8
+shader_parameter/inner_hole = 0.28
+shader_parameter/inner_fade = 0.34
+shader_parameter/outer_fade = 0.95
+shader_parameter/noise_speed = 0.04
+shader_parameter/ray_density = 3.0
+shader_parameter/flame_contrast = 2.2
+shader_parameter/diffuse_glow = 0.55
+shader_parameter/flame_strength = 0.9
+
+[node name="Sun" type="Node3D"]
+script = ExtResource("3_star")
+
+[node name="SunMesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("1_body_mesh")
+material_override = SubResource("2_body_mat")
+
+[node name="SunHalo" type="MeshInstance3D" parent="."]
+mesh = SubResource("3_halo_mesh")
+material_override = SubResource("4_halo_mat")
+cast_shadow = 0

@@ -4,6 +4,13 @@ This document defines the minimum systemic gameplay contracts needed before pira
 
 The goal is to avoid fake systems. Space AI, legal response, economy, inventory, comms, and missions all reference each other. They need small data-first foundations before content-heavy versions are built.
 
+The first playable path should stay thin and player-facing: buy or sell a small
+commodity set, accept and complete a simple station-contact mission, mutate
+credits/cargo/basic reputation, show the result through docked UI or station
+interaction, and survive save/load. The broader transaction, escrow,
+arbitration, and generated-follow-up machinery below is the hardening path for
+cross-system consequences; it must not become an excuse to delay that thin loop.
+
 ## Runtime Position
 
 These foundations are required before full logical encounters and the realized pirate/police AI slice can produce durable consequences:
@@ -63,6 +70,12 @@ Specialized records such as logical encounters may wrap or reference the canonic
 ## Gameplay Transaction Commit Journal
 
 Any player-facing action or simulation event that mutates more than one gameplay system must use one canonical transaction and commit journal. This is required for market buys, mission accept/turn-in, service repair/refuel/rearm, legal confiscation/fines, cargo delivery, reputation changes, and generated follow-up creation.
+
+For M0, the transaction may be intentionally small: one validated request, one
+result record, ordered credit/cargo/mission/reputation mutations, and a save/load
+test proving the mutation is idempotent. Reservations, escrow, recovery records,
+and generated follow-ups are required only when the selected gameplay actually
+needs pending state, delayed commit, or retry recovery.
 
 `FGameplayTransactionRecord`:
 
@@ -972,10 +985,12 @@ Mission rules:
 
 ## Roadmap Gate
 
-Before logical encounters are treated as complete, the game needs:
+Before logical encounters are treated as complete, the game needs a thin version
+of:
 
 - canonical event records
-- durable credit accounts, ledger entries, and escrow holds
+- durable credit accounts and ledger entries; escrow holds only when a selected
+  slice needs pending payment or delayed release
 - minimal faction definitions
 - faction operational state for route/security/service decisions
 - minimal jurisdiction/law/evidence/offense records
@@ -986,10 +1001,11 @@ Before logical encounters are treated as complete, the game needs:
 - station service endpoint request/result contracts shared by menu and FPS
 - comms endpoints and message log entries
 - conversation and delivery arbitration state
-- gameplay transaction records and commit journal
+- gameplay transaction records and commit journal scaled to the selected slice
 - mission offer, instance, objective, cargo, reward, and turn-in lifecycle records
 - ship service result records for repair, refuel, and rearm
 - reputation, faction relationship, and faction operational delta records
-- generated follow-up opportunity validation records
+- generated follow-up opportunity validation records when generated follow-ups
+  are in scope
 
 The first version can be tiny. It still needs the right ownership and IDs.

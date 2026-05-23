@@ -6,6 +6,10 @@ The rule is: do not build these systems before they have a gameplay use, but do 
 
 NPC traffic, distant sectors, and economy simulation are covered in more detail by `simulation-tiering-and-economy.md`. Space AI that operates over moving Kepler/orbital frames is covered by `space-ai-and-dynamic-orbits.md`. Legal, faction, market, inventory, comms, and mission foundation contracts are covered by `systemic-gameplay-foundations.md`.
 
+This document is a support checklist, not the current status tracker. Use
+`README.md` for the current foundation contract and `playable-parity-roadmap.md`
+for implementation status.
+
 ## Core Player Modes
 
 ### Space Flight
@@ -22,7 +26,9 @@ Required architectural support:
 - docking state
 - current system and logical ship location
 
-The current foundation proves basic flight input still works.
+Architecture work should preserve the first player-ship path: startup, normal
+flight, supercruise, targeting, docking, gate arrival, and saved logical ship
+location. Future flight work should extend that path instead of replacing it.
 
 ### FPS Station Mode
 
@@ -36,7 +42,10 @@ Required architectural support:
 - transition back to docked ship
 - station-local NPCs, vendors, quest givers, and services
 
-Do not bake stations as only menu screens. The architecture should allow menu-only stations first and walkable interiors later.
+Do not bake stations as only menu screens. Docked UI may be the first usable
+surface for a service, but each important station service should also have a
+path toward a physical walk-up/interior interaction. Endpoints support station
+gameplay; they are not the milestone by themselves.
 
 Station menus and walkable interiors must call the same station service endpoints. FPS counters, vendors, quest givers, and legal offices are presentation/access points for `FStationServiceEndpointDefinition` and `FStationServiceRequest`, not separate transaction systems.
 
@@ -230,7 +239,9 @@ Required architectural support:
 
 Trading must integrate player cargo, station market inventory, economy state, and faction/legal rules.
 
-UI is not the support primitive. The architecture needs validated buy/sell/service transactions first; UMG screens can arrive later.
+UI polish is not the support primitive, but player reachability is. The
+architecture needs validated buy/sell/service transactions and a thin
+player-facing access path; richer UMG screens can arrive later.
 
 Market logic uses `CommodityId`; inventory/cargo logic uses `ItemId`. Any tradable carried good must cross through one canonical commodity/item bridge so markets, cargo holds, mission deliveries, and confiscation agree on identity.
 
@@ -396,7 +407,7 @@ Required architectural support:
 - docking request
 - landing/docking clearance
 - trade/service access
-- mission board access
+- mission contact/board access
 - faction/security responses
 
 Comms should be a system/service interface on station identity, not direct Blueprint UI calls.
@@ -496,7 +507,8 @@ Required architectural support:
 - route affordability checks
 - consumable degradation and replenishment
 
-Even if the current foundation ignores fuel, route and service architecture should not assume travel is always free.
+If the first playable loop ignores fuel, route and service architecture should
+not permanently assume travel is always free.
 
 ### Death, Failure, And Respawn
 
@@ -649,4 +661,6 @@ The early architecture must preserve these stable reference types:
 - message arbitration result ID
 - generated follow-up opportunity ID
 
-The foundation does not implement every future system. It proves the first thin path: start profile, non-Sol system ID, spawn zone, navigation targets, and save/reload. Later systems must build on the same stable-ID discipline.
+The foundation should not implement every future system. Later systems must
+build on the same stable-ID and idempotent-transaction discipline proven by the
+first thin playable path.

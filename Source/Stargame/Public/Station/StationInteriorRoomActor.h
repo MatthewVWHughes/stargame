@@ -9,6 +9,7 @@ class AStationMissionContactActor;
 class AStationInteriorInteractableActor;
 class AStationInteriorHostileActor;
 class AStationInteriorPawn;
+class UStaticMeshComponent;
 class UStargameSessionSubsystem;
 
 UCLASS()
@@ -87,10 +88,30 @@ private:
 	void ClearInteractables();
 	void ClearHostiles();
 	void RegisterAuthoredInteractables();
+	void SpawnDefaultInteractable(FName InteractionType, const FText& DisplayName, const FVector& LocalPositionCm);
+	void ConfigureOrSpawnDefaultInteractable(FName InteractionType, const FText& DisplayName, const FVector& LocalPositionCm);
 	void SpawnDefaultHostiles(AStationInteriorPawn* PlayerPawn, const FStationInteriorCombatProfileDefinition& CombatProfile);
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<USceneComponent> SceneRoot;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> FloorMesh;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> CeilingMesh;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> NorthWallMesh;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> SouthWallMesh;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> EastWallMesh;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> WestWallMesh;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Station|Interior", meta = (AllowPrivateAccess = "true"))
 	FTransform PlayerStartLocalTransform = FTransform(FRotator::ZeroRotator, FVector(-350.0, 0.0, 100.0));

@@ -120,11 +120,9 @@ void UStargameBootMenuWidget::FinishBootFlow()
 	APlayerController* PlayerController = GetOwningPlayer();
 	if (PlayerController)
 	{
-		FInputModeGameAndUI InputMode;
-		InputMode.SetHideCursorDuringCapture(false);
-		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		FInputModeGameOnly InputMode;
 		PlayerController->SetInputMode(InputMode);
-		PlayerController->bShowMouseCursor = true;
+		PlayerController->bShowMouseCursor = false;
 		PlayerController->SetIgnoreLookInput(false);
 		PlayerController->SetIgnoreMoveInput(false);
 	}

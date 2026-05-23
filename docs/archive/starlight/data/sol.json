@@ -1,0 +1,284 @@
+{
+	"id": "sol",
+	"display_name": "Sol",
+	"primary_star_gravity_radius": 2000.0,
+
+	"bodies": [
+		{
+			"name": "Sun",
+			"stellar_class": "G",
+			"scene_visual": { "node_name": "Sun", "scene_path": "res://scenes/game/space/Sun.tscn" }
+		},
+
+		{
+			"name": "Mercury",
+			"orbit": { "semi_major_axis": 117000.0, "period": 28800.0, "inclination": 7.0 },
+			"sphere_visual": {
+				"node_name": "MercuryMesh",
+				"radius": 306.0,
+				"albedo_color": "#666666",
+				"texture_path": "res://textures/planets/2k_mercury.jpg",
+				"radial_segments": 32,
+				"rings": 16
+			}
+		},
+
+		{
+			"name": "Venus",
+			"orbit": { "semi_major_axis": 216000.0, "period": 72259.0, "phase_offset": 2.1991148, "inclination": 3.39 },
+			"sphere_visual": {
+				"node_name": "VenusMesh",
+				"radius": 760.0,
+				"albedo_color": "#666666",
+				"texture_path": "res://textures/planets/2k_venus_surface.jpg",
+				"radial_segments": 32,
+				"rings": 16
+			}
+		},
+
+		{
+			"name": "Earth",
+			"map_color": "#4d80ff",
+			"gameplay_radius": 800.0,
+			"orbit": { "semi_major_axis": 300000.0, "period": 39740.645, "phase_offset": 0.9424778 },
+			"scene_visual": { "node_name": "EarthVisual", "scene_path": "res://scenes/game/space/Earth.tscn" },
+			"children": [
+				{
+					"name": "Luna",
+					"display_name": "Luna",
+					"map_color": "#c7c7d6",
+					"gameplay_radius": 218.0,
+					"orbit": { "semi_major_axis": 6000.0, "period": 1800.0, "inclination": 5.14 },
+					"scene_visual": { "node_name": "LunaVisual", "scene_path": "res://scenes/game/space/Moon.tscn" },
+					"children": [
+						{
+							"name": "ArmstrongStationOrbit",
+							"orbit": { "semi_major_axis": 420.0, "period": 600.0 },
+							"scene_visual": { "node_name": "ArmstrongStation", "scene_path": "res://scenes/game/space/BasicStation.tscn" },
+							"label_text": "Armstrong Station"
+						}
+					]
+				},
+				{
+					"name": "EarthHubOrbit",
+					"orbit": { "semi_major_axis": 1000.0, "period": 500.0 },
+					"scene_visual": { "node_name": "EarthHub", "scene_path": "res://scenes/game/space/BasicStation.tscn" },
+					"label_text": "Earth Hub"
+				},
+				{
+					"name": "DerelictOutpostOrbit",
+					"orbit": { "semi_major_axis": 1700.0, "period": 900.0, "phase_offset": 1.2 },
+					"scene_visual": { "node_name": "DerelictOutpost", "scene_path": "res://scenes/game/space/BasicStation.tscn" },
+					"label_text": "Derelict Outpost"
+				}
+			]
+		},
+
+		{
+			"name": "Mars",
+			"orbit": { "semi_major_axis": 456000.0, "period": 74796.0, "phase_offset": 3.7699113, "eccentricity": 0.093, "inclination": 1.85 },
+			"sphere_visual": {
+				"node_name": "MarsMesh",
+				"radius": 426.0,
+				"albedo_color": "#666666",
+				"texture_path": "res://textures/planets/2k_mars.jpg",
+				"radial_segments": 32,
+				"rings": 16
+			},
+			"children": [
+				{
+					"name": "Phobos",
+					"orbit": { "semi_major_axis": 1800.0, "period": 180.0, "phase_offset": 0.8, "inclination": 1.1 },
+					"sphere_visual": {
+						"node_name": "PhobosMesh",
+						"radius": 100.0,
+						"albedo_color": "#7a766b",
+						"scale": [0.24, 0.18, 0.22]
+					}
+				},
+				{
+					"name": "Deimos",
+					"orbit": { "semi_major_axis": 3200.0, "period": 360.0, "phase_offset": 2.2, "inclination": 1.8 },
+					"sphere_visual": {
+						"node_name": "DeimosMesh",
+						"radius": 100.0,
+						"albedo_color": "#7a766b",
+						"scale": [0.16, 0.12, 0.15]
+					}
+				},
+				{
+					"name": "MarsColonyOrbit",
+					"orbit": { "semi_major_axis": 300.0, "period": 700.0 },
+					"scene_visual": { "node_name": "MarsColony", "scene_path": "res://scenes/game/space/BasicStation.tscn" },
+					"label_text": "Mars Colony"
+				}
+			]
+		},
+
+		{
+			"name": "Ceres",
+			"orbit": { "semi_major_axis": 831000.0, "period": 183000.0, "phase_offset": 1.3, "inclination": 10.6 },
+			"sphere_visual": {
+				"node_name": "CeresMesh",
+				"radius": 60.0,
+				"albedo_color": "#8c857a",
+				"radial_segments": 24,
+				"rings": 12
+			},
+			"children": [
+				{
+					"name": "CeresPortOrbit",
+					"orbit": { "semi_major_axis": 220.0, "period": 450.0 },
+					"scene_visual": { "node_name": "CeresPort", "scene_path": "res://scenes/game/space/BasicStation.tscn" },
+					"label_text": "Ceres Port"
+				}
+			]
+		},
+
+		{
+			"name": "Vesta",
+			"orbit": { "semi_major_axis": 705000.0, "period": 132000.0, "phase_offset": 4.2, "inclination": 7.1 },
+			"sphere_visual": { "node_name": "VestaMesh", "radius": 100.0, "albedo_color": "#7a766b", "scale": [0.45, 0.42, 0.4] }
+		},
+		{
+			"name": "Pallas",
+			"orbit": { "semi_major_axis": 768000.0, "period": 168000.0, "phase_offset": 0.35, "inclination": 34.8 },
+			"sphere_visual": { "node_name": "PallasMesh", "radius": 100.0, "albedo_color": "#7a766b", "scale": [0.4, 0.38, 0.36] }
+		},
+		{
+			"name": "Hygiea",
+			"orbit": { "semi_major_axis": 900000.0, "period": 205000.0, "phase_offset": 5.1, "inclination": 3.8 },
+			"sphere_visual": { "node_name": "HygieaMesh", "radius": 100.0, "albedo_color": "#7a766b", "scale": [0.48, 0.46, 0.44] }
+		},
+
+		{
+			"name": "Jupiter",
+			"orbit": { "semi_major_axis": 1560000.0, "period": 1402157.0, "phase_offset": 1.5707964, "inclination": 1.3 },
+			"sphere_visual": {
+				"node_name": "JupiterMesh",
+				"radius": 8785.0,
+				"albedo_color": "#666666",
+				"texture_path": "res://textures/planets/2k_jupiter.jpg",
+				"radial_segments": 32,
+				"rings": 16
+			},
+			"children": [
+				{ "name": "Io", "orbit": { "semi_major_axis": 27000.0, "period": 950.0, "phase_offset": 0.2, "inclination": 0.05 }, "sphere_visual": { "node_name": "IoMesh", "radius": 100.0, "albedo_color": "#dbb352", "scale": [2.6, 2.6, 2.6] } },
+				{ "name": "Europa", "orbit": { "semi_major_axis": 38000.0, "period": 1450.0, "phase_offset": 1.5, "inclination": 0.47 }, "sphere_visual": { "node_name": "EuropaMesh", "radius": 100.0, "albedo_color": "#bccce0", "scale": [2.45, 2.45, 2.45] } },
+				{ "name": "Ganymede", "orbit": { "semi_major_axis": 52000.0, "period": 2200.0, "phase_offset": 3.0, "inclination": 0.2 }, "sphere_visual": { "node_name": "GanymedeMesh", "radius": 100.0, "albedo_color": "#bccce0", "scale": [3.1, 3.1, 3.1] } },
+				{ "name": "Callisto", "orbit": { "semi_major_axis": 72000.0, "period": 4200.0, "phase_offset": 4.6, "inclination": 0.28 }, "sphere_visual": { "node_name": "CallistoMesh", "radius": 100.0, "albedo_color": "#575761", "scale": [2.85, 2.85, 2.85] } }
+			]
+		},
+
+		{
+			"name": "Saturn",
+			"orbit": { "semi_major_axis": 2862000.0, "period": 3481920.0, "phase_offset": 4.712389, "inclination": 2.49 },
+			"sphere_visual": {
+				"node_name": "SaturnMesh",
+				"radius": 7317.0,
+				"albedo_color": "#666666",
+				"texture_path": "res://textures/planets/2k_saturn.jpg",
+				"radial_segments": 32,
+				"rings": 16
+			},
+			"ring": {
+				"node_name": "SaturnRing",
+				"texture_path": "res://textures/planets/2k_saturn_ring_alpha.png",
+				"size": 28000.0,
+				"rotation_euler": [-1.5708, 0.0, 0.0]
+			},
+			"children": [
+				{ "name": "Enceladus", "orbit": { "semi_major_axis": 22000.0, "period": 1400.0, "phase_offset": 0.9 }, "sphere_visual": { "node_name": "EnceladusMesh", "radius": 100.0, "albedo_color": "#bccce0", "scale": [0.72, 0.72, 0.72] } },
+				{ "name": "Rhea", "orbit": { "semi_major_axis": 32000.0, "period": 2200.0, "phase_offset": 2.2, "inclination": 0.35 }, "sphere_visual": { "node_name": "RheaMesh", "radius": 100.0, "albedo_color": "#bccce0", "scale": [1.2, 1.2, 1.2] } },
+				{ "name": "Titan", "orbit": { "semi_major_axis": 60000.0, "period": 5200.0, "phase_offset": 3.4, "inclination": 0.35 }, "sphere_visual": { "node_name": "TitanMesh", "radius": 100.0, "albedo_color": "#c7a96b", "scale": [2.9, 2.9, 2.9] } },
+				{ "name": "Iapetus", "orbit": { "semi_major_axis": 120000.0, "period": 11800.0, "phase_offset": 5.0, "inclination": 15.5 }, "sphere_visual": { "node_name": "IapetusMesh", "radius": 100.0, "albedo_color": "#575761", "scale": [1.12, 1.12, 1.12] } }
+			]
+		},
+
+		{
+			"name": "Uranus",
+			"orbit": { "semi_major_axis": 5760000.0, "period": 9950400.0, "phase_offset": 2.8274333, "inclination": 0.77 },
+			"sphere_visual": {
+				"node_name": "UranusMesh",
+				"radius": 3185.0,
+				"albedo_color": "#666666",
+				"texture_path": "res://textures/planets/2k_uranus.jpg",
+				"radial_segments": 32,
+				"rings": 16
+			},
+			"children": [
+				{ "name": "Miranda", "orbit": { "semi_major_axis": 12000.0, "period": 900.0, "phase_offset": 0.6, "inclination": 4.34 }, "sphere_visual": { "node_name": "MirandaMesh", "radius": 100.0, "albedo_color": "#9fb8cc", "scale": [0.58, 0.58, 0.58] } },
+				{ "name": "Ariel", "orbit": { "semi_major_axis": 18000.0, "period": 1300.0, "phase_offset": 1.8, "inclination": 0.26 }, "sphere_visual": { "node_name": "ArielMesh", "radius": 100.0, "albedo_color": "#9fb8cc", "scale": [0.92, 0.92, 0.92] } },
+				{ "name": "Umbriel", "orbit": { "semi_major_axis": 24000.0, "period": 1700.0, "phase_offset": 3.1, "inclination": 0.13 }, "sphere_visual": { "node_name": "UmbrielMesh", "radius": 100.0, "albedo_color": "#575761", "scale": [0.96, 0.96, 0.96] } },
+				{ "name": "Titania", "orbit": { "semi_major_axis": 32000.0, "period": 2600.0, "phase_offset": 4.2, "inclination": 0.08 }, "sphere_visual": { "node_name": "TitaniaMesh", "radius": 100.0, "albedo_color": "#9fb8cc", "scale": [1.25, 1.25, 1.25] } },
+				{ "name": "Oberon", "orbit": { "semi_major_axis": 42000.0, "period": 3600.0, "phase_offset": 5.3, "inclination": 0.07 }, "sphere_visual": { "node_name": "OberonMesh", "radius": 100.0, "albedo_color": "#9fb8cc", "scale": [1.2, 1.2, 1.2] } }
+			]
+		},
+
+		{
+			"name": "Neptune",
+			"orbit": { "semi_major_axis": 9030000.0, "period": 19523520.0, "phase_offset": 5.340708, "inclination": 1.77 },
+			"sphere_visual": {
+				"node_name": "NeptuneMesh",
+				"radius": 3093.0,
+				"albedo_color": "#666666",
+				"texture_path": "res://textures/planets/2k_neptune.jpg",
+				"radial_segments": 32,
+				"rings": 16
+			},
+			"children": [
+				{ "name": "Triton", "orbit": { "semi_major_axis": 20000.0, "period": 1800.0, "phase_offset": 0.4, "inclination": 156.8 }, "sphere_visual": { "node_name": "TritonMesh", "radius": 100.0, "albedo_color": "#8aa3c7", "scale": [1.55, 1.55, 1.55] } },
+				{ "name": "Nereid", "orbit": { "semi_major_axis": 65000.0, "period": 8000.0, "phase_offset": 2.8, "inclination": 7.2 }, "sphere_visual": { "node_name": "NereidMesh", "radius": 100.0, "albedo_color": "#8aa3c7", "scale": [0.4, 0.4, 0.4] } }
+			]
+		},
+
+		{
+			"name": "Pluto",
+			"orbit": { "semi_major_axis": 10600000.0, "period": 24000000.0, "phase_offset": 1.1, "eccentricity": 0.25, "inclination": 17.16 },
+			"sphere_visual": { "node_name": "PlutoMesh", "radius": 100.0, "albedo_color": "#bdb3a8", "scale": [0.95, 0.95, 0.95] },
+			"children": [
+				{ "name": "Charon", "orbit": { "semi_major_axis": 520.0, "period": 320.0, "phase_offset": 2.3 }, "sphere_visual": { "node_name": "CharonMesh", "radius": 100.0, "albedo_color": "#bccce0", "scale": [0.5, 0.5, 0.5] } }
+			]
+		},
+
+		{
+			"name": "Haumea",
+			"orbit": { "semi_major_axis": 12000000.0, "period": 28600000.0, "phase_offset": 3.7, "eccentricity": 0.19, "inclination": 28.2 },
+			"sphere_visual": { "node_name": "HaumeaMesh", "radius": 100.0, "albedo_color": "#bdb3a8", "scale": [0.74, 0.58, 0.88] }
+		},
+		{
+			"name": "Makemake",
+			"orbit": { "semi_major_axis": 13200000.0, "period": 31500000.0, "phase_offset": 4.6, "eccentricity": 0.16, "inclination": 29.0 },
+			"sphere_visual": { "node_name": "MakemakeMesh", "radius": 100.0, "albedo_color": "#bdb3a8", "scale": [0.68, 0.68, 0.68] }
+		},
+		{
+			"name": "Eris",
+			"orbit": { "semi_major_axis": 14500000.0, "period": 36000000.0, "phase_offset": 5.8, "eccentricity": 0.35, "inclination": 44.0 },
+			"sphere_visual": { "node_name": "ErisMesh", "radius": 100.0, "albedo_color": "#bdb3a8", "scale": [0.76, 0.76, 0.76] }
+		}
+	],
+
+	"asteroid_belts": [
+		{
+			"node_name": "AsteroidBelt",
+			"inner_radius": 660000.0,
+			"outer_radius": 960000.0,
+			"vertical_spread": 8000.0,
+			"instance_count": 400,
+			"min_rock_size": 20.0,
+			"max_rock_size": 140.0
+		}
+	],
+
+	"jump_gates": [
+		{
+			"gate_id": "sol_gate_earth_l2",
+			"destination_system_id": "alpha_centauri",
+			"arrival_gate_id": "alpha_gate_primary",
+			"display_name": "Alpha Centauri Transit Gate",
+			"anchor_body": "Star/Earth",
+			"distance": 5200.0,
+			"node_name": "EarthL2Gate"
+		}
+	]
+}

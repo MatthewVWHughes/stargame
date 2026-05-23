@@ -1,9 +1,10 @@
 #include "Core/StargameGameModeBase.h"
 
 #include "Core/StargamePlayerController.h"
-#include "UI/StargameBootMenuWidget.h"
-#include "Engine/World.h"
 #include "Blueprint/UserWidget.h"
+#include "Engine/World.h"
+#include "Runtime/StargameSessionSubsystem.h"
+#include "UI/StargameBootMenuWidget.h"
 
 AStargameGameModeBase::AStargameGameModeBase()
 {
@@ -27,6 +28,18 @@ void AStargameGameModeBase::BeginPlay()
 		: nullptr;
 	if (!BootMenu)
 	{
+		if (bAutoStartWhenBootMenuMissing)
+		{
+			if (UStargameSessionSubsystem* Session = GetGameInstance() ? GetGameInstance()->GetSubsystem<UStargameSessionSubsystem>() : nullptr)
+			{
+				Session->StartNewSession();
+			}
+			FInputModeGameOnly InputMode;
+			PlayerController->SetInputMode(InputMode);
+			PlayerController->SetIgnoreLookInput(false);
+			PlayerController->SetIgnoreMoveInput(false);
+			PlayerController->bShowMouseCursor = false;
+		}
 		return;
 	}
 

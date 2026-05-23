@@ -37,6 +37,7 @@ namespace
 			!State.CriminalRecords.IsEmpty() ||
 			!State.Items.IsEmpty() ||
 			!State.ShipWeaponStats.IsEmpty() ||
+			!State.ShipEquipmentStats.IsEmpty() ||
 			!State.StationInteriorCombatProfiles.IsEmpty() ||
 			!State.Containers.IsEmpty() ||
 			!State.EquipmentSlots.IsEmpty() ||
@@ -258,6 +259,14 @@ namespace
 		return State.ShipWeaponStats.FindByPredicate([WeaponStatId](const FShipWeaponStatDefinition& Candidate)
 		{
 			return Candidate.WeaponStatId == WeaponStatId;
+		});
+	}
+
+	const FShipEquipmentStatDefinition* FindRuntimeShipEquipmentStats(const FSystemicGameplayState& State, FName ItemId)
+	{
+		return State.ShipEquipmentStats.FindByPredicate([ItemId](const FShipEquipmentStatDefinition& Candidate)
+		{
+			return Candidate.ItemId == ItemId;
 		});
 	}
 
@@ -603,8 +612,6 @@ void UStargameSessionSubsystem::Tick(float DeltaTime)
 	{
 		AdvanceSimulationClock(DeltaTime);
 	}
-
-	TryProgressActiveMissionWaypoint();
 }
 
 TStatId UStargameSessionSubsystem::GetStatId() const
@@ -652,6 +659,109 @@ EStartSessionResult UStargameSessionSubsystem::StartNewSession(FName InStartProf
 bool UStargameSessionSubsystem::SaveDevelopmentSlot()
 {
 	return SaveDevelopmentSlot(MakeCurrentM0SaveState());
+}
+
+bool UStargameSessionSubsystem::SaveDockedAutosave(const TCHAR* Reason)
+{
+	const bool bSaved = SaveDevelopmentSlot();
+	bLastAutosaveSuccessful = bSaved;
+	LastAutosaveStatus = bSaved
+		? FString::Printf(TEXT("Autosaved while docked: %s."), Reason ? Reason : TEXT("station action"))
+		: FString::Printf(TEXT("Docked autosave failed after %s."), Reason ? Reason : TEXT("station action"));
+	UE_LOG(LogStargameStartup, Display, TEXT("%s"), *LastAutosaveStatus);
+	return bSaved;
+}
+
+void UStargameSessionSubsystem::SetSystemicGameplayState(const FSystemicGameplayState& NewSystemicState)
+{
+	SystemicGameplayState = NewSystemicState;
+	RefreshPlayerShipEquipmentEffects();
+}
+
+FResolvedShipEquipmentStats UStargameSessionSubsystem::ResolvePlayerShipEquipmentStats() const
+{
+	FResolvedShipEquipmentStats Stats;
+	Stats.bResolved = true;
+	Stats.BaseMaxShield = 100.0;
+	Stats.ResolvedMaxShield = Stats.BaseMaxShield;
+
+	for (const FEquipmentSlotState& Slot : SystemicGameplayState.EquipmentSlots)
+	{
+		if (Slot.OwnerId != FName(TEXT("player_ship")) || Slot.EquippedStack.ItemId.IsNone() || Slot.EquippedStack.Quantity <= 0)
+		{
+			continue;
+		}
+
+		const FShipEquipmentStatDefinition* EquipmentStats = FindRuntimeShipEquipmentStats(SystemicGameplayState, Slot.EquippedStack.ItemId);
+		if (!EquipmentStats)
+		{
+			continue;
+		}
+
+		Stats.EquippedItemIds.AddUnique(Slot.EquippedStack.ItemId);
+		Stats.MaxShieldBonus += FMath::Max(0.0, EquipmentStats->MaxShieldBonus);
+		if (EquipmentStats->NormalMaxSpeedMultiplier > 0.0)
+		{
+			Stats.NormalMaxSpeedMultiplier *= EquipmentStats->NormalMaxSpeedMultiplier;
+		}
+		if (EquipmentStats->ThrustAccelerationMultiplier > 0.0)
+		{
+			Stats.ThrustAccelerationMultiplier *= EquipmentStats->ThrustAccelerationMultiplier;
+		}
+		if (EquipmentStats->StrafeAccelerationMultiplier > 0.0)
+		{
+			Stats.StrafeAccelerationMultiplier *= EquipmentStats->StrafeAccelerationMultiplier;
+		}
+	}
+
+	Stats.ResolvedMaxShield = Stats.BaseMaxShield + Stats.MaxShieldBonus;
+	Stats.DebugReason = FString::Printf(
+		TEXT("Resolved %d installed ship equipment stat records: shield %.0f, speed x%.2f, thrust x%.2f, strafe x%.2f."),
+		Stats.EquippedItemIds.Num(),
+		Stats.ResolvedMaxShield,
+		Stats.NormalMaxSpeedMultiplier,
+		Stats.ThrustAccelerationMultiplier,
+		Stats.StrafeAccelerationMultiplier);
+	return Stats;
+}
+
+void UStargameSessionSubsystem::RefreshPlayerShipEquipmentEffects()
+{
+	const FResolvedShipEquipmentStats Stats = ResolvePlayerShipEquipmentStats();
+	ApplyPlayerShipEquipmentEffectsToDurability(Stats);
+	ApplyPlayerShipEquipmentEffectsToPawn(Stats);
+}
+
+void UStargameSessionSubsystem::ApplyPlayerShipEquipmentEffectsToDurability(const FResolvedShipEquipmentStats& Stats)
+{
+	FShipDurabilityState* PlayerDurability = SystemicGameplayState.ShipDurabilityStates.FindByPredicate([](const FShipDurabilityState& Candidate)
+	{
+		return Candidate.CombatantId == FName(TEXT("player_ship"));
+	});
+	if (!PlayerDurability)
+	{
+		return;
+	}
+
+	const double PreviousShield = PlayerDurability->Shield;
+	PlayerDurability->MaxShield = FMath::Max(1.0, Stats.ResolvedMaxShield);
+	PlayerDurability->Shield = FMath::Clamp(PreviousShield, 0.0, PlayerDurability->MaxShield);
+}
+
+void UStargameSessionSubsystem::ApplyPlayerShipEquipmentEffectsToPawn(const FResolvedShipEquipmentStats& Stats)
+{
+	UWorld* World = ResolveSessionWorld();
+	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	ASpaceFlightPawn* PlayerPawn = StarSystem ? Cast<ASpaceFlightPawn>(StarSystem->GetActivePlayerPawn()) : nullptr;
+	if (!PlayerPawn)
+	{
+		return;
+	}
+
+	PlayerPawn->ApplyShipEquipmentFlightStats(
+		static_cast<float>(Stats.NormalMaxSpeedMultiplier),
+		static_cast<float>(Stats.ThrustAccelerationMultiplier),
+		static_cast<float>(Stats.StrafeAccelerationMultiplier));
 }
 
 bool UStargameSessionSubsystem::DoesDevelopmentSaveExist() const
@@ -737,7 +847,22 @@ bool UStargameSessionSubsystem::CanContinueDevelopmentSlot(FString& OutReason) c
 
 void UStargameSessionSubsystem::AdvanceSimulationClock(double DeltaSeconds)
 {
-	ClockSnapshot.AuthoritativeSimulationTimeSeconds += FMath::Max(0.0, DeltaSeconds) * ClockSnapshot.TimeScale;
+	const double ClampedDeltaSeconds = FMath::Max(0.0, DeltaSeconds);
+	ClockSnapshot.AuthoritativeSimulationTimeSeconds += ClampedDeltaSeconds * ClockSnapshot.TimeScale;
+	RuntimePresentationAccumulatorSeconds += ClampedDeltaSeconds;
+	MissionProgressAccumulatorSeconds += ClampedDeltaSeconds;
+
+	if (MissionProgressAccumulatorSeconds >= MissionProgressUpdateIntervalSeconds)
+	{
+		MissionProgressAccumulatorSeconds = 0.0;
+		TryProgressActiveMissionWaypoint();
+	}
+
+	if (RuntimePresentationAccumulatorSeconds < RuntimePresentationUpdateIntervalSeconds)
+	{
+		return;
+	}
+	RuntimePresentationAccumulatorSeconds = 0.0;
 
 	UWorld* World = ResolveSessionWorld();
 	UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
@@ -848,6 +973,7 @@ bool UStargameSessionSubsystem::UpdateRuntimeEncounterProjectiles(FRuntimeEncoun
 			{
 				RuntimeState.DamageEventId = DamageResult.DamageEventId;
 				RuntimeState.HostileResponseStateId = ResolveHostileResponseState(RuntimeState.ThreatId, LastRuntimeEncounterView.LocalBehaviorStateId);
+				RuntimeState.HostileAIStateId = TEXT("engage");
 				FVector ResponseStartPositionCm = FVector::ZeroVector;
 				FVector ResponseEndPositionCm = FVector::ZeroVector;
 				FName HostileManeuverStateId;
@@ -1083,6 +1209,8 @@ void UStargameSessionSubsystem::ClearSessionState()
 	SystemicGameplayState = FSystemicGameplayState();
 	LastRuntimeEncounterView = FRuntimeEncounterViewModel();
 	RuntimeEncounterStates.Reset();
+	RuntimePresentationAccumulatorSeconds = RuntimePresentationUpdateIntervalSeconds;
+	MissionProgressAccumulatorSeconds = MissionProgressUpdateIntervalSeconds;
 	bHasPendingGateArrival = false;
 	PendingGateArrivalLocation = FShipSaveLocation();
 	LastGateTransitionResult = FGateTransitionResult();
@@ -1465,6 +1593,10 @@ bool UStargameSessionSubsystem::TryCompleteActiveHostileBoardingObjective(FName 
 			bCompletedAny = true;
 		}
 	}
+	if (bCompletedAny)
+	{
+		SaveDockedAutosave(TEXT("hostile boarding objective"));
+	}
 	return bCompletedAny;
 }
 
@@ -1526,6 +1658,9 @@ bool UStargameSessionSubsystem::TryUpdateRuntimeEncounterBehavior()
 	LastRuntimeEncounterView.BehaviorVariantId = ClosestEntry->BehaviorVariantId;
 	LastRuntimeEncounterView.CommsVariantId = ClosestEntry->CommsVariantId;
 	LastRuntimeEncounterView.LocalBehaviorStateId = ClosestEntry->LocalBehaviorStateId;
+	LastRuntimeEncounterView.HostileAIStateId = ClosestEntry->Role == EShipGoalKind::Pirate
+		? (ClosestDistanceCm <= PirateActivationRangeCm ? FName(TEXT("interdict")) : FName(TEXT("intercept")))
+		: (ClosestEntry->Role == EShipGoalKind::Patrol ? FName(TEXT("patrol")) : NAME_None);
 	LastRuntimeEncounterView.CommsLine = ClosestEntry->CommsLine;
 	LastRuntimeEncounterView.HazardId = ClosestEntry->HazardId;
 	LastRuntimeEncounterView.PatrolReservationId = ClosestEntry->PatrolReservationId;
@@ -1670,6 +1805,9 @@ bool UStargameSessionSubsystem::TryUpdateRuntimeEncounterBehavior()
 				LastRuntimeEncounterView.bPlayerWeaponAligned;
 			LastRuntimeEncounterView.HostileResponseStateId = RuntimeState->HostileResponseStateId;
 			LastRuntimeEncounterView.HostileManeuverStateId = RuntimeState->HostileManeuverStateId;
+			LastRuntimeEncounterView.HostileAIStateId = RuntimeState->HostileAIStateId.IsNone()
+				? LastRuntimeEncounterView.HostileAIStateId
+				: RuntimeState->HostileAIStateId;
 			LastRuntimeEncounterView.HostileWeaponCooldownSeconds = RuntimeState->HostileWeaponCooldownSeconds;
 			LastRuntimeEncounterView.HostileWeaponCooldownRemainingSeconds = FMath::Max(0.0, RuntimeState->HostileWeaponReadyAtTimeSeconds - ClockSnapshot.AuthoritativeSimulationTimeSeconds);
 			LastRuntimeEncounterView.HostileWeaponEnergy = RuntimeState->HostileWeaponEnergy;
@@ -1760,9 +1898,15 @@ bool UStargameSessionSubsystem::TryUpdateRuntimeEncounterBehavior()
 		FRuntimeEncounterState NewState;
 		NewState.EncounterId = ClosestEntry->EncounterId;
 		NewState.RuntimeState = TEXT("detected");
+		NewState.HostileAIStateId = bPirateAmbush ? FName(TEXT("interdict")) : FName(TEXT("patrol"));
 		RuntimeEncounterStates.Add(NewState);
 		RuntimeState = &RuntimeEncounterStates.Last();
 	}
+	if (RuntimeState->HostileAIStateId.IsNone())
+	{
+		RuntimeState->HostileAIStateId = bPirateAmbush ? FName(TEXT("interdict")) : FName(TEXT("patrol"));
+	}
+	LastRuntimeEncounterView.HostileAIStateId = RuntimeState->HostileAIStateId;
 
 	if (bPirateAmbush && !ClosestEntry->ThreatId.IsNone())
 	{
@@ -1782,12 +1926,14 @@ bool UStargameSessionSubsystem::TryUpdateRuntimeEncounterBehavior()
 			if (USystemicGameplayQueryService::ApplyDamageEventOnce(SystemicGameplayState, RuntimeDamage, DamageResult, FailureReason))
 			{
 				RuntimeState->RuntimeState = TEXT("engaged");
+				RuntimeState->HostileAIStateId = TEXT("engage");
 				RuntimeState->ThreatId = ClosestEntry->ThreatId;
 				RuntimeState->DamageEventId = DamageResult.DamageEventId;
 				RuntimeState->EngagedAtTimeSeconds = RuntimeState->EngagedAtTimeSeconds <= 0.0 ? ClockSnapshot.AuthoritativeSimulationTimeSeconds : RuntimeState->EngagedAtTimeSeconds;
 				RuntimeState->LastUpdatedTimeSeconds = ClockSnapshot.AuthoritativeSimulationTimeSeconds;
 				LastRuntimeEncounterView.DamageEventId = DamageResult.DamageEventId;
 				LastRuntimeEncounterView.DamageResultState = DamageResult.ResultState;
+				LastRuntimeEncounterView.HostileAIStateId = RuntimeState->HostileAIStateId;
 				if (const FShipDurabilityState* Durability = FindRuntimeDurability(SystemicGameplayState, RuntimeDamage.TargetCombatantId))
 				{
 					LastRuntimeEncounterView.TargetDurabilityState = Durability->State;
@@ -1819,6 +1965,10 @@ bool UStargameSessionSubsystem::ResolveRuntimeEncounter(FName EncounterId)
 	if (RuntimeState)
 	{
 		RuntimeState->RuntimeState = TEXT("resolving");
+		if (RuntimeState->HostileAIStateId != FName(TEXT("disengage")))
+		{
+			RuntimeState->HostileAIStateId = TEXT("return_to_anchor");
+		}
 		RuntimeState->LastUpdatedTimeSeconds = ClockSnapshot.AuthoritativeSimulationTimeSeconds;
 	}
 
@@ -1851,6 +2001,7 @@ bool UStargameSessionSubsystem::ResolveRuntimeEncounter(FName EncounterId)
 	{
 		RuntimeState->RuntimeState = TEXT("resolved");
 		RuntimeState->LastUpdatedTimeSeconds = ClockSnapshot.AuthoritativeSimulationTimeSeconds;
+		LastRuntimeEncounterView.HostileAIStateId = RuntimeState->HostileAIStateId;
 	}
 
 	UWorld* World = ResolveSessionWorld();
@@ -1885,6 +2036,7 @@ bool UStargameSessionSubsystem::ApplyRuntimeEncounterOutcome(FName EncounterId, 
 
 	if (Threat && (OutcomeType == FName(TEXT("escape")) || OutcomeType == FName(TEXT("surrender"))))
 	{
+		RuntimeState->HostileAIStateId = TEXT("disengage");
 		FDamageEventRecord OutcomeDamage;
 		OutcomeDamage.DamageEventId = FName(*FString::Printf(TEXT("damage_runtime_%s_%s"), *EncounterId.ToString(), *OutcomeType.ToString()));
 		OutcomeDamage.SourceCombatantId = Threat->AttackerId;
@@ -1917,9 +2069,15 @@ bool UStargameSessionSubsystem::ApplyRuntimeEncounterOutcome(FName EncounterId, 
 		return false;
 	}
 
+	else
+	{
+		RuntimeState->HostileAIStateId = TEXT("return_to_anchor");
+	}
+
 	RuntimeState->RuntimeState = TEXT("resolving");
 	RuntimeState->LastUpdatedTimeSeconds = ClockSnapshot.AuthoritativeSimulationTimeSeconds;
 	LastRuntimeEncounterView.OutcomeType = OutcomeType;
+	LastRuntimeEncounterView.HostileAIStateId = RuntimeState->HostileAIStateId;
 
 	const bool bResolved = ResolveRuntimeEncounter(EncounterId);
 	LastRuntimeEncounterView.OutcomeType = OutcomeType;
@@ -2301,6 +2459,7 @@ bool UStargameSessionSubsystem::FireEquippedShipWeaponAtRuntimeEncounter(FName E
 	LastRuntimeEncounterView.bPlayerWeaponReady = false;
 	LastRuntimeEncounterView.HostileResponseStateId = RuntimeState->HostileResponseStateId;
 	LastRuntimeEncounterView.HostileManeuverStateId = RuntimeState->HostileManeuverStateId;
+	LastRuntimeEncounterView.HostileAIStateId = RuntimeState->HostileAIStateId;
 	LastRuntimeEncounterView.ShotPresentationId = RuntimeState->ShotPresentationId;
 	LastRuntimeEncounterView.ShotPresentationType = RuntimeState->ShotPresentationType;
 	LastRuntimeEncounterView.ShotPresentationActorId = RuntimeState->ShotPresentationActorId;
@@ -3453,6 +3612,8 @@ bool UStargameSessionSubsystem::EquipDockedInventoryItem(FName ContainerId, FNam
 	}
 
 	OutCommandResult.bAccepted = true;
+	RefreshPlayerShipEquipmentEffects();
+	SaveDockedAutosave(TEXT("equipment change"));
 	return true;
 }
 
@@ -3492,6 +3653,8 @@ bool UStargameSessionSubsystem::UnequipDockedInventoryItem(FName SlotId, FName C
 	}
 
 	OutCommandResult.bAccepted = true;
+	RefreshPlayerShipEquipmentEffects();
+	SaveDockedAutosave(TEXT("equipment change"));
 	return true;
 }
 
@@ -3528,6 +3691,7 @@ bool UStargameSessionSubsystem::ExecuteDockedStationService(const FStationServic
 	}
 
 	OutCommandResult.bAccepted = true;
+	SaveDockedAutosave(TEXT("station service"));
 	return true;
 }
 
@@ -3565,6 +3729,7 @@ bool UStargameSessionSubsystem::ExecuteDockedMarketTransaction(const FMarketTran
 	}
 
 	OutCommandResult.bAccepted = true;
+	SaveDockedAutosave(TEXT("market transaction"));
 	return true;
 }
 
@@ -3608,6 +3773,7 @@ bool UStargameSessionSubsystem::AcceptDockedMissionOffer(FName OfferId, FName Pl
 
 	AutoSelectMissionWaypoint(OutMission);
 	OutCommandResult.bAccepted = true;
+	SaveDockedAutosave(TEXT("mission accepted"));
 	return true;
 }
 
@@ -3675,6 +3841,7 @@ bool UStargameSessionSubsystem::CompleteDockedMission(FName MissionInstanceId, F
 	}
 
 	OutCommandResult.bAccepted = true;
+	SaveDockedAutosave(TEXT("mission completed"));
 	return true;
 }
 
@@ -3746,12 +3913,12 @@ bool UStargameSessionSubsystem::EnterDockedStationInterior(FDockedStationCommand
 	UClass* RoomClass = Context.InteriorRoomClass.LoadSynchronous();
 	if (!RoomClass || !RoomClass->IsChildOf(AStationInteriorRoomActor::StaticClass()))
 	{
-		return RejectDockedStationCommand(TEXT("Station interior requires an authored room Blueprint class."), OutCommandResult);
+		RoomClass = AStationInteriorRoomActor::StaticClass();
 	}
 	UClass* InteriorPawnClass = Context.InteriorPawnClass.LoadSynchronous();
 	if (!InteriorPawnClass || !InteriorPawnClass->IsChildOf(AStationInteriorPawn::StaticClass()))
 	{
-		return RejectDockedStationCommand(TEXT("Station interior requires an authored interior pawn Blueprint class."), OutCommandResult);
+		InteriorPawnClass = AStationInteriorPawn::StaticClass();
 	}
 
 	ActiveStationInteriorRoom = World->SpawnActor<AStationInteriorRoomActor>(RoomClass, FTransform(RoomLocation), SpawnParameters);
@@ -3800,6 +3967,18 @@ bool UStargameSessionSubsystem::ResolveStationInteriorCombatProfile(FName Profil
 	OutProfile = FStationInteriorCombatProfileDefinition();
 	OutProfile.ProfileId = RequestedProfileId;
 	OutProfile.DisplayName = FText::FromString(TEXT("Godot Hostile Boarding Basic"));
+	OutProfile.PlayerMaxHealth = 100.0;
+	OutProfile.PlayerWeaponDamage = 20.0;
+	OutProfile.PlayerWeaponRangeCm = 6000.0;
+	OutProfile.PlayerWeaponCooldownSeconds = 0.35;
+	OutProfile.HostileMaxHealth = 45.0;
+	OutProfile.HostileFireDamage = 8.0;
+	OutProfile.HostileDetectionRangeCm = 3500.0;
+	OutProfile.HostileFireRangeCm = 2800.0;
+	OutProfile.HostileFireCooldownSeconds = 1.3;
+	OutProfile.HostileInaccuracyDegrees = FMath::RadiansToDegrees(0.04);
+	OutProfile.HostileInitialFireDelaySeconds = 0.4;
+	OutProfile.HostileCount = 3;
 	return false;
 }
 
@@ -4042,6 +4221,7 @@ bool UStargameSessionSubsystem::LoadDevelopmentSlot()
 	ClockSnapshot = RestoredClock;
 	ActiveTrafficState = RestoredTrafficState;
 	SystemicGameplayState = RestoredSystemicState;
+	RefreshPlayerShipEquipmentEffects();
 	StarSystem->RealizeSystemicEncounterActors(SystemicGameplayState, ClockSnapshot.AuthoritativeSimulationTimeSeconds);
 	bHasPendingGateArrival = LoadedState.ShipLocation.LocationMode == EShipLocationMode::GateArrival;
 	PendingGateArrivalLocation = bHasPendingGateArrival ? LoadedState.ShipLocation : FShipSaveLocation();
@@ -4241,6 +4421,7 @@ bool UStargameSessionSubsystem::RequestGateTransition(const FGateTransitionReque
 		ReportSessionFailure(OutResult.FailureReason);
 		return false;
 	}
+	RefreshPlayerShipEquipmentEffects();
 
 	ASpaceFlightPawn* FlightPawn = ResolveSpaceFlightPawn(World, PlayerController);
 	if (FlightPawn)
@@ -4378,6 +4559,10 @@ FStargameM0SaveState UStargameSessionSubsystem::MakeCurrentM0SaveState() const
 	}
 	APlayerController* PlayerController = World ? World->GetFirstPlayerController() : nullptr;
 	const ASpaceFlightPawn* FlightPawn = ResolveSpaceFlightPawn(World, PlayerController);
+	if (!FlightPawn && StationInteriorSpacePawn)
+	{
+		FlightPawn = StationInteriorSpacePawn.Get();
+	}
 	if (FlightPawn)
 	{
 		State.ShipLocation.PositionCm = FlightPawn->GetLogicalSystemPositionCm();
@@ -4871,6 +5056,7 @@ bool UStargameSessionSubsystem::BuildAndSpawnFromStartProfile(const FStartProfil
 		return false;
 	}
 	ActivePlayerPawnClass = PawnClass;
+	RefreshPlayerShipEquipmentEffects();
 
 	return true;
 }

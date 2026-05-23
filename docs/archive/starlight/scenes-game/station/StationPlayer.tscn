@@ -1,0 +1,15 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/station_interior/FPSController.cs" id="1_script"]
+
+[sub_resource type="CapsuleShape3D" id="1_capsule"]
+radius = 0.4
+height = 1.8
+
+[node name="StationPlayer" type="CharacterBody3D"]
+script = ExtResource("1_script")
+HideCombatHud = true
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.9, 0)
+shape = SubResource("1_capsule")

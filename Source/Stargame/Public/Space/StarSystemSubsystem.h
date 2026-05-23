@@ -146,6 +146,12 @@ struct STARGAME_API FRealizedEncounterActorEntry
 	double LastSteeringSimulationTimeSeconds = 0.0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	double LastShotSimulationTimeSeconds = -1.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
+	int32 FiredShotCount = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Encounter")
 	TWeakObjectPtr<ALogicalTrafficActor> Actor;
 };
 
@@ -231,6 +237,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Encounter")
 	bool ApplyEncounterResponseManeuver(FName EncounterId, FName ResponseStateId, double SimulationTimeSeconds, FVector& OutStartPositionCm, FVector& OutEndPositionCm, FName& OutManeuverStateId);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Space")
+	bool UpdateFoundationalSpaceWorld(const FActiveTrafficSimulationState& TrafficState, const FSystemicGameplayState& SystemicState, double SimulationTimeSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Encounter")
+	bool UpdateRealizedEncounterCombat(double SimulationTimeSeconds);
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Combat")
 	bool SpawnCombatShotPresentation(FName ShotPresentationId, FName PresentationType, const FVector& StartPositionCm, const FVector& EndPositionCm, double StartedAtTimeSeconds, double DurationSeconds, FName& OutActorId);

@@ -1,0 +1,36 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/ui/StatusHudController.cs" id="1_script"]
+
+[node name="VS1StatusHud" type="CanvasLayer"]
+script = ExtResource("1_script")
+
+[node name="ObjectiveLabel" type="Label" parent="."]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -300.0
+offset_top = 64.0
+offset_right = 300.0
+offset_bottom = 108.0
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.78, 0.92, 1, 0.9)
+theme_override_colors/font_outline_color = Color(0.02, 0.05, 0.08, 0.86)
+theme_override_constants/outline_size = 5
+horizontal_alignment = 1
+text = "Objective"
+autowrap_mode = 3
+
+[node name="LocationLabel" type="Label" parent="."]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -300.0
+offset_top = 102.0
+offset_right = 300.0
+offset_bottom = 152.0
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.64, 0.88, 1, 0.82)
+theme_override_colors/font_outline_color = Color(0.02, 0.05, 0.08, 0.86)
+theme_override_constants/outline_size = 5
+horizontal_alignment = 1
+text = "Location"
+autowrap_mode = 3

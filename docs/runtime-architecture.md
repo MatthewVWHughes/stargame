@@ -4,20 +4,22 @@ This document defines the Unreal-native runtime architecture for Stargame.
 
 The aim is not to recreate Godot in Unreal. The aim is to preserve the useful game/data shape while letting Unreal own runtime lifetime, assets, actors, components, editor workflows, and validation.
 
-The architecture must support the systems listed in `future-systems-support.md`: space flight, FPS station mode, inventory, NPC traffic/trading, economy, mining, trading, combat, ship ownership/equipment, factions, quests, sectors, and communications. Foundation work exposes stable IDs and reference paths for those systems without implementing every content-heavy behavior at once.
+The architecture must support the systems listed in [Future Systems Support](future-systems-support.md): space flight, FPS station mode, inventory, NPC traffic/trading, economy, mining, trading, combat, ship ownership/equipment, factions, quests, sectors, and communications. Foundation work exposes stable IDs and reference paths for those systems without implementing every content-heavy behavior at once.
 
-NPC traffic and economy must follow `simulation-tiering-and-economy.md`: logical simulation first, actors only for the near-player interactive slice. Space AI must follow `space-ai-and-dynamic-orbits.md`: decisions resolve against moving anchors, route samples, and predicted reference frames rather than static Unreal locations.
+NPC traffic and economy must follow [Simulation Tiering And Economy](simulation-tiering-and-economy.md): logical simulation first, actors only for the near-player interactive slice. Space AI must follow [Space AI And Dynamic Orbits](space-ai-and-dynamic-orbits.md): decisions resolve against moving anchors, route samples, and predicted reference frames rather than static Unreal locations.
 
 ## Architecture Rule
 
-Preserve from Godot:
+Preserve from Starlight/Godot as reference material:
 
-- nearby star catalog intent
+- nearby star catalog intent for later map/future-sector work, not as current
+  content scope
 - system definition content
 - simplified orbit/flight assumptions
 - jump gate flow
 - map/navigation behavior
-- useful authored content such as Sol and Alpha Centauri
+- useful authored content such as Sol and Alpha Centauri as legacy reference
+  content, not as current fixture targets
 
 Do not preserve from Godot:
 

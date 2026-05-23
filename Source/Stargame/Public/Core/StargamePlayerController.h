@@ -20,6 +20,18 @@ public:
 	AStargamePlayerController();
 
 	UFUNCTION(Exec)
+	void NewGame();
+
+	UFUNCTION(Exec)
+	void ContinueGame();
+
+	UFUNCTION(Exec)
+	void SaveGame();
+
+	UFUNCTION(Exec)
+	void EnterStation();
+
+	UFUNCTION(Exec)
 	void StationRepair();
 
 	UFUNCTION(Exec)

@@ -33,6 +33,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
 	float GetAccelerationMetersPerSecondSquared() const { return LastAcceleration.Size() / 100.0f; }
 
+	UFUNCTION(BlueprintPure, Category = "Flight|Tuning")
+	float GetNormalMaxSpeedCentimetersPerSecond() const { return NormalMaxSpeed; }
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Tuning")
+	float GetThrustAccelerationCentimetersPerSecondSquared() const { return ThrustAcceleration; }
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Tuning")
+	float GetStrafeAccelerationCentimetersPerSecondSquared() const { return StrafeAcceleration; }
+
 	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
 	float GetThrottlePercent() const { return ThrottlePercent; }
 
@@ -41,6 +50,18 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
 	FVector GetLinearVelocityCmPerSec() const { return LinearVelocity; }
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
+	FVector2D GetMouseSteeringInput() const { return MouseSteeringInput; }
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
+	float GetForwardSpeedCentimetersPerSecond() const { return ForwardSpeedCmPerSec; }
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
+	float GetShipVisualRollDegrees() const { return ShipVisualRotation.Roll; }
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
+	float GetCameraRollDegrees() const;
 
 	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
 	FVector GetLogicalSystemPositionCm() const { return LogicalSystemPositionCm; }
@@ -56,6 +77,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Flight|Docking")
 	FString GetDockingDebugSummary() const;
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
+	FString GetFlightDebugSummary() const;
 
 	UFUNCTION(BlueprintCallable, Category = "Flight|Docking")
 	bool RequestDocking(FName StationId, FName PortId);
@@ -74,8 +98,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Flight|Testing")
 	void SetFlightTestTransformAndVelocity(const FTransform& NewTransform, FVector NewVelocityCmPerSec);
 
+	void SetFlightTestInputs(float NewThrottleInput, float NewStrafeRightInput, float NewStrafeUpInput, float NewRollInput, FVector2D NewMouseSteeringInput);
+
+	void TickNormalFlightForTest(float DeltaSeconds);
+
 	UFUNCTION(BlueprintCallable, Category = "Flight|Testing")
 	void TickDockingForTest(float DeltaSeconds);
+
+	UFUNCTION(BlueprintCallable, Category = "Flight|Equipment")
+	void ApplyShipEquipmentFlightStats(float NormalMaxSpeedMultiplier, float ThrustAccelerationMultiplier, float StrafeAccelerationMultiplier);
 
 	UFUNCTION(Exec)
 	void CycleNavigationTarget();
@@ -85,6 +116,9 @@ public:
 
 	UFUNCTION(Exec)
 	void InteractWithSelectedTarget();
+
+	UFUNCTION(BlueprintCallable, Category = "Flight|Combat")
+	bool FirePrimaryWeapon();
 
 protected:
 	virtual void BeginPlay() override;
@@ -96,12 +130,13 @@ private:
 	void StrafeRight(float Value);
 	void StrafeUp(float Value);
 	void Roll(float Value);
-	void ToggleSteering();
+	void ActivateMouseFlight();
 	void ToggleEngineKill();
 	void StartPrimaryMouse();
 	void StopPrimaryMouse();
 	void StartSecondaryMouse();
 	void StopSecondaryMouse();
+	bool IsSupercruiseUpdateRequired() const;
 	void RequestDockingWithSelectedStation(UStargameSessionSubsystem* Session, const UStarSystemSubsystem* StarSystem);
 	void RequestGateTransitionWithSelectedGate(UStargameSessionSubsystem* Session, const UStarSystemSubsystem* StarSystem);
 	void UpdateThrottle(float DeltaSeconds);
@@ -111,6 +146,10 @@ private:
 	void UpdateDocking(float DeltaSeconds);
 	void UpdateShipVisuals(float DeltaSeconds);
 	void UpdateCameraResponse(float DeltaSeconds, const FVector& PreviousVelocity);
+	FVector2D ReadMouseSteeringInput() const;
+	FVector2D ApplySteeringDeadZone(FVector2D RawSteering) const;
+	bool IsDockingControlLocked() const;
+	void RebuildArcadeVelocityStateFromLinearVelocity();
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<UBoxComponent> CollisionRoot;
@@ -133,16 +172,16 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "0.01"))
 	float ThrottleFallRate = 2.2f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0"))
-	float ThrustAcceleration = 16800.0f;
+	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0", Units = "cm/s^2"))
+	float ThrustAcceleration = 30000.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0"))
-	float StrafeAcceleration = 6000.0f;
+	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0", Units = "cm/s^2"))
+	float StrafeAcceleration = 16000.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0"))
-	float ZeroThrottleBrakeAcceleration = 4800.0f;
+	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0", Units = "cm/s^2"))
+	float ZeroThrottleBrakeAcceleration = 22000.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0"))
+	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0", Units = "cm/s"))
 	float NormalMaxSpeed = 24000.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0"))
@@ -154,26 +193,56 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Flight|Collision", meta = (ClampMin = "0.0"))
 	float CollisionSlideDamping = 0.65f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0"))
-	float SteeringForceDegrees = 780.0f;
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Steering", meta = (ClampMin = "1.0", Units = "deg/s"))
+	float SteeringForceDegrees = 115.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "1.0"))
-	float RollForceDegrees = 780.0f;
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Steering", meta = (ClampMin = "1.0", Units = "deg/s"))
+	float RollForceDegrees = 95.0f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "0.0"))
-	float AngularDrag = 6.5f;
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Steering", meta = (ClampMin = "0.01"))
+	float SteeringResponseExponent = 1.35f;
 
-	UPROPERTY(EditAnywhere, Category = "Flight|Tuning", meta = (ClampMin = "0.0", ClampMax = "0.95"))
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Steering", meta = (ClampMin = "0.0"))
+	float SteeringRateInterpSpeed = 9.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Steering", meta = (ClampMin = "0.0"))
+	float MaxAngularSpeedDegrees = 165.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Steering", meta = (ClampMin = "0.0", ClampMax = "0.95"))
 	float CursorDeadZone = 0.05f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Steering", meta = (ClampMin = "0.0", ClampMax = "0.95"))
+	float CursorAxisIsolationDeadZone = 0.14f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Steering", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float CursorAxisIsolationRatio = 0.28f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Steering", meta = (ClampMin = "1.0", ClampMax = "89.0", Units = "deg"))
+	float MaxPitchDegrees = 88.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Movement", meta = (ClampMin = "0.0", Units = "cm/s^2"))
+	float NormalFlightDragScale = 1.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Movement", meta = (ClampMin = "0.0", Units = "cm/s^2"))
+	float FlightAssistLateralDamping = 42000.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Movement", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float EngineKillDragScale = 1.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Movement", meta = (ClampMin = "0.0", Units = "cm/s"))
+	float MaxStrafeSpeed = 12000.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Arcade Movement", meta = (ClampMin = "0.0", Units = "cm/s"))
+	float EngineKillBrakeSpeed = 18000.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Flight|Camera", meta = (ClampMin = "1.0"))
 	float CameraArmLength = 650.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Flight|Camera", meta = (ClampMin = "0.0"))
-	float CameraRotationLagSpeed = 14.0f;
+	float CameraRotationLagSpeed = 18.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Flight|Camera")
-	FVector CameraTargetOffset = FVector(0.0f, 0.0f, 90.0f);
+	FVector CameraTargetOffset = FVector(0.0f, 0.0f, 220.0f);
 
 	UPROPERTY(EditAnywhere, Category = "Flight|Camera", meta = (ClampMin = "0.0"))
 	float CameraAccelerationArmExtension = 130.0f;
@@ -187,6 +256,9 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Flight|Camera", meta = (ClampMin = "0.0"))
 	float CameraBrakeForwardOffset = 70.0f;
 
+	UPROPERTY(EditAnywhere, Category = "Flight|Camera", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float CameraRollInfluence = 1.0f;
+
 	UPROPERTY(EditAnywhere, Category = "Flight|Visuals")
 	FVector ShipVisualOffset = FVector(0.0f, 0.0f, -70.0f);
 
@@ -194,7 +266,7 @@ private:
 	float MaxVisualBankDegrees = 28.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Flight|Visuals", meta = (ClampMin = "0.0"))
-	float VisualBankYawFactor = 0.075f;
+	float MouseTurnBankDegrees = 30.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Flight|Visuals", meta = (ClampMin = "0.0"))
 	float VisualBankStrafeDegrees = 10.0f;
@@ -218,7 +290,25 @@ private:
 	FVector LastAcceleration = FVector::ZeroVector;
 
 	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
+	float ForwardSpeedCmPerSec = 0.0f;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
+	FVector LocalSlipVelocityCmPerSec = FVector::ZeroVector;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
+	float BaseThrustAcceleration = 30000.0f;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
+	float BaseStrafeAcceleration = 16000.0f;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
+	float BaseNormalMaxSpeed = 24000.0f;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
 	FRotator AngularVelocityDegrees = FRotator::ZeroRotator;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
+	FVector2D MouseSteeringInput = FVector2D::ZeroVector;
 
 	UPROPERTY(VisibleAnywhere, Category = "Flight|Docking")
 	FDockingOperationState DockingOperation;

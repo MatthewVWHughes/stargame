@@ -1,0 +1,28 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/space/SpeedStreaks.cs" id="1_script"]
+[ext_resource type="Shader" path="res://shaders/SpeedStreaks.gdshader" id="2_shader"]
+
+[sub_resource type="QuadMesh" id="1_dot_mesh"]
+size = Vector2(1, 1)
+
+[sub_resource type="ShaderMaterial" id="2_dust_mat"]
+shader = ExtResource("2_shader")
+shader_parameter/dust_color = Color(0.82, 0.87, 0.95, 0.28)
+shader_parameter/dot_pixels = 2.0
+shader_parameter/streak_pixels = 0.0
+
+[sub_resource type="MultiMesh" id="3_mm"]
+transform_format = 1
+use_custom_data = true
+mesh = SubResource("1_dot_mesh")
+instance_count = 320
+
+[node name="SpeedStreaks" type="Node3D"]
+script = ExtResource("1_script")
+
+[node name="MultiMesh" type="MultiMeshInstance3D" parent="."]
+top_level = true
+multimesh = SubResource("3_mm")
+material_override = SubResource("2_dust_mat")
+extra_cull_margin = 100000.0

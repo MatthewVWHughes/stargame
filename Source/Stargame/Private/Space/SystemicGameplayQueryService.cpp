@@ -710,6 +710,43 @@ namespace
 		}
 	}
 
+	void EnsureGodotShipEquipmentStats(FSystemicGameplayState& State)
+	{
+		auto AddStats = [&State](
+			FName EquipmentStatId,
+			FName ItemId,
+			FName EquipmentType,
+			double MaxShieldBonus,
+			double NormalMaxSpeedMultiplier,
+			double ThrustAccelerationMultiplier,
+			double StrafeAccelerationMultiplier,
+			const TCHAR* DisplayName)
+		{
+			if (State.ShipEquipmentStats.ContainsByPredicate([EquipmentStatId](const FShipEquipmentStatDefinition& Candidate)
+			{
+				return Candidate.EquipmentStatId == EquipmentStatId;
+			}))
+			{
+				return;
+			}
+
+			FShipEquipmentStatDefinition Stats;
+			Stats.EquipmentStatId = EquipmentStatId;
+			Stats.ItemId = ItemId;
+			Stats.EquipmentType = EquipmentType;
+			Stats.MaxShieldBonus = MaxShieldBonus;
+			Stats.NormalMaxSpeedMultiplier = NormalMaxSpeedMultiplier;
+			Stats.ThrustAccelerationMultiplier = ThrustAccelerationMultiplier;
+			Stats.StrafeAccelerationMultiplier = StrafeAccelerationMultiplier;
+			Stats.DisplayName = FText::FromString(DisplayName);
+			State.ShipEquipmentStats.Add(Stats);
+		};
+
+		AddStats(TEXT("equipment_stat_shield_basic"), TEXT("shield_basic"), TEXT("ship_shield"), 35.0, 1.0, 1.0, 1.0, TEXT("Basic Shield"));
+		AddStats(TEXT("equipment_stat_engine_basic"), TEXT("engine_basic"), TEXT("ship_engine"), 0.0, 1.12, 1.08, 1.0, TEXT("Basic Engine"));
+		AddStats(TEXT("equipment_stat_thrusters_basic"), TEXT("thrusters_basic"), TEXT("ship_thrusters"), 0.0, 1.0, 1.04, 1.22, TEXT("Basic Thrusters"));
+	}
+
 	void EnsureGodotInventoryEquipmentFoundation(FSystemicGameplayState& State)
 	{
 		auto AddGodotItem = [&State](FName ItemId, const TCHAR* DisplayName, FName ItemType, int32 StackLimit, int64 BaseValue)
@@ -823,6 +860,7 @@ namespace
 			HostilePulseLaserStats.DisplayName = FText::FromString(TEXT("Hostile Pulse Laser Mk1"));
 			State.ShipWeaponStats.Add(HostilePulseLaserStats);
 		}
+		EnsureGodotShipEquipmentStats(State);
 
 		if (!State.Containers.ContainsByPredicate([](const FContainerState& Candidate)
 		{
@@ -1140,6 +1178,7 @@ FSystemicGameplayState USystemicGameplayQueryService::MakeM9FixtureState(const F
 	HostilePulseLaserStats.PresentationType = TEXT("projectile_bolt");
 	HostilePulseLaserStats.DisplayName = FText::FromString(TEXT("Hostile Pulse Laser Mk1"));
 	State.ShipWeaponStats.Add(HostilePulseLaserStats);
+	EnsureGodotShipEquipmentStats(State);
 	State.StationInteriorCombatProfiles.Add(MakeGodotHostileBoardingCombatProfile());
 
 	FCommodityDefinition OreCommodity;
@@ -5153,6 +5192,222 @@ bool USystemicGameplayQueryService::BuildSystemicDecisionInputSnapshot(const FSt
 	OutSnapshot.bValid = true;
 	OutSnapshot.DebugReason = TEXT("Systemic inputs resolved by stable IDs; encounter resolution is deferred to M10.");
 	return true;
+}
+
+bool USystemicGameplayQueryService::BuildStationGameplaySnapshot(
+	const FStarSystemDefinition& SystemDefinition,
+	const FSystemicGameplayState& State,
+	FName StationId,
+	FSystemicStationGameplaySnapshot& OutSnapshot)
+{
+	OutSnapshot = FSystemicStationGameplaySnapshot();
+	OutSnapshot.StationId = StationId;
+
+	const FStationDefinition* Station = FindConst(SystemDefinition.Stations, [StationId](const FStationDefinition& Candidate)
+	{
+		return Candidate.StationId == StationId;
+	});
+	if (!Station)
+	{
+		OutSnapshot.DebugReason = TEXT("Station does not resolve in the system definition.");
+		return false;
+	}
+
+	OutSnapshot.OwnerFactionId = Station->OwnerFactionId;
+	OutSnapshot.MarketProfileId = Station->MarketProfileId;
+	OutSnapshot.bHasMissionContact = !Station->QuestGiverNpcIds.IsEmpty();
+
+	if (const FCreditAccountRecord* PlayerAccount = FindConst(State.CreditAccounts, [](const FCreditAccountRecord& Candidate)
+	{
+		return Candidate.AccountId == FName(TEXT("account_player"));
+	}))
+	{
+		OutSnapshot.PlayerCredits = PlayerAccount->AvailableBalance;
+	}
+
+	for (const FStationServiceEndpointDefinition& Endpoint : State.StationServiceEndpoints)
+	{
+		if (Endpoint.StationId != StationId)
+		{
+			continue;
+		}
+
+		OutSnapshot.ServiceEndpointIds.Add(Endpoint.ServiceEndpointId);
+		if (OutSnapshot.MarketId.IsNone() && !Endpoint.MarketId.IsNone())
+		{
+			OutSnapshot.MarketId = Endpoint.MarketId;
+		}
+		if (OutSnapshot.LegalContextId.IsNone() && !Endpoint.LegalPolicyId.IsNone())
+		{
+			OutSnapshot.LegalContextId = Endpoint.LegalPolicyId;
+		}
+	}
+	OutSnapshot.ServiceCount = OutSnapshot.ServiceEndpointIds.Num();
+
+	if (OutSnapshot.MarketId.IsNone())
+	{
+		OutSnapshot.MarketId = Station->MarketProfileId;
+	}
+	const FStationMarketState* Market = FindConst(State.Markets, [StationId, &OutSnapshot](const FStationMarketState& Candidate)
+	{
+		return Candidate.StationId == StationId || Candidate.MarketId == OutSnapshot.MarketId;
+	});
+	if (Market)
+	{
+		OutSnapshot.bHasMarket = true;
+		OutSnapshot.MarketId = Market->MarketId;
+		OutSnapshot.MarketProfileId = Market->MarketProfileId;
+		for (const TPair<FName, int32>& Stock : Market->StockByCommodity)
+		{
+			if (Stock.Value > 0)
+			{
+				OutSnapshot.CommodityIds.Add(Stock.Key);
+				OutSnapshot.TotalMarketStock += Stock.Value;
+			}
+		}
+		OutSnapshot.CommodityIds.Sort([](const FName& Left, const FName& Right)
+		{
+			return Left.LexicalLess(Right);
+		});
+	}
+
+	for (const FMissionOfferRecord& Offer : State.MissionOffers)
+	{
+		if (Offer.SourceStationId != StationId || Offer.State == FName(TEXT("accepted")) || Offer.State == FName(TEXT("completed")))
+		{
+			continue;
+		}
+
+		const FMissionInstanceState* Mission = FindConst(State.MissionInstances, [&Offer](const FMissionInstanceState& Candidate)
+		{
+			return Candidate.OfferId == Offer.OfferId;
+		});
+		if (!Mission || Mission->CurrentState == FName(TEXT("completed")) || Mission->CurrentState == FName(TEXT("failed")))
+		{
+			continue;
+		}
+
+		bool bTagsSatisfied = true;
+		for (const FName RequiredTag : Offer.RequiredStationTags)
+		{
+			if (RequiredTag.IsNone() || !Station->MissionTags.Contains(RequiredTag))
+			{
+				bTagsSatisfied = false;
+				break;
+			}
+		}
+		if (bTagsSatisfied)
+		{
+			OutSnapshot.MissionOfferIds.Add(Offer.OfferId);
+		}
+	}
+	OutSnapshot.AvailableMissionCount = OutSnapshot.MissionOfferIds.Num();
+	OutSnapshot.MissionOfferIds.Sort([](const FName& Left, const FName& Right)
+	{
+		return Left.LexicalLess(Right);
+	});
+	OutSnapshot.ServiceEndpointIds.Sort([](const FName& Left, const FName& Right)
+	{
+		return Left.LexicalLess(Right);
+	});
+	OutSnapshot.bValid = OutSnapshot.ServiceCount > 0 || OutSnapshot.bHasMarket || OutSnapshot.AvailableMissionCount > 0;
+	OutSnapshot.DebugReason = FString::Printf(
+		TEXT("Station=%s Services=%d Commodities=%d Missions=%d PlayerCredits=%lld"),
+		*StationId.ToString(),
+		OutSnapshot.ServiceCount,
+		OutSnapshot.CommodityIds.Num(),
+		OutSnapshot.AvailableMissionCount,
+		static_cast<long long>(OutSnapshot.PlayerCredits));
+	return OutSnapshot.bValid;
+}
+
+bool USystemicGameplayQueryService::BuildRouteGameplaySnapshot(
+	const FStarSystemDefinition& SystemDefinition,
+	const FSystemicGameplayState& State,
+	FName RouteSegmentId,
+	const FSimulationClockSnapshot& ClockSnapshot,
+	double SimulationTimeSeconds,
+	FSystemicRouteGameplaySnapshot& OutSnapshot)
+{
+	OutSnapshot = FSystemicRouteGameplaySnapshot();
+	OutSnapshot.RouteSegmentId = RouteSegmentId;
+
+	const FTrafficRouteSegmentDefinition* Route = FindConst(SystemDefinition.TrafficRoutes, [RouteSegmentId](const FTrafficRouteSegmentDefinition& Candidate)
+	{
+		return Candidate.RouteSegmentId == RouteSegmentId;
+	});
+	if (!Route)
+	{
+		OutSnapshot.DebugReason = TEXT("Route segment does not resolve.");
+		return false;
+	}
+
+	OutSnapshot.JurisdictionId = Route->JurisdictionId;
+	OutSnapshot.SecurityRating = Route->SecurityRating;
+	OutSnapshot.RouteValue = Route->RouteValue;
+	OutSnapshot.bSupportsPatrolCoverage = Route->bSupportsPatrolCoverage;
+	OutSnapshot.bSupportsPirateAmbush = Route->bSupportsPirateAmbush;
+
+	if (const FJurisdictionDefinition* Jurisdiction = FindConst(State.Jurisdictions, [Route](const FJurisdictionDefinition& Candidate)
+	{
+		return Candidate.JurisdictionId == Route->JurisdictionId;
+	}))
+	{
+		OutSnapshot.AuthorityFactionId = Jurisdiction->AuthorityFactionId;
+	}
+
+	UOrbitRouteFrameQueryService::EvaluateRoute(
+		SystemDefinition,
+		RouteSegmentId,
+		0.5,
+		ClockSnapshot,
+		SimulationTimeSeconds,
+		OutSnapshot.RouteSample);
+
+	TArray<FRouteEncounterScoreRecord> Scores;
+	FString ScoreFailure;
+	if (ScorePatrolAndAmbushRoutes(SystemDefinition, State, ClockSnapshot, SimulationTimeSeconds, Scores, ScoreFailure))
+	{
+		if (const FRouteEncounterScoreRecord* Score = Scores.FindByPredicate([RouteSegmentId](const FRouteEncounterScoreRecord& Candidate)
+		{
+			return Candidate.RouteSegmentId == RouteSegmentId;
+		}))
+		{
+			OutSnapshot.PatrolScore = Score->PatrolScore;
+			OutSnapshot.PirateAmbushScore = Score->PirateAmbushScore;
+			OutSnapshot.RouteSample = Score->RouteSample;
+		}
+	}
+	else
+	{
+		OutSnapshot.DebugReason = ScoreFailure;
+	}
+
+	if (OutSnapshot.bSupportsPirateAmbush && OutSnapshot.PirateAmbushScore > OutSnapshot.PatrolScore)
+	{
+		OutSnapshot.RecommendedEncounterType = TEXT("pirate_ambush");
+	}
+	else if (OutSnapshot.bSupportsPatrolCoverage && OutSnapshot.PatrolScore > 0.0)
+	{
+		OutSnapshot.RecommendedEncounterType = TEXT("patrol_response");
+	}
+	else
+	{
+		OutSnapshot.RecommendedEncounterType = TEXT("trade_route");
+	}
+
+	OutSnapshot.bValid = !OutSnapshot.AuthorityFactionId.IsNone() && OutSnapshot.RouteSample.RouteSegmentId == RouteSegmentId;
+	if (OutSnapshot.DebugReason.IsEmpty())
+	{
+		OutSnapshot.DebugReason = FString::Printf(
+			TEXT("Route=%s Jurisdiction=%s Patrol=%.2f Pirate=%.2f Recommended=%s"),
+			*RouteSegmentId.ToString(),
+			*OutSnapshot.JurisdictionId.ToString(),
+			OutSnapshot.PatrolScore,
+			OutSnapshot.PirateAmbushScore,
+			*OutSnapshot.RecommendedEncounterType.ToString());
+	}
+	return OutSnapshot.bValid;
 }
 
 bool USystemicGameplayQueryService::ReservePatrolForRoute(

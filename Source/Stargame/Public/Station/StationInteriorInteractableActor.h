@@ -5,6 +5,7 @@
 #include "StationInteriorInteractableActor.generated.h"
 
 class UCapsuleComponent;
+class UStaticMeshComponent;
 
 UCLASS()
 class STARGAME_API AStationInteriorInteractableActor : public AActor
@@ -48,6 +49,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<UCapsuleComponent> InteractionArea;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> ServiceMesh;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Station|Interior", meta = (AllowPrivateAccess = "true"))
 	FName DefaultInteractionType;

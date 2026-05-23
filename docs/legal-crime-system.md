@@ -4,7 +4,11 @@ The legal/crime system should be a careful simulation layer, not a simple global
 
 It connects factions, policing, piracy, smuggling, mining rights, station access, comms, missions, reputation, and economy. It should be designed early enough that other systems can leave hooks for it, but not implemented before the core flight/system architecture is stable.
 
-This is a future-system architecture document. The offense, evidence, and response sections describe required data shapes and integration seams, not behavior that the current foundation should build.
+This is mostly a future-system architecture document. The current foundation may
+carry lightweight legal/jurisdiction records where they support encounters,
+missions, markets, or validation, but the offense, evidence, and response
+sections describe the fuller player-facing crime loop rather than immediate
+scope.
 
 ## Core Principle
 
@@ -304,7 +308,7 @@ Stations need legal hooks:
 - service access
 - market restrictions
 - police/security response
-- mission board access
+- mission contact/board access
 - contraband scans
 
 Station comms should be able to warn, deny, fine, or escalate.
@@ -449,11 +453,14 @@ Legal systems become frustrating if players and developers cannot understand why
 
 ## Foundation Relevance
 
-The current foundation does not implement crime.
+The current foundation has early legal/jurisdiction records and encounter hooks,
+but it does not implement a full player-facing crime loop. The legal system
+should keep growing only where it supports concrete piracy, policing, smuggling,
+station access, mission, or economy gameplay.
 
-The foundation should only avoid blocking it by preserving:
+The foundation should preserve:
 
-- stable faction IDs later
+- stable faction IDs
 - station IDs
 - zone IDs
 - jurisdiction IDs
@@ -466,4 +473,6 @@ The foundation should only avoid blocking it by preserving:
 - navigation target IDs
 - save versioning path
 
-The legal system becomes relevant once stations, NPC patrols, mining, trading, combat, and faction status start coming online.
+The full legal system becomes relevant as stations, NPC patrols, mining,
+trading, combat, and faction status move from foundation records into
+player-facing consequences.

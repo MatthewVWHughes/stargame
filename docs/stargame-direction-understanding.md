@@ -23,7 +23,7 @@ My intent:
   believability, not for hardcore orbital gameplay.
 - Avoid scope creep disguised as "be whoever you want." The game should support
   trader, fighter, miner, thief, and faction paths over time, but the current
-  work should prove one small playable sector first.
+  work should prove one primary playable frontier sector first.
 - Build toward a game where the player has a ship, makes choices, takes jobs,
   travels, gets interrupted by events, docks, talks to people, earns money, and
   upgrades.
@@ -39,7 +39,7 @@ What I will do:
 
 The next meaningful slice is:
 
-`Start game -> spawn near a station in one star system -> fly around a sector with planets/star/stations -> dock -> enter a simple station interior -> interact with NPCs/shop/mission giver -> accept a mission or trade -> launch -> travel/fight/observe NPC traffic -> return or complete objective -> save/reload/persist.`
+`Start game -> spawn near a station in the primary frontier system -> fly around a sector with planets/star/stations -> dock -> enter a simple station interior -> interact with NPCs/shop/mission giver -> accept a mission or trade -> launch -> travel/fight/observe NPC traffic -> return or complete objective -> save/reload/persist.`
 
 The minimum acceptable version is functional, not pretty. Cubes for NPC ships,
 plain interiors, rough planets, and simple UI are acceptable if the loop works
@@ -47,7 +47,10 @@ from normal play.
 
 My intent:
 
-- Build one sector as the proving ground.
+- Build one primary frontier sector as the proving ground.
+- Keep the minimal gate destination/arrival fixture in scope when it proves
+  travel, save/load, and arrival behavior; do not treat it as a second broad
+  content target.
 - Make the loop playable from New Game without relying on console commands.
 - Prioritize actual interactions: target, comm, dock, walk up, talk, accept,
   buy/sell, launch, fight, save/load.
@@ -197,7 +200,7 @@ What I will do:
 ## 8. Economy And Jobs
 
 Early job types should all become functional eventually, except ship boarding.
-Station boarding/interior combat is acceptable; ship boarding is scope creep.
+Station interior combat is acceptable; boarding other ships is scope creep.
 
 Important early jobs:
 
@@ -211,10 +214,13 @@ Important early jobs:
 - salvage
 - smuggling
 - exploration/scanning
-- station boarding/combat
+- station interior combat
 
-The first goal is functionality across the loop, not making one job highly
-polished while everything else is absent.
+This section is high-level direction. The supporting roadmap and system docs
+should decide the exact implementation order, depth, and acceptance tests.
+
+The first goal is functionality across the broader loop, not making one job
+highly polished while everything else is absent.
 
 Markets should eventually be simulated and influenced by NPC activity. For
 example, a destroyed water convoy should affect the receiving station. The
@@ -309,8 +315,11 @@ What I will do:
 ## 12. Blueprint Versus C++
 
 Blueprint/editor control should be used as much as reasonably possible because
-C++ changes require editor restarts and slow iteration. C++ should own deep
-deterministic systems where Blueprint is a poor fit.
+C++ changes require editor restarts and slow iteration. This preference applies
+to presentation, authored layout, tuning, interaction surfaces, and visual
+variation. C++ remains the authority for deterministic state, validation,
+persistence, transactions, orbit/frame queries, system loading, docking, travel,
+economy mutations, and anything save-critical.
 
 The balance should be:
 
@@ -378,7 +387,7 @@ The proposed priority list is acceptable:
 My intent:
 
 - Treat this as the working priority order unless you override it.
-- Keep everything pointed at the one-sector playable loop.
+- Keep everything pointed at the primary frontier-sector playable loop.
 
 What I will do:
 
@@ -406,7 +415,7 @@ My intent:
 
 What I will do:
 
-- Stay focused on one sector.
+- Stay focused on one primary frontier sector.
 - Use a small commodity/item/job set.
 - Avoid expanding breadth before the first loop works.
 
@@ -420,11 +429,18 @@ Required standards should include:
 
 - usable from menu or normal play
 - no console command requirement
-- automated test where practical
+- automated coverage for gameplay/systemic features that mutate state or define
+  player-reachable behavior
+- save/load coverage for durable player-visible changes
 - visual/editor verification for player-facing features
 - screenshot or short recording where visuals/presentation matter
 - Blueprint/editor tweakability where reasonable
-- save/load coverage for durable player-visible changes
+
+For gameplay/systemic work, normal-play reachability, automation, and save/load
+coverage are mandatory when state changes. For visual or editor-facing work,
+editor/player verification and screenshot or recording evidence are mandatory
+where the result is subjective or presentational. Tiny doc/config changes only
+need the relevant review or validation.
 
 My intent:
 
@@ -468,8 +484,11 @@ What I will do:
 Until this document is corrected or replaced, my default direction is:
 
 Build one functional Freelancer-inspired frontier sector. Keep systems simple,
-playable, and reachable through normal play. Prefer Blueprint/editor control for
-presentation and iteration, C++ for deterministic foundations. Do not expand
-scope into more sectors, planet landing, ship boarding, deep lore, or full
-economy complexity. If the task is subjective, visual, or unclear, stop, ask,
-record the decision, then continue.
+playable, and reachable through normal play. Keep the minimal gate
+destination/arrival fixture in scope as validation support, but do not expand
+into broad additional sector content. Prefer Blueprint/editor control for
+presentation and iteration, while keeping C++ authoritative for deterministic,
+persistent, transactional, and save-critical foundations. Do not expand scope
+into planet landing, ship boarding, deep lore, or full economy complexity. If
+the task is subjective, visual, or unclear, stop, ask, record the decision, then
+continue.

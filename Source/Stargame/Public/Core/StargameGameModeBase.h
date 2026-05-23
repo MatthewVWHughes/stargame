@@ -17,4 +17,7 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stargame|UI")
 	TSubclassOf<class UStargameBootMenuWidget> BootMenuWidgetClass;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Stargame|Startup")
+	bool bAutoStartWhenBootMenuMissing = true;
 };

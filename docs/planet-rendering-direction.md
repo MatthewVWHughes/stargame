@@ -116,16 +116,21 @@ Blueprints must not:
 
 If a Blueprint starts needing loops over all systems, manual string IDs, transition timing, save decisions, or coordinate conversion, that logic belongs back in C++.
 
-## Godot Fidelity Baseline
+## Starlight Fidelity Baseline
 
-The first implementation target is behavior parity for the existing space structure, not a full redesign.
+The first implementation target is behavior parity for the existing space
+structure where it supports the primary frontier-sector loop, not a full
+nearby-star campaign or Sol rebuild.
 
-Preserve these behaviors as data or deterministic Unreal systems:
+Preserve these behaviors as future-compatible data or deterministic Unreal
+systems:
 
-- nearby-star catalog around the home region, including the prepared roughly 50-star list
+- nearby-star catalog around the home region, including the prepared roughly
+  50-star list, as future map/reference material
 - original sector coordinate mapping: galactic X to game X, galactic Z to game Y, galactic Y to game Z
 - sector map display scale equivalent to the Godot `Ly = 2` convention, treated as display scale only
-- Sol and Alpha Centauri as legacy authored content to preserve after the non-Sol fixture path works
+- Sol and Alpha Centauri as legacy authored/reference content to preserve later,
+  not as current fixture or presentation targets
 - generated route graph based on a connected minimum-spanning backbone plus short-range extra links
 - special route content such as the Wolf 359 to Ross 154 natural wormhole
 - sector route selection by fewest jumps for player-facing display, not weighted physical distance unless redesigned deliberately
@@ -145,7 +150,7 @@ Eliminate these Godot shortcuts during implementation:
 - node paths as gameplay identity
 - scene paths as the main data contract
 
-The current Godot content uses JSON for systems, simple sphere visuals, scene visuals for special bodies, rings, asteroid belts, and jump gates. Unreal should preserve that content first, then upgrade rendering through native Unreal assets and layered representation.
+The current Godot content uses JSON for systems, simple sphere visuals, scene visuals for special bodies, rings, asteroid belts, and jump gates. Unreal should preserve useful content as reference/import material, then upgrade rendering through native Unreal assets and layered representation when that work is explicitly selected.
 
 ## Keep Simple Flight Physics
 
@@ -379,14 +384,20 @@ These should be Unreal-native movement modes or ship state components, not a dir
 
 Planets and atmospheres need explicit representation states.
 
+Planet and atmosphere representation is visual/travel presentation only. It
+must not imply planet landing, surface gameplay, walkable planet terrain, or
+low-altitude terrain flight. The allowed target is readable orbital approach,
+upper-atmosphere skim, gas-giant/cloud-layer presence, and clear lockout/damage
+rules where needed.
+
 | State | Responsibility |
 | --- | --- |
 | Map/scaled proxy | Sector/system readability, icon/silhouette, route context |
 | Far orbital | Distant body, broad limb, rings, major cloud/terrain color |
 | Near orbital | Higher-detail body shell, local star lighting, horizon continuity |
-| Atmosphere entry | haze, color shift, cloud deck approach, speed/depth cues |
-| Local atmosphere | player-local fog/clouds/particles/turbulence around the ship |
-| Deep layer | under-cloud readability, storm/depth pressure, damage or lockout |
+| Atmosphere entry | upper-atmosphere haze, color shift, cloud deck approach, speed/depth cues |
+| Local atmosphere | player-local fog/clouds/particles/turbulence around the ship, without surface approach |
+| Deep layer | gas-giant/hostile-atmosphere readability, storm/depth pressure, damage or lockout |
 
 Each state needs enter distance, exit distance, hysteresis, blend duration, owning components, and debug visualization. No transition should depend on a single threshold with no fade plan.
 
@@ -435,7 +446,8 @@ Different body types need different profiles:
 
 - airless moons: surface/limb readability, no atmosphere stack
 - rocky planets: terrain, horizon, optional thin atmosphere
-- terrestrial atmospheres: surface, cloud/weather layers, entry haze, ground horizon
+- terrestrial atmospheres: cloud/weather layers, entry haze, and distant horizon
+  presentation only; no landing or ground gameplay
 - gas giants: cloud-top, deep bands, volumetric local layers, crush/deep lockout
 - ringed bodies: ring plane, shadowing, near-ring readability
 - stars: light source, corona/proxy representation, exclusion/damage radius
@@ -503,6 +515,13 @@ Acceptance criteria should include horizon continuity, no one-frame representati
 
 ## Next Practical Step
 
-Do not rebuild planet rendering as part of the current foundation. The active fixture uses crude body/station/gate placeholders to prove startup, fixture data, registries, targeting, and save/reload.
+Do not rebuild planet rendering as part of the current foundation unless the
+selected task is explicitly a planet/scale rendering pass. The active fixture
+can keep crude body/station/gate placeholders while player-facing loop work
+continues.
 
-Planet rendering resumes after the architecture can build a system from data. Then rebuild planet rendering as a deliberate scaled-space/near-space system, proving each representation separately before blending them.
+When planet rendering resumes, rebuild it as a deliberate
+scaled-space/near-space system. Prove each representation separately before
+blending them, and keep the runtime/data ownership aligned with
+`runtime-architecture.md`, `system-data-contracts.md`, and
+`cpp-blueprint-ownership.md`.

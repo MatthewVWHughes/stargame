@@ -34,11 +34,13 @@ ASpaceFlightPawn::ASpaceFlightPawn()
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(CollisionRoot);
 	CameraBoom->TargetArmLength = CameraArmLength;
-	CameraBoom->TargetOffset = CameraTargetOffset;
+	CameraBoom->TargetOffset = FVector::ZeroVector;
 	CameraBoom->bEnableCameraLag = false;
-	CameraBoom->bEnableCameraRotationLag = true;
+	CameraBoom->bEnableCameraRotationLag = false;
 	CameraBoom->CameraRotationLagSpeed = CameraRotationLagSpeed;
+	CameraBoom->SetRelativeLocation(CameraTargetOffset);
 	CameraBoom->SetRelativeRotation(FRotator(-6.0f, 0.0f, 0.0f));
+	CameraBoom->SetUsingAbsoluteRotation(false);
 
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
 	Camera->SetupAttachment(CameraBoom);
@@ -49,6 +51,11 @@ ASpaceFlightPawn::ASpaceFlightPawn()
 EShipFlightMode ASpaceFlightPawn::GetFlightMode() const
 {
 	return FlightModeComponent ? FlightModeComponent->GetFlightMode() : EShipFlightMode::Normal;
+}
+
+float ASpaceFlightPawn::GetCameraRollDegrees() const
+{
+	return CameraBoom ? CameraBoom->GetComponentRotation().Roll : 0.0f;
 }
 
 FSupercruiseTelemetry ASpaceFlightPawn::GetSupercruiseTelemetry() const
@@ -67,6 +74,21 @@ FString ASpaceFlightPawn::GetDockingDebugSummary() const
 		*DockingOperation.LastFailureReason);
 }
 
+FString ASpaceFlightPawn::GetFlightDebugSummary() const
+{
+	const FSupercruiseTelemetry Supercruise = GetSupercruiseTelemetry();
+	return FString::Printf(
+		TEXT("FlightMode=%s\nSupercruiseState=%s\nSpeedCmPerSec=%.0f\nThrottle=%.0f%%\nLogicalPositionCm=%s\nActorPositionCm=%s\nVelocityCmPerSec=%s\nDockingState=%s"),
+		*UEnum::GetValueAsString(GetFlightMode()),
+		*UEnum::GetValueAsString(Supercruise.SupercruiseState),
+		LinearVelocity.Size(),
+		ThrottlePercent * 100.0f,
+		*LogicalSystemPositionCm.ToCompactString(),
+		*GetActorLocation().ToCompactString(),
+		*LinearVelocity.ToCompactString(),
+		*UEnum::GetValueAsString(DockingOperation.DockingState));
+}
+
 void ASpaceFlightPawn::BeginPlay()
 {
 	Super::BeginPlay();
@@ -74,6 +96,9 @@ void ASpaceFlightPawn::BeginPlay()
 	CurrentCameraArmLength = CameraArmLength;
 	CurrentCameraTargetOffset = CameraTargetOffset;
 	LogicalSystemPositionCm = GetActorLocation();
+	BaseThrustAcceleration = ThrustAcceleration;
+	BaseStrafeAcceleration = StrafeAcceleration;
+	BaseNormalMaxSpeed = NormalMaxSpeed;
 
 	if (const UWorld* World = GetWorld())
 	{
@@ -82,7 +107,8 @@ void ASpaceFlightPawn::BeginPlay()
 			const FStargameScaleContract Scale = StarSystem->GetActiveScaleContract();
 			if (Scale.NormalFlightMaxSpeedCmPerSec > 0.0)
 			{
-				NormalMaxSpeed = static_cast<float>(Scale.NormalFlightMaxSpeedCmPerSec);
+				BaseNormalMaxSpeed = static_cast<float>(Scale.NormalFlightMaxSpeedCmPerSec);
+				NormalMaxSpeed = BaseNormalMaxSpeed;
 				if (FlightModeComponent)
 				{
 					FlightModeComponent->SetNormalFlightMaxSpeedCmPerSec(Scale.NormalFlightMaxSpeedCmPerSec);
@@ -90,6 +116,22 @@ void ASpaceFlightPawn::BeginPlay()
 				}
 			}
 		}
+	}
+}
+
+void ASpaceFlightPawn::ApplyShipEquipmentFlightStats(float NormalMaxSpeedMultiplier, float ThrustAccelerationMultiplier, float StrafeAccelerationMultiplier)
+{
+	const float SafeSpeedMultiplier = FMath::Max(NormalMaxSpeedMultiplier, 0.1f);
+	const float SafeThrustMultiplier = FMath::Max(ThrustAccelerationMultiplier, 0.1f);
+	const float SafeStrafeMultiplier = FMath::Max(StrafeAccelerationMultiplier, 0.1f);
+
+	NormalMaxSpeed = FMath::Max(1.0f, BaseNormalMaxSpeed * SafeSpeedMultiplier);
+	ThrustAcceleration = FMath::Max(1.0f, BaseThrustAcceleration * SafeThrustMultiplier);
+	StrafeAcceleration = FMath::Max(1.0f, BaseStrafeAcceleration * SafeStrafeMultiplier);
+
+	if (FlightModeComponent)
+	{
+		FlightModeComponent->SetNormalFlightMaxSpeedCmPerSec(NormalMaxSpeed);
 	}
 }
 
@@ -110,12 +152,30 @@ void ASpaceFlightPawn::Tick(float DeltaSeconds)
 	{
 		UpdateSupercruise(DeltaSeconds);
 	}
+	else if (IsSupercruiseUpdateRequired())
+	{
+		UpdateSupercruise(DeltaSeconds);
+	}
 	else
 	{
 		UpdateNormalFlight(DeltaSeconds);
 	}
 	UpdateShipVisuals(DeltaSeconds);
 	UpdateCameraResponse(DeltaSeconds, PreviousVelocity);
+}
+
+bool ASpaceFlightPawn::IsDockingControlLocked() const
+{
+	return DockingOperation.DockingState == EDockingState::FinalAssist ||
+		DockingOperation.DockingState == EDockingState::Docked ||
+		DockingOperation.DockingState == EDockingState::Undocking;
+}
+
+void ASpaceFlightPawn::RebuildArcadeVelocityStateFromLinearVelocity()
+{
+	ForwardSpeedCmPerSec = FMath::Max(0.0f, FVector::DotProduct(LinearVelocity, GetActorForwardVector()));
+	LocalSlipVelocityCmPerSec = GetActorTransform().InverseTransformVectorNoScale(LinearVelocity);
+	LocalSlipVelocityCmPerSec.X = 0.0f;
 }
 
 void ASpaceFlightPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -126,7 +186,7 @@ void ASpaceFlightPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	PlayerInputComponent->BindAxis(TEXT("StrafeRight"), this, &ASpaceFlightPawn::StrafeRight);
 	PlayerInputComponent->BindAxis(TEXT("StrafeUp"), this, &ASpaceFlightPawn::StrafeUp);
 	PlayerInputComponent->BindAxis(TEXT("Roll"), this, &ASpaceFlightPawn::Roll);
-	PlayerInputComponent->BindAction(TEXT("ToggleSteering"), IE_Pressed, this, &ASpaceFlightPawn::ToggleSteering);
+	PlayerInputComponent->BindAction(TEXT("ToggleSteering"), IE_Pressed, this, &ASpaceFlightPawn::ActivateMouseFlight);
 	PlayerInputComponent->BindAction(TEXT("EngineKill"), IE_Pressed, this, &ASpaceFlightPawn::ToggleEngineKill);
 	PlayerInputComponent->BindAction(TEXT("PrimaryMouse"), IE_Pressed, this, &ASpaceFlightPawn::StartPrimaryMouse);
 	PlayerInputComponent->BindAction(TEXT("PrimaryMouse"), IE_Released, this, &ASpaceFlightPawn::StopPrimaryMouse);
@@ -157,9 +217,22 @@ void ASpaceFlightPawn::Roll(float Value)
 	RollInput = FMath::Clamp(Value, -1.0f, 1.0f);
 }
 
-void ASpaceFlightPawn::ToggleSteering()
+void ASpaceFlightPawn::ActivateMouseFlight()
 {
-	bSteeringEnabled = !bSteeringEnabled;
+	bSteeringEnabled = true;
+
+	if (APlayerController* PlayerController = Cast<APlayerController>(GetController()))
+	{
+		FInputModeGameAndUI InputMode;
+		InputMode.SetHideCursorDuringCapture(false);
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		PlayerController->SetInputMode(InputMode);
+		PlayerController->bShowMouseCursor = true;
+		PlayerController->SetIgnoreLookInput(false);
+		PlayerController->SetIgnoreMoveInput(false);
+	}
+
+	UE_LOG(LogStargameFlightInput, Display, TEXT("Mouse flight enabled."));
 }
 
 void ASpaceFlightPawn::ToggleEngineKill()
@@ -184,6 +257,7 @@ void ASpaceFlightPawn::StopPrimaryMouse()
 void ASpaceFlightPawn::StartSecondaryMouse()
 {
 	bSecondaryMouseHeld = true;
+	FirePrimaryWeapon();
 }
 
 void ASpaceFlightPawn::StopSecondaryMouse()
@@ -209,6 +283,13 @@ void ASpaceFlightPawn::RequestSupercruise()
 		return;
 	}
 
+	if (FlightModeComponent->GetSupercruiseState() == ESupercruiseState::Spooling ||
+		FlightModeComponent->GetSupercruiseState() == ESupercruiseState::Cruising)
+	{
+		FlightModeComponent->RequestManualDropout();
+		return;
+	}
+
 	UWorld* World = GetWorld();
 	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
 	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
@@ -224,7 +305,11 @@ void ASpaceFlightPawn::RequestSupercruise()
 
 	FSupercruiseTargetTelemetry Target;
 	StarSystem->BuildSupercruiseTargetTelemetry(Session->GetSelectedTargetId(), LogicalSystemPositionCm, LinearVelocity, SimulationTimeSeconds, Target);
-	FlightModeComponent->RequestEnterSupercruise(Gravity, Target);
+	const ESupercruiseRequestResult Result = FlightModeComponent->RequestEnterSupercruise(Gravity, Target);
+	if (Result != ESupercruiseRequestResult::Success)
+	{
+		UE_LOG(LogStargameFlightInput, Display, TEXT("Supercruise request rejected: %s."), *UEnum::GetValueAsString(Result));
+	}
 }
 
 void ASpaceFlightPawn::InteractWithSelectedTarget()
@@ -270,6 +355,55 @@ void ASpaceFlightPawn::InteractWithSelectedTarget()
 			*SelectedTarget.TargetId.ToString(),
 			*SelectedTarget.TargetType.ToString());
 	}
+}
+
+bool ASpaceFlightPawn::FirePrimaryWeapon()
+{
+	if (DockingOperation.DockingState == EDockingState::FinalAssist ||
+		DockingOperation.DockingState == EDockingState::Docked ||
+		DockingOperation.DockingState == EDockingState::Undocking ||
+		GetFlightMode() == EShipFlightMode::Supercruise)
+	{
+		return false;
+	}
+
+	UWorld* World = GetWorld();
+	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	if (!Session)
+	{
+		return false;
+	}
+
+	Session->TryUpdateRuntimeEncounterBehavior();
+	const FRuntimeEncounterViewModel Encounter = Session->GetRuntimeEncounterView();
+	if (Encounter.EncounterId.IsNone())
+	{
+		return false;
+	}
+
+	FShipWeaponFireResult Result;
+	const bool bAccepted = Session->FireEquippedShipWeaponAtRuntimeEncounter(Encounter.EncounterId, Result);
+	UE_LOG(LogStargameFlightInput, Display, TEXT("Ship primary weapon %s Encounter=%s Weapon=%s Target=%s Reason=%s"),
+		bAccepted ? TEXT("accepted") : TEXT("rejected"),
+		*Result.EncounterId.ToString(),
+		*Result.WeaponItemId.ToString(),
+		*Result.TargetCombatantId.ToString(),
+		*Result.FailureReason);
+	return bAccepted;
+}
+
+bool ASpaceFlightPawn::IsSupercruiseUpdateRequired() const
+{
+	if (!FlightModeComponent)
+	{
+		return false;
+	}
+
+	const ESupercruiseState SupercruiseState = FlightModeComponent->GetSupercruiseState();
+	return SupercruiseState == ESupercruiseState::Spooling ||
+		SupercruiseState == ESupercruiseState::Cruising ||
+		SupercruiseState == ESupercruiseState::DropoutCooldown;
 }
 
 void ASpaceFlightPawn::RequestDockingWithSelectedStation(UStargameSessionSubsystem* Session, const UStarSystemSubsystem* StarSystem)
@@ -482,6 +616,7 @@ bool ASpaceFlightPawn::RestoreDockedAt(FName StationId, FName PortId, FName Ship
 	LogicalSystemPositionCm = DockedFrame.PositionCm;
 	LinearVelocity = DockedFrame.LinearVelocityCmPerSec;
 	LastAcceleration = FVector::ZeroVector;
+	RebuildArcadeVelocityStateFromLinearVelocity();
 	DockingOperation.ShipInstanceId = ShipInstanceId;
 	DockingOperation.StationId = StationId;
 	DockingOperation.PortId = PortId;
@@ -531,6 +666,7 @@ bool ASpaceFlightPawn::Undock()
 	LogicalSystemPositionCm = UndockFrame.PositionCm;
 	LinearVelocity = UndockFrame.LinearVelocityCmPerSec;
 	LastAcceleration = FVector::ZeroVector;
+	RebuildArcadeVelocityStateFromLinearVelocity();
 	StarSystem->ReleaseDockingPort(DockingOperation.StationId, DockingOperation.PortId, DockingOperation.ShipInstanceId);
 	DockingOperation.DockingState = EDockingState::None;
 	DockingOperation.StationId = NAME_None;
@@ -547,6 +683,7 @@ bool ASpaceFlightPawn::Undock()
 void ASpaceFlightPawn::SetFlightTestVelocity(FVector NewVelocityCmPerSec)
 {
 	LinearVelocity = NewVelocityCmPerSec;
+	RebuildArcadeVelocityStateFromLinearVelocity();
 }
 
 void ASpaceFlightPawn::SetFlightTestTransformAndVelocity(const FTransform& NewTransform, FVector NewVelocityCmPerSec)
@@ -555,6 +692,26 @@ void ASpaceFlightPawn::SetFlightTestTransformAndVelocity(const FTransform& NewTr
 	LogicalSystemPositionCm = NewTransform.GetLocation();
 	LinearVelocity = NewVelocityCmPerSec;
 	LastAcceleration = FVector::ZeroVector;
+	RebuildArcadeVelocityStateFromLinearVelocity();
+}
+
+void ASpaceFlightPawn::SetFlightTestInputs(float NewThrottleInput, float NewStrafeRightInput, float NewStrafeUpInput, float NewRollInput, FVector2D NewMouseSteeringInput)
+{
+	ThrottleInput = FMath::Clamp(NewThrottleInput, -1.0f, 1.0f);
+	StrafeRightInput = FMath::Clamp(NewStrafeRightInput, -1.0f, 1.0f);
+	StrafeUpInput = FMath::Clamp(NewStrafeUpInput, -1.0f, 1.0f);
+	RollInput = FMath::Clamp(NewRollInput, -1.0f, 1.0f);
+	MouseSteeringInput = ApplySteeringDeadZone(NewMouseSteeringInput);
+}
+
+void ASpaceFlightPawn::TickNormalFlightForTest(float DeltaSeconds)
+{
+	const FVector PreviousVelocity = LinearVelocity;
+	UpdateThrottle(DeltaSeconds);
+	UpdateSteering(DeltaSeconds);
+	UpdateNormalFlight(DeltaSeconds);
+	UpdateShipVisuals(DeltaSeconds);
+	UpdateCameraResponse(DeltaSeconds, PreviousVelocity);
 }
 
 void ASpaceFlightPawn::TickDockingForTest(float DeltaSeconds)
@@ -564,9 +721,7 @@ void ASpaceFlightPawn::TickDockingForTest(float DeltaSeconds)
 
 void ASpaceFlightPawn::UpdateThrottle(float DeltaSeconds)
 {
-	if (DockingOperation.DockingState == EDockingState::FinalAssist ||
-		DockingOperation.DockingState == EDockingState::Docked ||
-		DockingOperation.DockingState == EDockingState::Undocking)
+	if (IsDockingControlLocked())
 	{
 		ThrottleInput = 0.0f;
 		ThrottlePercent = 0.0f;
@@ -575,6 +730,7 @@ void ASpaceFlightPawn::UpdateThrottle(float DeltaSeconds)
 
 	if (bEngineKill)
 	{
+		ThrottlePercent = FMath::Max(0.0f, ThrottlePercent - ThrottleFallRate * DeltaSeconds);
 		return;
 	}
 
@@ -588,59 +744,111 @@ void ASpaceFlightPawn::UpdateThrottle(float DeltaSeconds)
 	}
 }
 
+FVector2D ASpaceFlightPawn::ApplySteeringDeadZone(FVector2D RawSteering) const
+{
+	if (RawSteering.SizeSquared() > 1.0f)
+	{
+		RawSteering.Normalize();
+	}
+
+	if (FMath::Abs(RawSteering.X) < CursorDeadZone)
+	{
+		RawSteering.X = 0.0f;
+	}
+	if (FMath::Abs(RawSteering.Y) < CursorDeadZone)
+	{
+		RawSteering.Y = 0.0f;
+	}
+
+	const float AbsX = FMath::Abs(RawSteering.X);
+	const float AbsY = FMath::Abs(RawSteering.Y);
+	if (AbsY > CursorDeadZone && (AbsX < CursorAxisIsolationDeadZone || AbsX < AbsY * CursorAxisIsolationRatio))
+	{
+		RawSteering.X = 0.0f;
+	}
+	if (AbsX > CursorDeadZone && (AbsY < CursorAxisIsolationDeadZone || AbsY < AbsX * CursorAxisIsolationRatio))
+	{
+		RawSteering.Y = 0.0f;
+	}
+	return RawSteering;
+}
+
+FVector2D ASpaceFlightPawn::ReadMouseSteeringInput() const
+{
+	APlayerController* PlayerController = Cast<APlayerController>(GetController());
+	if (!PlayerController)
+	{
+		return MouseSteeringInput;
+	}
+
+	int32 ViewportX = 0;
+	int32 ViewportY = 0;
+	PlayerController->GetViewportSize(ViewportX, ViewportY);
+
+	float MouseX = 0.0f;
+	float MouseY = 0.0f;
+	if (ViewportX <= 0 || ViewportY <= 0 || !PlayerController->GetMousePosition(MouseX, MouseY))
+	{
+		return MouseSteeringInput;
+	}
+
+	const float HalfReference = static_cast<float>(FMath::Min(ViewportX, ViewportY)) * 0.5f;
+	if (HalfReference <= SMALL_NUMBER)
+	{
+		return MouseSteeringInput;
+	}
+
+	return ApplySteeringDeadZone(FVector2D(
+		(MouseX - static_cast<float>(ViewportX) * 0.5f) / HalfReference,
+		(MouseY - static_cast<float>(ViewportY) * 0.5f) / HalfReference));
+}
+
 void ASpaceFlightPawn::UpdateSteering(float DeltaSeconds)
 {
-	if (DockingOperation.DockingState == EDockingState::FinalAssist ||
-		DockingOperation.DockingState == EDockingState::Docked ||
-		DockingOperation.DockingState == EDockingState::Undocking)
+	if (IsDockingControlLocked())
 	{
 		AngularVelocityDegrees = FRotator::ZeroRotator;
+		MouseSteeringInput = FVector2D::ZeroVector;
 		return;
 	}
 
 	if (bSteeringEnabled)
 	{
-		if (const APlayerController* PlayerController = Cast<APlayerController>(GetController()))
+		if (APlayerController* PlayerController = Cast<APlayerController>(GetController()))
 		{
-			int32 ViewportX = 0;
-			int32 ViewportY = 0;
-			PlayerController->GetViewportSize(ViewportX, ViewportY);
-
-			float MouseX = 0.0f;
-			float MouseY = 0.0f;
-			if (ViewportX > 0 && ViewportY > 0 && PlayerController->GetMousePosition(MouseX, MouseY))
+			if (!PlayerController->bShowMouseCursor)
 			{
-				FVector2D Steer(
-					(MouseX - static_cast<float>(ViewportX) * 0.5f) / (static_cast<float>(FMath::Min(ViewportX, ViewportY)) * 0.5f),
-					(MouseY - static_cast<float>(ViewportY) * 0.5f) / (static_cast<float>(FMath::Min(ViewportX, ViewportY)) * 0.5f));
-
-				if (Steer.SizeSquared() > 1.0f)
-				{
-					Steer.Normalize();
-				}
-
-				if (FMath::Abs(Steer.X) < CursorDeadZone)
-				{
-					Steer.X = 0.0f;
-				}
-				if (FMath::Abs(Steer.Y) < CursorDeadZone)
-				{
-					Steer.Y = 0.0f;
-				}
-
-				AngularVelocityDegrees.Yaw += Steer.X * SteeringForceDegrees * DeltaSeconds;
-				AngularVelocityDegrees.Pitch -= Steer.Y * SteeringForceDegrees * DeltaSeconds;
+				FInputModeGameAndUI InputMode;
+				InputMode.SetHideCursorDuringCapture(false);
+				InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+				PlayerController->SetInputMode(InputMode);
+				PlayerController->bShowMouseCursor = true;
 			}
 		}
+		MouseSteeringInput = ReadMouseSteeringInput();
 	}
 
-	AngularVelocityDegrees.Roll += RollInput * RollForceDegrees * DeltaSeconds;
-	AngularVelocityDegrees = FMath::RInterpTo(AngularVelocityDegrees, FRotator::ZeroRotator, DeltaSeconds, AngularDrag);
+	const auto ShapeAxis = [this](float Axis)
+	{
+		const float Sign = FMath::Sign(Axis);
+		return Sign * FMath::Pow(FMath::Abs(Axis), FMath::Max(SteeringResponseExponent, 0.01f));
+	};
 
-	AddActorLocalRotation(FRotator(
-		AngularVelocityDegrees.Pitch * DeltaSeconds,
-		AngularVelocityDegrees.Yaw * DeltaSeconds,
-		AngularVelocityDegrees.Roll * DeltaSeconds));
+	const FRotator TargetAngularVelocity(
+		ShapeAxis(MouseSteeringInput.Y) * SteeringForceDegrees,
+		ShapeAxis(MouseSteeringInput.X) * SteeringForceDegrees,
+		RollInput * RollForceDegrees);
+	AngularVelocityDegrees = FMath::RInterpTo(AngularVelocityDegrees, TargetAngularVelocity, DeltaSeconds, SteeringRateInterpSpeed);
+
+	AngularVelocityDegrees.Pitch = FMath::Clamp(AngularVelocityDegrees.Pitch, -MaxAngularSpeedDegrees, MaxAngularSpeedDegrees);
+	AngularVelocityDegrees.Yaw = FMath::Clamp(AngularVelocityDegrees.Yaw, -MaxAngularSpeedDegrees, MaxAngularSpeedDegrees);
+	AngularVelocityDegrees.Roll = FMath::Clamp(AngularVelocityDegrees.Roll, -MaxAngularSpeedDegrees, MaxAngularSpeedDegrees);
+
+	const FQuat CurrentRotation = GetActorQuat();
+	const FQuat PitchDelta(FVector::RightVector, FMath::DegreesToRadians(AngularVelocityDegrees.Pitch * DeltaSeconds));
+	const FQuat YawDelta(FVector::UpVector, FMath::DegreesToRadians(AngularVelocityDegrees.Yaw * DeltaSeconds));
+	const FQuat RollDelta(FVector::ForwardVector, FMath::DegreesToRadians(AngularVelocityDegrees.Roll * DeltaSeconds));
+	SetActorRotation((CurrentRotation * PitchDelta * YawDelta * RollDelta).GetNormalized());
 }
 
 void ASpaceFlightPawn::UpdateNormalFlight(float DeltaSeconds)
@@ -662,11 +870,28 @@ void ASpaceFlightPawn::UpdateNormalFlight(float DeltaSeconds)
 	const float Speed = LinearVelocity.Size();
 	if (Speed > 1.0f)
 	{
-		const float DragCoefficient = ThrustAcceleration / FMath::Square(FMath::Max(NormalMaxSpeed, 1.0f));
+		const float DragScale = bEngineKill ? EngineKillDragScale : NormalFlightDragScale;
+		const float DragCoefficient = (ThrustAcceleration / FMath::Square(FMath::Max(NormalMaxSpeed, 1.0f))) * DragScale;
 		TotalAcceleration += -LinearVelocity.GetSafeNormal() * DragCoefficient * Speed * Speed;
 	}
 
 	LinearVelocity += TotalAcceleration * DeltaSeconds;
+
+	if (!bEngineKill)
+	{
+		FVector LocalVelocity = GetActorTransform().InverseTransformVectorNoScale(LinearVelocity);
+		const FVector TargetLocalVelocity(
+			FMath::Max(0.0f, LocalVelocity.X),
+			StrafeRightInput * MaxStrafeSpeed,
+			StrafeUpInput * MaxStrafeSpeed);
+		LocalVelocity.Y = FMath::FInterpConstantTo(LocalVelocity.Y, TargetLocalVelocity.Y, DeltaSeconds, FlightAssistLateralDamping);
+		LocalVelocity.Z = FMath::FInterpConstantTo(LocalVelocity.Z, TargetLocalVelocity.Z, DeltaSeconds, FlightAssistLateralDamping);
+		if (ThrottlePercent <= 0.001f)
+		{
+			LocalVelocity.X = FMath::FInterpConstantTo(LocalVelocity.X, 0.0f, DeltaSeconds, ZeroThrottleBrakeAcceleration);
+		}
+		LinearVelocity = GetActorTransform().TransformVectorNoScale(LocalVelocity);
+	}
 
 	if (!bEngineKill && ThrottlePercent <= 0.001f && LinearVelocity.SizeSquared() > 1.0f)
 	{
@@ -674,6 +899,7 @@ void ASpaceFlightPawn::UpdateNormalFlight(float DeltaSeconds)
 	}
 
 	LinearVelocity = LinearVelocity.GetClampedToMaxSize(NormalMaxSpeed);
+	RebuildArcadeVelocityStateFromLinearVelocity();
 
 	const FVector RequestedDeltaCm = LinearVelocity * DeltaSeconds;
 	const FVector PreviousActorLocation = GetActorLocation();
@@ -689,6 +915,8 @@ void ASpaceFlightPawn::UpdateNormalFlight(float DeltaSeconds)
 		LinearVelocity = ReflectedVelocity + TangentialVelocity;
 
 		AddActorWorldOffset(Hit.ImpactNormal * 20.0f, false);
+		LogicalSystemPositionCm += Hit.ImpactNormal * 20.0f;
+		RebuildArcadeVelocityStateFromLinearVelocity();
 	}
 
 	LastAcceleration = DeltaSeconds > SMALL_NUMBER
@@ -724,10 +952,15 @@ void ASpaceFlightPawn::UpdateSupercruise(float DeltaSeconds)
 	const FVector PreviousVelocity = LinearVelocity;
 	FlightModeComponent->TickSupercruise(DeltaSeconds, Gravity, Target);
 
+	const bool bUseSupercruiseTranslation =
+		FlightModeComponent->GetSupercruiseState() != ESupercruiseState::DropoutCooldown &&
+		FlightModeComponent->GetSupercruiseState() != ESupercruiseState::Inactive;
+
 	if (FlightModeComponent->GetSupercruiseState() == ESupercruiseState::DropoutCooldown ||
 		FlightModeComponent->GetSupercruiseState() == ESupercruiseState::Inactive)
 	{
 		LinearVelocity = LinearVelocity.GetClampedToMaxSize(NormalMaxSpeed);
+		RebuildArcadeVelocityStateFromLinearVelocity();
 	}
 	else
 	{
@@ -735,8 +968,28 @@ void ASpaceFlightPawn::UpdateSupercruise(float DeltaSeconds)
 	}
 
 	const FVector LogicalDeltaCm = LinearVelocity * DeltaSeconds;
-	LogicalSystemPositionCm += LogicalDeltaCm;
-	AddActorWorldOffset(LogicalDeltaCm * SupercruiseActorRepresentationScale, false);
+	if (bUseSupercruiseTranslation)
+	{
+		LogicalSystemPositionCm += LogicalDeltaCm;
+		AddActorWorldOffset(LogicalDeltaCm * SupercruiseActorRepresentationScale, false);
+	}
+	else
+	{
+		const FVector PreviousActorLocation = GetActorLocation();
+		FHitResult Hit;
+		AddActorWorldOffset(LogicalDeltaCm, true, &Hit);
+		LogicalSystemPositionCm += GetActorLocation() - PreviousActorLocation;
+		if (Hit.bBlockingHit)
+		{
+			const FVector IncomingVelocity = LinearVelocity;
+			const FVector ReflectedVelocity = FMath::GetReflectionVector(IncomingVelocity, Hit.ImpactNormal) * CollisionBounceRestitution;
+			const FVector TangentialVelocity = FVector::VectorPlaneProject(IncomingVelocity, Hit.ImpactNormal) * CollisionSlideDamping;
+			LinearVelocity = ReflectedVelocity + TangentialVelocity;
+			AddActorWorldOffset(Hit.ImpactNormal * 20.0f, false);
+			LogicalSystemPositionCm += Hit.ImpactNormal * 20.0f;
+			RebuildArcadeVelocityStateFromLinearVelocity();
+		}
+	}
 	LastAcceleration = DeltaSeconds > SMALL_NUMBER
 		? (LinearVelocity - PreviousVelocity) / DeltaSeconds
 		: FVector::ZeroVector;
@@ -828,7 +1081,7 @@ void ASpaceFlightPawn::UpdateDocking(float DeltaSeconds)
 
 void ASpaceFlightPawn::UpdateShipVisuals(float DeltaSeconds)
 {
-	const float SteeringBank = AngularVelocityDegrees.Yaw * VisualBankYawFactor;
+	const float SteeringBank = -MouseSteeringInput.X * MouseTurnBankDegrees;
 	const float StrafeBank = StrafeRightInput * VisualBankStrafeDegrees;
 	const float TargetBank = FMath::Clamp(SteeringBank + StrafeBank, -MaxVisualBankDegrees, MaxVisualBankDegrees);
 	const float TargetPitch = -ThrottlePercent * VisualPitchThrottleDegrees;
@@ -862,6 +1115,10 @@ void ASpaceFlightPawn::UpdateCameraResponse(float DeltaSeconds, const FVector& P
 	CurrentCameraTargetOffset = FMath::VInterpTo(CurrentCameraTargetOffset, TargetOffset, DeltaSeconds, CameraResponseInterpSpeed);
 
 	CameraBoom->TargetArmLength = CurrentCameraArmLength;
-	CameraBoom->TargetOffset = CurrentCameraTargetOffset;
+	CameraBoom->TargetOffset = FVector::ZeroVector;
 	CameraBoom->CameraRotationLagSpeed = CameraRotationLagSpeed;
+	CameraBoom->bEnableCameraRotationLag = false;
+	CameraBoom->SetUsingAbsoluteRotation(false);
+	CameraBoom->SetRelativeLocation(CurrentCameraTargetOffset);
+	CameraBoom->SetRelativeRotation(FRotator(-6.0f, 0.0f, 0.0f));
 }

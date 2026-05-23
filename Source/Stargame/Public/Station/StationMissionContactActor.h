@@ -6,6 +6,7 @@
 #include "StationMissionContactActor.generated.h"
 
 class UCapsuleComponent;
+class UStaticMeshComponent;
 
 UCLASS()
 class STARGAME_API AStationMissionContactActor : public AActor
@@ -60,6 +61,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<UCapsuleComponent> TalkArea;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> ContactMesh;
 
 	UPROPERTY(VisibleAnywhere, Category = "Station|Contact")
 	FName StationId;

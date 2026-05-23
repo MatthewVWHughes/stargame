@@ -771,12 +771,16 @@ void ASectorStarAnchorActor::AnimateStarEffects(float DeltaSeconds)
 	if (PhotosphereSurface && PhotosphereSurface->IsVisible())
 	{
 		PhotosphereSurface->AddLocalRotation(FRotator(0.0f, DeltaSeconds * PhotosphereYawDegreesPerSecond, DeltaSeconds * PhotosphereRollDegreesPerSecond));
+#if WITH_EDITOR
 		PhotosphereRefreshAccumulator += DeltaSeconds;
-		if (PhotosphereRefreshAccumulator >= FMath::Max(0.02f, PhotosphereRefreshInterval))
+		const UWorld* World = GetWorld();
+		const bool bEditorPreviewWorld = World && (World->WorldType == EWorldType::Editor || World->WorldType == EWorldType::EditorPreview);
+		if (bEditorPreviewWorld && PhotosphereRefreshAccumulator >= FMath::Max(0.02f, PhotosphereRefreshInterval))
 		{
 			PhotosphereRefreshAccumulator = 0.0f;
 			RebuildPhotosphereSurface(CurrentPhotosphereRadiusCm, CurrentVisualPreset);
 		}
+#endif
 	}
 	if (CoronaSurface && CoronaSurface->IsVisible())
 	{

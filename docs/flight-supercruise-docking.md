@@ -291,6 +291,13 @@ Gravity wells own slowdown, lockout, and dropout radii through `FGravityWellDefi
 
 Bodies do not own gameplay lockout fields directly.
 
+Starlight/Godot used one gravity proximity concept that could block entry and
+force dropout. Stargame deliberately separates slowdown, lockout, and forced
+dropout so tuning can preserve the same readable player contract while avoiding
+unwanted abrupt exits at the outer edge of a gravity well. If parity is in doubt
+for a test fixture, set lockout and dropout radii equal before adding extra
+tuning.
+
 Required well data:
 
 - stable well ID
@@ -311,7 +318,9 @@ Supercruise rules:
 
 - slowdown radius reduces speed ceiling smoothly
 - being inside lockout refuses supercruise entry
-- entering lockout during supercruise does not immediately force dropout; it blocks re-entry if the player drops out or cancels
+- entering lockout during supercruise does not immediately force dropout unless
+  the fixture intentionally uses equal lockout/dropout radii for Godot parity;
+  it blocks re-entry if the player drops out or cancels
 - entering the smaller dropout radius during supercruise forces dropout
 - dropout clamps velocity to normal-flight range
 

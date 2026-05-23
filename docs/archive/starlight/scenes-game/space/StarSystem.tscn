@@ -1,0 +1,28 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/space/systems/StarSystemScene.cs" id="1_system_scene"]
+[ext_resource type="Texture2D" path="res://textures/planets/8k_stars_milky_way.jpg" id="2_starfield_tex"]
+
+[sub_resource type="PanoramaSkyMaterial" id="1_sky_mat"]
+panorama = ExtResource("2_starfield_tex")
+
+[sub_resource type="Sky" id="2_sky"]
+sky_material = SubResource("1_sky_mat")
+
+[sub_resource type="Environment" id="3_env"]
+ambient_light_source = 0
+ambient_light_color = Color(0.05, 0.05, 0.08, 1)
+ambient_light_energy = 0.4
+glow_enabled = true
+glow_intensity = 0.8
+background_mode = 2
+sky = SubResource("2_sky")
+
+[node name="StarSystem" type="Node3D"]
+script = ExtResource("1_system_scene")
+SystemId = "sol"
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("3_env")
+
+[node name="Star" type="Node3D" parent="."]

@@ -1,0 +1,76 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/space/JumpGateController.cs" id="1_controller"]
+
+[sub_resource type="TorusMesh" id="1_ring_mesh"]
+inner_radius = 72.0
+outer_radius = 90.0
+rings = 48
+ring_segments = 16
+
+[sub_resource type="StandardMaterial3D" id="2_ring_mat"]
+albedo_color = Color(0.18, 0.22, 0.28, 1)
+metallic = 0.6
+roughness = 0.35
+emission_enabled = true
+emission = Color(0.25, 0.55, 0.95, 1)
+emission_energy_multiplier = 0.6
+
+[sub_resource type="QuadMesh" id="3_horizon_mesh"]
+size = Vector2(150, 150)
+
+[sub_resource type="StandardMaterial3D" id="4_horizon_mat"]
+transparency = 1
+albedo_color = Color(0.3, 0.6, 1, 0.35)
+emission_enabled = true
+emission = Color(0.3, 0.6, 1, 1)
+emission_energy_multiplier = 1.5
+shading_mode = 0
+cull_mode = 2
+
+[sub_resource type="SphereMesh" id="5_core_mesh"]
+radius = 18.0
+height = 36.0
+radial_segments = 16
+rings = 8
+
+[sub_resource type="StandardMaterial3D" id="6_core_mat"]
+albedo_color = Color(0.6, 0.85, 1, 1)
+emission_enabled = true
+emission = Color(0.55, 0.8, 1, 1)
+emission_energy_multiplier = 2.0
+shading_mode = 0
+
+[node name="JumpGate" type="Node3D"]
+script = ExtResource("1_controller")
+
+[node name="Ring" type="MeshInstance3D" parent="."]
+mesh = SubResource("1_ring_mesh")
+material_override = SubResource("2_ring_mat")
+
+[node name="HorizonFront" type="MeshInstance3D" parent="."]
+mesh = SubResource("3_horizon_mesh")
+material_override = SubResource("4_horizon_mat")
+
+[node name="HorizonBack" type="MeshInstance3D" parent="."]
+rotation = Vector3(0, 3.14159, 0)
+mesh = SubResource("3_horizon_mesh")
+material_override = SubResource("4_horizon_mat")
+
+[node name="Core" type="MeshInstance3D" parent="."]
+mesh = SubResource("5_core_mesh")
+material_override = SubResource("6_core_mat")
+
+[node name="GateCenter" type="Marker3D" parent="."]
+
+[node name="GateLight" type="OmniLight3D" parent="."]
+light_color = Color(0.4, 0.65, 1, 1)
+light_energy = 2.5
+omni_range = 400.0
+
+[node name="Label3D" type="Label3D" parent="."]
+position = Vector3(0, 120, 0)
+billboard = 1
+text = "Jump Gate"
+font_size = 40
+modulate = Color(0.7, 0.9, 1, 0.9)

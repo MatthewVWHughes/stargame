@@ -13,7 +13,9 @@ This is the migration checklist for getting the Unreal build to a playable basel
 
 ## Godot Source Map
 
-These Godot files/tests are the current migration authority:
+These Godot files/tests are the strongest Starlight behavioral references for
+the migrated player loop. They inform parity work, but Stargame's docs own the
+Unreal runtime/data contracts and current scope:
 
 - `scripts/game/space/systems/StarSystemDefinition.cs`: system data is pure records. New builder behavior should be driven by fields, not `Action<>` hooks or lambdas.
 - `scripts/game/space/systems/StarSystemBuilder.cs`: systems are built from data only; orbiting bodies use `OrbitalBody`, gates use Lagrange anchors, and jump gate scene nodes are split from their moving anchor.
@@ -38,8 +40,10 @@ Already present or partially present:
 - systemic records for station services, markets, mission offers, mission instances, progression, traffic, encounters, and threats
 - prototype HUD for target, flight, supercruise, docking, docked station context, runtime encounters, and basic service/mission surfaces
 - minimal boot menu for new game, continue availability, continue load, and quit
+- reusable UMG foundations for boot, comms, dialogs, pause summaries, system map, and station interaction read models
 - early station interior room and first-person pawn
 - Godot item catalog IDs, player personal inventory, starter ship equipment slots, stack limits, equip validation, and save-carrying equipment state
+- Godot-derived ship weapon stats, projectile travel, energy/readiness, lead pip, rendered tracer placeholders, hostile response, and first-pass on-foot combat values
 
 ## Godot Playable Surface To Match
 
@@ -49,11 +53,11 @@ The Godot VS1 baseline proved:
 - space flight and supercruise with lockout/dropout behavior
 - target selection and mission waypoint targeting
 - station docking and launch flow
-- station services: repair and refuel
+- station services: trade, repair/recovery, and launch
 - commodity buy/sell loop
 - mission offer, accept, progress, and turn-in
 - hostile encounter and basic ship combat
-- hostile station boarding/interior combat
+- hostile station interior combat
 - save/reload preserving credits, cargo, equipment, hull, shields, mission state, station stock, and location
 
 ## Feature Parity Tracker
@@ -65,7 +69,13 @@ Status legend:
 - **Missing:** no meaningful Unreal gameplay surface yet.
 - **Improve:** Unreal should intentionally diverge from Godot because the design can be stronger in data, UI, or simulation.
 
-Parity does not mean a 1:1 implementation. Godot remains the source for the player loop and combat contracts, but Unreal may add implementation depth or explicit design layers where they preserve the same fantasy and make the system stronger. Those layers must be labelled as **Improve** work, backed by tests, and must not hide missing Godot contracts such as projectile travel, weapon energy, or the hostile AI state machine.
+Parity does not mean a 1:1 implementation. Starlight/Godot serves as the main
+behavioral reference for the player loop and combat feel, while Stargame docs
+own the Unreal contracts. Unreal may add implementation depth or explicit design
+layers where they preserve the same fantasy and make the system stronger. Those
+layers must be labelled as **Improve** work, backed by tests, and must not hide
+missing Godot contracts such as projectile travel, weapon energy, or the hostile
+AI state machine.
 
 | Feature area | Godot source of intent | Unreal status | Automated coverage | Player-facing gap | Next action |
 | --- | --- | --- | --- | --- | --- |
@@ -73,21 +83,23 @@ Parity does not mean a 1:1 implementation. Godot remains the source for the play
 | System authoring and non-Sol start | `data/systems/alpha_centauri.json`, `scripts/game/space/systems/*`, `tests/StarSystemLoaderTests.cs` | Playable: frontier fixture and authored registry are active; Sol is reference-only. | `Stargame.M1.Catalog.ValidatesFrontierFixture`, `Stargame.M6.Generation.*` | JSON import parity is still thinner than Godot's authored system loader. | Add a source-data conformance test that compares required authored fields against Godot `alpha_centauri.json` intent without copying Sol content. |
 | Orbit, moving stations, and Lagrange gates | `scripts/orbital/OrbitalBody.cs`, `scripts/orbital/LagrangeAnchor.cs`, `tests/OrbitalBodyTests.cs`, `tests/LagrangeAnchorTests.cs` | Partial: moving-frame registry, moving route samples, and gate arrival exist. | `Stargame.M2.FrameQuery.*`, `Stargame.M5.5.Gate.*`, `Stargame.M7.Route.SamplesMovingEndpoints` | Need broader player-visible orbit/map/debug validation and moving station approach feedback. | Add a moving-frame debug overlay entry for selected station/gate current and predicted positions. |
 | Space flight and supercruise | `scripts/game/space/GameplayRoot.cs`, `GameplayRoot.Guidance.cs`, `SupercruiseWarp.cs` | Playable: normal flight, targeting, supercruise, dropout, docking approach, and gate travel exist. | `Stargame.M3.*`, `Stargame.M4.*`, `Stargame.M5.*` | Feedback is still prototype HUD text; lockout/dropout reasons need clearer UI. | Convert supercruise/docking failure reasons into structured HUD view models instead of ad hoc text. |
-| Docking and station services | `scripts/game/space/GameplayRoot.Docking.cs`, `scripts/game/stations/StationInteractableArea.cs`, `StationStubController.cs` | Partial: docking, undock, service endpoints, repair/refuel execution, docked facade, and compact command view model exist. | `Stargame.M5.Docking.*`, `Stargame.M9.Service.EndpointAndDecisionInputsResolve`, `Stargame.M12.Progression.ServiceTransaction`, `Stargame.PlayableLoop.DockedStationCommandPanel.ListsGodotStationServices` | Docked UI is still prototype HUD text rather than a polished station panel. | Add the mission contact and inventory/equipment subpanels behind the command view model before replacing the prototype HUD. |
-| Markets and economy | `scripts/game/runtime/EconomyService.cs`, `tests/EconomyServiceTests.cs` | Partial: deterministic market transactions, ledgers, cargo transfer, station stock records, Godot commodity stock profiles, price pressure, docked market quote view model, and save/reload coverage for visible stock/cargo mutation exist. | `Stargame.M9.Market.BuySellNoUmgDependency`, `Stargame.M9.Inventory.CargoTransferValidatesCapacityOwnershipAndLegality`, `Stargame.M12.Progression.IllegalCargoRejected`, `Stargame.PlayableLoop.DockedStationCommandPanel.ListsGodotStationServices` | Player-facing buy/sell is still a facade/prototype flow; the market does not yet have a full station UI list with controls. | Expose buy/sell choices through the docked station UI flow. |
-| Inventory and equipment | `scripts/game/inventory/*`, `scripts/game/runtime/PlayerState.cs`, `tests/ItemCatalogTests.cs`, `tests/PlayerStateTests.cs`, `tests/ItemStackTests.cs` | Partial: Godot item IDs, stack limits, personal inventory, cargo readout, equipment slots, starter ship gear, docked inventory/equipment panel, docked equip/unequip/swap facade, validation, and save carry-through exist. | `Stargame.M9.Inventory.GodotItemCatalogEquipmentAndStacking`, `Stargame.M9.SaveLoad.SessionCarriesSystemicState`, `Stargame.PlayableLoop.DockedStationCommandPanel.ListsGodotStationServices` | Equipment effects are not connected to ship/on-foot stats, combat, or station interiors; no full widget list controls yet. | Connect equipped ship weapon/shield/engine effects to combat and flight stats, starting with one minimal ship weapon path. |
-| Missions, contacts, and dialog | `scripts/game/missions/*`, `scripts/game/stations/QuestGiverController.cs`, `scripts/game/ui/DialogMenuController.cs`, `tests/Mission*Tests.cs` | Partial: mission offers, station-authored giver validation, contact interaction views, docked contact panel, accept/progress/turn-in, and waypoint selection exist. | `Stargame.M12.Progression.*`, `Stargame.M12.Progression.DebugProgressionTrace`, `Stargame.PlayableLoop.DockedStationFacade.ServiceTradeMissionUndockSave` | Dialog presentation is still static/prototype-level; no full mission board widget or dialog choice flow. | Expose the docked contact panel in real station UI, then replace static dialog fallback when an Ink runtime is chosen. |
+| Docking and station services | `scripts/game/space/GameplayRoot.Docking.cs`, `scripts/game/stations/StationInteractableArea.cs`, `StationStubController.cs` | Partial: docking, undock, service endpoints, repair/refuel/rearm execution, docked facade, compact command view model, and station interaction read models exist. Refuel/rearm are Stargame service extensions beyond Starlight's proven repair/recovery surface. | `Stargame.M5.Docking.*`, `Stargame.M9.Service.EndpointAndDecisionInputsResolve`, `Stargame.M12.Progression.ServiceTransaction`, `Stargame.PlayableLoop.DockedStationCommandPanel.ListsGodotStationServices` | Docked UI is foundation-level and still needs a cohesive station panel/presentation pass. | Replace remaining prototype HUD station controls with the reusable station UI flow once the action/read-model contracts are stable. |
+| Markets and economy | `scripts/game/runtime/EconomyService.cs`, `tests/EconomyServiceTests.cs` | Partial: deterministic market transactions, ledgers, cargo transfer, station stock records, Godot commodity stock profiles, price pressure, docked market quote view model, and save/reload coverage for visible stock/cargo mutation exist. | `Stargame.M9.Market.BuySellNoUmgDependency`, `Stargame.M9.Inventory.CargoTransferValidatesCapacityOwnershipAndLegality`, `Stargame.M12.Progression.IllegalCargoRejected`, `Stargame.PlayableLoop.DockedStationCommandPanel.ListsGodotStationServices` | Player-facing buy/sell exists as a foundation/prototype flow, not a finished market screen. | Harden the station market panel controls and validation feedback before adding broader commodity depth. |
+| Inventory and equipment | `scripts/game/inventory/*`, `scripts/game/runtime/PlayerState.cs`, `tests/ItemCatalogTests.cs`, `tests/PlayerStateTests.cs`, `tests/ItemStackTests.cs` | Partial: Godot item IDs, stack limits, personal inventory, cargo readout, equipment slots, starter ship gear, docked inventory/equipment panel, docked equip/unequip/swap facade, validation, save carry-through, and first ship weapon stat hookup exist. | `Stargame.M9.Inventory.GodotItemCatalogEquipmentAndStacking`, `Stargame.M9.SaveLoad.SessionCarriesSystemicState`, `Stargame.PlayableLoop.DockedStationCommandPanel.ListsGodotStationServices` | Equipment effects are only thinly connected; shield/engine/module effects and full widget list controls are still incomplete. | Extend equipment effects only where they support the selected flight/combat/station slice, starting with shield/engine/resource effects. |
+| Missions, contacts, and dialog | `scripts/game/missions/*`, `scripts/game/stations/QuestGiverController.cs`, `scripts/game/ui/DialogMenuController.cs`, `tests/Mission*Tests.cs` | Partial: mission offers, station-authored giver validation, contact interaction views, docked contact panel, accept/progress/turn-in, and waypoint selection exist. | `Stargame.M12.Progression.*`, `Stargame.M12.Progression.DebugProgressionTrace`, `Stargame.PlayableLoop.DockedStationFacade.ServiceTradeMissionUndockSave` | Dialog presentation is still static/foundation-level; the parity contract is station contact/mission-giver driven, with a mission board optional as later Stargame UI depth. | Harden station contact/mission-giver presentation before choosing any richer dialogue runtime or separate mission-board surface. |
 | NPC world life and distant sectors | `scripts/npc/DistantSector.cs`, `scripts/npc/NpcManager.cs`, `tests/DistantSectorTests.cs` | Improve: logical traffic, player-relevance promotion/demotion budget, route progress, runtime traffic actors, map-visible projected traffic, distant-sector snapshot categories, save-sanitized realization state, score-derived encounter posture/comms, posture-specific encounter offsets/comms text, local encounter steering metrics, and response hooks exist. | `Stargame.M8.Traffic.*`, `Stargame.M8.WorldLife.RealizesDynamicTrafficActors`, `Stargame.M11.Realization.*` | Godot's distant-sector data-only simulation is simpler; Unreal intentionally deepens it with systemic scoring and actor realization, but those layers are not substitutes for missing combat contracts. | Keep the systemic posture layer as accepted Unreal design depth, then audit it whenever it starts driving combat rules instead of staging, visibility, or presentation. |
 | Police patrols and piracy | `scripts/npc/NpcManager.cs`, `scripts/game/combat/HostileEncounterController.cs`, `scripts/game/space/GameplayRoot.Combat.cs` | Improve: patrol reservations, pirate interdiction policy, moving route anchors, legal/evidence/wanted state, runtime encounter outcomes, dynamic patrol/ambush route scoring, score/debug visibility, local steering, enhanced encounter posture/comms, hostile response state after player fire, and rendered combat feedback placeholders exist. | `Stargame.M10.Patrol.*`, `Stargame.M10.Policy.*`, `Stargame.M10.Encounter.*`, `Stargame.M10.WorldLife.*`, `Stargame.M12.Progression.PirateDistressPatrolOutcome` | Godot hostile behavior is a state machine (`Patrol`, `Intercept`, `Interdict`, `Engage`, `Disengage`, `ReturnToAnchor`). Unreal posture/comms depth is accepted, but the actual hostile AI state machine is still incomplete. | Build the Godot hostile AI state contract underneath the accepted Unreal scoring/posture layer. |
 | Ship combat | `scripts/game/combat/ShipWeaponRig.cs`, `SpaceProjectile.cs`, `SpaceCombatCommon.cs`, `HostileEncounterController.cs`, `tests/SpaceCombatMathTests.cs` | Foundation parity: damage/threat records, abstract encounter resolution, runtime outcome controls, equipped hardpoint fire, Godot-derived player and hostile pulse-laser stats, cooldown/readiness state, weapon capacitor spend/regen gating, muzzle alignment gating, lead-point/fire-solution readout, rendered lead pip, inherited projectile velocity, projectile travel records, swept projectile hit resolution, hostile response after projectile impact, hostile projectile return fire, rendered tracer placeholder actors, and prototype HUD weapon feedback exist. | `Stargame.M10.5.Combat.AppliesDamageThreatAndIdempotency`, `Stargame.M10.WorldLife.ActivatesRuntimeEncounterBehavior`, `Stargame.M9.Inventory.GodotItemCatalogEquipmentAndStacking` | The first ship-combat foundation now follows the Godot projectile/weapon intent. Remaining combat work belongs under the broader hostile AI state-machine pass, not more point-6 weapon contract work. | Move to hostile AI state transitions only when that becomes the selected combat slice; otherwise shift to the non-combat parity surfaces. |
-| Station interiors and boarding | `scripts/station_interior/*`, `scripts/game/combat/OnFootWeapon.cs`, `StationHostile.cs`, `tests/SmokeTest.cs` | Foundation parity: early Unreal station room, first-person pawn, mission contacts, interactables, hostile actors, on-foot weapon fire, hostile clear objective, derelict boarding mission E2E, and data-backed Godot boarding combat profile exist. | `Stargame.PlayableLoop.StationInterior.BasicRoomTransition`, `Stargame.PlayableLoop.StationInterior.HostileBoardingFoundation`, `Stargame.PlayableLoop.StationInterior.DerelictBoardingMissionE2E`, `Stargame.M9.Inventory.GodotItemCatalogEquipmentAndStacking` | Deferred: doors, richer room building, ambient NPCs, cover, magazines/reload, advanced FPS movement, and deeper enemy cover/peek/fire/retreat/hunt behavior. | Build presentation and Blueprint-facing UI from `FStationInteriorCombatView` before choosing any deeper FPS combat expansion. |
+| Station interiors and combat | `scripts/station_interior/*`, `scripts/game/combat/OnFootWeapon.cs`, `StationHostile.cs`, `tests/SmokeTest.cs` | Foundation parity: early Unreal station room, first-person pawn, mission contacts, interactables, hostile actors, on-foot weapon fire, hostile clear objective, derelict/interior combat mission E2E, and data-backed Starlight station-combat profile exist. This is station interior combat, not ship boarding. | `Stargame.PlayableLoop.StationInterior.BasicRoomTransition`, `Stargame.PlayableLoop.StationInterior.HostileBoardingFoundation`, `Stargame.PlayableLoop.StationInterior.DerelictBoardingMissionE2E`, `Stargame.M9.Inventory.GodotItemCatalogEquipmentAndStacking` | Deferred: doors, richer room building, ambient NPCs, cover, magazines/reload, advanced FPS movement, and deeper enemy cover/peek/fire/retreat/hunt behavior. | Build presentation and Blueprint-facing UI from `FStationInteriorCombatView` before choosing any deeper FPS combat expansion. |
 | System and sector maps | `scripts/game/ui/SystemMap.cs`, `scripts/game/ui/SectorMap.cs`, `PlanetOverlay.cs` | Partial: registry entries, session-level overview data, and the first player-facing system map widget exist for moving map entries, dynamic routes, selected target, mission target, player, traffic, patrol reservations, ambush risk, encounter actors, pan/zoom, and click-to-select navigation targets. | `Stargame.M2.MapAndScale.RegistryViewModel`, `Stargame.M8.WorldLife.RealizesDynamicTrafficActors` | Sector map and distant planet overlay are still deferred; the current system map is a functional foundation rather than final presentation. | Harden the system map visuals only as needed, then choose whether the next map pass is sector-map routing or planet/body overlay. |
 | Save/reload contract | `scripts/game/runtime/SaveService.cs`, `SaveStore.cs`, `tests/SaveServiceTests.cs`, `GameSessionTests.cs` | Partial: core session/systemic state, ship location, clock, pending gate arrival, traffic, mission progression, market/service results, equipment state, station-interior docked location, and visible station stock/cargo mutations persist. Invalid traffic and invalid docked-station save payloads are rejected. | `Stargame.M0.SaveReload.*`, `Stargame.M2.SaveLoad.*`, `Stargame.M5.Docking.SaveReloadAndRepeatUndock`, `Stargame.M7.Route.SaveReloadAndDebugSummary`, `Stargame.M8.Traffic.LoadRejectsInvalidTrafficState`, `Stargame.M9.SaveLoad.SessionCarriesSystemicState`, `Stargame.M12.Progression.SaveReloadProgression`, `Stargame.PlayableLoop.*` | Every new UI/action surface still needs an explicit save mutation test. | Keep the rule: no feature reaches Playable until save/load verifies the player-visible mutation. |
 | UI/HUD polish | `scripts/game/ui/FlightHud.cs`, `StatusHudController.cs`, `CombatHudController.cs`, `CommsMenuController.cs`, `DialogMenuController.cs`, `PauseMenuController.cs` | Partial: prototype C++ HUD still handles flight/combat instrumentation, but reusable UMG foundations now exist for boot, station interactions, system map, comms docking, generic dialog choices, and pause inventory/mission/settings views. | `Stargame.PlayableLoop.DockedStationCommandPanel.ListsGodotStationServices` covers comms, dialog, and pause read-model contracts; broader gameplay tests cover the underlying actions. | Presentation is still foundation-level and some HUD text remains in `PrototypeFlightHud`; no final art/style pass or full menu navigation stack yet. | Keep extracting modal/action UI out of `PrototypeFlightHud` as each gameplay surface becomes stable; do not add new UI concepts until they map to an existing Godot intent. |
 
-## Immediate Work Queue
+## Implementation Status Queue
 
-These are ordered by dependency and player value. Do not start with visuals before the data/action path is deterministic and tested.
+These entries record the recent dependency order and current status. Use the
+feature tracker and parity slices above for what is still missing. Do not start
+with visuals before the data/action path is deterministic and tested.
 
 1. **Inventory/equipment swap semantics - done**
    - Source: `PlayerState.cs`, `EquipmentSlotId.cs`, `ItemCatalog.cs`, `ItemDef.cs`.
@@ -221,7 +233,7 @@ Required:
 - [done] show player credits, ship resources, market stock, and cargo in prototype state
 - [partial] build the compact docked station panel as a reusable view model
 
-### Slice 3: Mission Board And Waypoint - Partial
+### Slice 3: Mission Contact And Waypoint - Partial
 
 Goal: accept one frontier mission, target its destination, and complete it.
 
@@ -233,7 +245,7 @@ Required:
 - [done] progress objective state from location and encounter conditions
 - [done] complete/turn in at the source station through the backend facade
 - [partial] persist mission state and debug progression records
-- [partial] build the mission board/contact UI with dialog text and reward presentation
+- [partial] build the mission contact UI with dialog text and reward presentation; a separate mission board is optional later UI depth
 
 ### Slice 4: Combat Encounter - Partial
 
@@ -250,18 +262,20 @@ Required:
 - [done] migrate Godot's moving projectile travel/collision semantics
 - [done] migrate Godot's weapon energy, lead point, rendered lead pip, and muzzle-alignment fire solution
 
-### Slice 5: Boarding Placeholder - Foundation Done
+### Slice 5: Station Interior Combat Placeholder - Foundation Done
 
-Goal: replace Godot's hostile boarding loop with an Unreal-native station interior placeholder.
+Goal: replace Starlight's hostile station-interior combat loop with an
+Unreal-native station interior placeholder. This is not ship boarding; boarding
+other ships remains out of scope.
 
 Required:
 
 - [done] add an early interior room and first-person pawn
-- [done] add a hostile boarding room state on top of the station interior foundation
+- [done] add a hostile station-interior combat room state on top of the station interior foundation
 - [done] add simple enemy actors with health and attack behavior
 - [done] add Godot-derived, data-backed player sidearm and hostile combat values
 - [done] expose `FStationInteriorCombatView` for Blueprint/UI/testing
-- [done] complete a boarding objective by clearing the room
+- [done] complete an interior combat objective by clearing the room
 - [done] return to space/station services cleanly
 - [deferred] richer rooms, cover behavior, magazines/reload, and advanced FPS movement
 

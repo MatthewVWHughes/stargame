@@ -24,6 +24,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Station|Interaction")
 	void ConfigureStationInteriorPawn(UStargameSessionSubsystem* InSession, AStationInteriorRoomActor* InRoom);
 
+	UFUNCTION(BlueprintPure, Category = "Station|Interaction")
+	UStargameSessionSubsystem* GetOwningStationSession() const { return OwningSession.Get(); }
+
 	UFUNCTION(BlueprintCallable, Category = "Station|Combat")
 	void SetHostileBoardingEnabled(bool bInEnabled);
 
@@ -109,6 +112,7 @@ private:
 	FName MakeInteractionEventId(const TCHAR* Prefix);
 	bool ExecuteStationService(FName ServiceType, double Amount);
 	bool ExecuteMarketBuy();
+	bool ExecuteMissionBoard();
 	bool TryLaunchFromInterior();
 	bool OpenStationInteractionPanelForContact(AStationMissionContactActor* Contact);
 	bool OpenStationInteractionPanelForObject(AStationInteriorInteractableActor* Interactable);

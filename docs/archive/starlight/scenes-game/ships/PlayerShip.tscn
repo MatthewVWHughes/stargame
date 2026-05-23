@@ -1,0 +1,69 @@
+[gd_scene load_steps=10 format=3]
+
+[ext_resource type="Script" path="res://scripts/ship/ShipController.cs" id="1_ship"]
+[ext_resource type="PackedScene" path="res://assets/ships/PlayerShip/PlayerShip.glb" id="2_model"]
+[ext_resource type="Script" path="res://scripts/game/combat/ShipWeaponRig.cs" id="3_weapon_rig"]
+[ext_resource type="PackedScene" path="res://scenes/game/space/SpeedStreaks.tscn" id="4_streaks"]
+[ext_resource type="PackedScene" path="res://scenes/game/space/SupercruiseWarp.tscn" id="5_warp"]
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_left_barrel"]
+top_radius = 0.06
+bottom_radius = 0.075
+height = 1.1
+radial_segments = 10
+rings = 1
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_barrel"]
+albedo_color = Color(0.22, 0.24, 0.28, 1)
+
+[node name="PlayerShip" type="Node3D"]
+script = ExtResource("1_ship")
+
+[node name="Model" parent="." instance=ExtResource("2_model")]
+rotation = Vector3(0, 1.5708, 0)
+
+[node name="NavLight" type="OmniLight3D" parent="."]
+light_color = Color(0.9, 0.9, 1, 1)
+light_energy = 1.5
+omni_range = 15.0
+omni_attenuation = 1.0
+
+[node name="CameraAnchor" type="Marker3D" parent="."]
+position = Vector3(0, 1.6, 3.4)
+
+[node name="SpeedStreaks" parent="." instance=ExtResource("4_streaks")]
+ShipPath = NodePath("..")
+
+[node name="SupercruiseWarp" parent="." instance=ExtResource("5_warp")]
+ShipPath = NodePath("..")
+
+[node name="DockAnchor" type="Marker3D" parent="."]
+position = Vector3(0, 0, 2)
+
+[node name="WeaponRig" type="Node3D" parent="."]
+position = Vector3(0, 0.18, -1.55)
+script = ExtResource("3_weapon_rig")
+
+[node name="LeftBarrel" type="Node3D" parent="WeaponRig"]
+position = Vector3(-0.42, 0, 0)
+
+[node name="BarrelMesh" type="MeshInstance3D" parent="WeaponRig/LeftBarrel"]
+position = Vector3(0, -0.03, -0.38)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("CylinderMesh_left_barrel")
+surface_material_override/0 = SubResource("StandardMaterial3D_barrel")
+
+[node name="LeftBarrelMuzzle" type="Marker3D" parent="WeaponRig/LeftBarrel"]
+position = Vector3(0, -0.03, -0.92)
+
+[node name="RightBarrel" type="Node3D" parent="WeaponRig"]
+position = Vector3(0.42, 0, 0)
+
+[node name="BarrelMesh" type="MeshInstance3D" parent="WeaponRig/RightBarrel"]
+position = Vector3(0, -0.03, -0.38)
+rotation = Vector3(1.5708, 0, 0)
+mesh = SubResource("CylinderMesh_left_barrel")
+surface_material_override/0 = SubResource("StandardMaterial3D_barrel")
+
+[node name="RightBarrelMuzzle" type="Marker3D" parent="WeaponRig/RightBarrel"]
+position = Vector3(0, -0.03, -0.92)

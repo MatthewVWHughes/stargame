@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
 #include "Data/StargameDataTypes.h"
+#include "Runtime/StargameSessionSubsystem.h"
 #include "StargameFlightHUDWidget.generated.h"
 
 class UProgressBar;
@@ -36,6 +37,12 @@ struct FStargameFlightHUDView
 
 	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Flight HUD")
 	FString DockingText;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Flight HUD")
+	FString MissionText;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Flight HUD")
+	FString ActionHintText;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Flight HUD")
 	FString WeaponText;
@@ -90,6 +97,7 @@ protected:
 private:
 	static FString MakeReadableName(FName Name);
 	static FString MakeDockingText(const FDockingOperationState& Docking);
+	static FString MakeMissionObjectiveText(const FMissionWaypointViewModel& Mission);
 	void ApplyViewToBoundWidgets();
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
@@ -106,6 +114,12 @@ private:
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UTextBlock> DockingText;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UTextBlock> MissionText;
+
+	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
+	TObjectPtr<UTextBlock> CommsLineText;
 
 	UPROPERTY(BlueprintReadOnly, meta = (BindWidgetOptional, AllowPrivateAccess = "true"))
 	TObjectPtr<UTextBlock> WeaponText;
@@ -136,4 +150,7 @@ private:
 
 	UPROPERTY()
 	FStargameFlightHUDView CachedView;
+
+	float RefreshAccumulatorSeconds = 0.0f;
+	static constexpr float RefreshIntervalSeconds = 0.10f;
 };

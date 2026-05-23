@@ -8,11 +8,26 @@
 
 namespace
 {
-	UStargameSessionSubsystem* ResolveSession(const UUserWidget* Widget)
+	UStargameSessionSubsystem* ResolveStationInteractionSession(const UUserWidget* Widget, const AStationInteriorPawn* StationPawn)
 	{
-		return Widget && Widget->GetGameInstance()
-			? Widget->GetGameInstance()->GetSubsystem<UStargameSessionSubsystem>()
-			: nullptr;
+		if (StationPawn)
+		{
+			if (UStargameSessionSubsystem* Session = StationPawn->GetOwningStationSession())
+			{
+				return Session;
+			}
+		}
+		if (!Widget)
+		{
+			return nullptr;
+		}
+		if (UGameInstance* GameInstance = Widget->GetGameInstance())
+		{
+			return GameInstance->GetSubsystem<UStargameSessionSubsystem>();
+		}
+		UWorld* World = Widget->GetWorld();
+		UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+		return GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
 	}
 
 	FString BuildCommandPanelSummary(const FDockedStationCommandPanelView& Panel)
@@ -34,6 +49,36 @@ namespace
 			Panel.AvailableMarketCount,
 			Panel.AvailableMissionCount);
 		return Summary;
+	}
+
+	FString MakeReadableStationInteractionId(FName Id)
+	{
+		FString Text = Id.IsNone() ? FString(TEXT("NONE")) : Id.ToString();
+		Text.ReplaceInline(TEXT("_"), TEXT(" "));
+		return Text.ToUpper();
+	}
+
+	FString BuildMissionNextStepText(const FMissionContactInteractionView& Interaction)
+	{
+		if (Interaction.AvailableCommand == FName(TEXT("accept")))
+		{
+			return TEXT("Next: accept the mission, launch, then follow the HUD target.");
+		}
+		if (Interaction.AvailableCommand == FName(TEXT("turn_in")))
+		{
+			return TEXT("Next: turn in the completed mission.");
+		}
+		if (Interaction.ActiveObjectiveType == FName(TEXT("reach_station")) && !Interaction.ActiveObjectiveTargetId.IsNone())
+		{
+			return FString::Printf(TEXT("Next: launch and fly to %s."), *MakeReadableStationInteractionId(Interaction.ActiveObjectiveTargetId));
+		}
+		if ((Interaction.ActiveObjectiveType == FName(TEXT("clear_station_hostiles")) ||
+			Interaction.ActiveObjectiveType == FName(TEXT("clear_hostiles"))) &&
+			!Interaction.ActiveObjectiveTargetId.IsNone())
+		{
+			return FString::Printf(TEXT("Next: launch, dock at %s, then clear the interior hostiles."), *MakeReadableStationInteractionId(Interaction.ActiveObjectiveTargetId));
+		}
+		return FString();
 	}
 
 }
@@ -110,7 +155,7 @@ void UStargameStationInteractionWidget::RefreshStationObject()
 {
 	ClearActionButtons();
 
-	UStargameSessionSubsystem* Session = ResolveSession(this);
+	UStargameSessionSubsystem* Session = ResolveStationInteractionSession(this, StationPawn.Get());
 	FDockedStationCommandPanelView Panel;
 	if (!Session || !Session->GetDockedStationCommandPanel(Panel) || !Panel.bDocked)
 	{
@@ -168,6 +213,31 @@ void UStargameStationInteractionWidget::RefreshStationObject()
 		SetPanelText(NSLOCTEXT("StationInteraction", "MarketTitle", "Commodity Desk"), Body);
 		return;
 	}
+	if (InteractionType == FName(TEXT("mission_board")))
+	{
+		FDockedMissionContactPanelView MissionPanel;
+		FString Body = TEXT("No mission contacts are available.");
+		if (Session->GetDockedMissionContactPanel(MissionPanel) && MissionPanel.bAvailable)
+		{
+			Body = MissionPanel.SummaryText.IsEmpty()
+				? FString::Printf(TEXT("Mission board at %s."), *MissionPanel.StationId.ToString())
+				: MissionPanel.SummaryText;
+			Body += FString::Printf(TEXT("\nContacts: %d"), MissionPanel.Contacts.Num());
+			for (const FDockedMissionContactOption& Contact : MissionPanel.Contacts)
+			{
+				const FText DisplayName = Contact.DisplayName.IsEmpty() ? FText::FromName(Contact.GiverNpcId) : Contact.DisplayName;
+				const FText MissionTitle = Contact.MissionTitle.IsEmpty() ? NSLOCTEXT("StationInteraction", "NoMissionTitle", "No active offer") : Contact.MissionTitle;
+				Body += FString::Printf(
+					TEXT("\n%s | %s | %s"),
+					*DisplayName.ToString(),
+					*MissionTitle.ToString(),
+					*Contact.InteractionState.ToString());
+				AddMissionContactActionButton(Contact);
+			}
+		}
+		SetPanelText(NSLOCTEXT("StationInteraction", "MissionBoardTitle", "Mission Board"), Body);
+		return;
+	}
 	if (InteractionType == FName(TEXT("launch")))
 	{
 		SetPanelText(NSLOCTEXT("StationInteraction", "LaunchTitle", "Airlock / Departure"), BuildCommandPanelSummary(Panel));
@@ -183,7 +253,7 @@ void UStargameStationInteractionWidget::RefreshMissionContact()
 {
 	ClearActionButtons();
 
-	UStargameSessionSubsystem* Session = ResolveSession(this);
+	UStargameSessionSubsystem* Session = ResolveStationInteractionSession(this, StationPawn.Get());
 	FMissionContactInteractionView Interaction;
 	if (!Session || !Session->GetDockedMissionContactInteraction(GiverNpcId, Interaction))
 	{
@@ -200,6 +270,19 @@ void UStargameStationInteractionWidget::RefreshMissionContact()
 	if (Body.IsEmpty())
 	{
 		Body = FString::Printf(TEXT("Mission state: %s"), *Interaction.InteractionState.ToString());
+	}
+	if (!Interaction.ObjectiveSummaryText.IsEmpty())
+	{
+		Body += FString::Printf(TEXT("\n\nObjective: %s"), *Interaction.ObjectiveSummaryText);
+	}
+	if (!Interaction.RewardText.IsEmpty())
+	{
+		Body += FString::Printf(TEXT("\nReward: %s"), *Interaction.RewardText);
+	}
+	const FString NextStep = BuildMissionNextStepText(Interaction);
+	if (!NextStep.IsEmpty())
+	{
+		Body += FString::Printf(TEXT("\n\n%s"), *NextStep);
 	}
 
 	FText ButtonLabel = NSLOCTEXT("StationInteraction", "Continue", "Continue");
@@ -273,6 +356,46 @@ void UStargameStationInteractionWidget::ExecuteMarketAction(FName CommodityId, b
 		!bAccepted);
 }
 
+void UStargameStationInteractionWidget::ExecuteAction(const FStargameStationInteractionActionView& Action)
+{
+	if (!Action.bEnabled)
+	{
+		SetPanelText(
+			TitleText ? TitleText->GetText() : FText::GetEmpty(),
+			BodyText ? BodyText->GetText().ToString() : FString(),
+			TEXT("Action is unavailable."),
+			true);
+		return;
+	}
+
+	if (Action.ActionId == FName(TEXT("primary")))
+	{
+		ExecutePrimaryAction();
+		return;
+	}
+	if (Action.ActionId == FName(TEXT("market_buy")))
+	{
+		ExecuteMarketAction(Action.CommodityId, true);
+		return;
+	}
+	if (Action.ActionId == FName(TEXT("market_sell")))
+	{
+		ExecuteMarketAction(Action.CommodityId, false);
+		return;
+	}
+	if (Action.ActionId == FName(TEXT("mission_contact")) && !Action.GiverNpcId.IsNone())
+	{
+		ShowMissionContact(StationPawn.Get(), Action.GiverNpcId, Action.Label);
+		return;
+	}
+
+	SetPanelText(
+		TitleText ? TitleText->GetText() : FText::GetEmpty(),
+		BodyText ? BodyText->GetText().ToString() : FString(),
+		FString::Printf(TEXT("Unsupported action: %s"), *Action.ActionId.ToString()),
+		true);
+}
+
 void UStargameStationInteractionWidget::HandleCloseClicked()
 {
 	ClosePanel();
@@ -317,6 +440,16 @@ void UStargameStationInteractionWidget::AddMarketActionButton(const FText& Label
 	Action.bEnabled = bEnabled;
 	Action.CommodityId = CommodityId;
 	Action.bBuy = bBuy;
+	CurrentActions.Add(Action);
+}
+
+void UStargameStationInteractionWidget::AddMissionContactActionButton(const FDockedMissionContactOption& Contact)
+{
+	FStargameStationInteractionActionView Action;
+	Action.ActionId = TEXT("mission_contact");
+	Action.Label = Contact.DisplayName.IsEmpty() ? FText::FromName(Contact.GiverNpcId) : Contact.DisplayName;
+	Action.bEnabled = !Contact.GiverNpcId.IsNone();
+	Action.GiverNpcId = Contact.GiverNpcId;
 	CurrentActions.Add(Action);
 }
 

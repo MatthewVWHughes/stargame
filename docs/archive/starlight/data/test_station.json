@@ -1,0 +1,210 @@
+{
+  "name": "Test Station",
+  "theme": "frontier",
+  "grid": [
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        2,
+        1
+      ]
+    },
+    {
+      "piece": "corridor_1x2",
+      "pos": [
+        0,
+        1
+      ],
+      "rotation": 90
+    },
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        -1,
+        1
+      ],
+      "rotation": 90
+    },
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        -1,
+        2
+      ],
+      "rotation": 90
+    },
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        -1,
+        0
+      ],
+      "rotation": 90
+    },
+    {
+      "piece": "room_3x3",
+      "pos": [
+        -2,
+        3
+      ],
+      "rotation": 90,
+      "purpose": "bar",
+      "props": [
+        { "type": "desk", "offset": [0, 0, 0] },
+        { "type": "chair", "offset": [0, 0, 1.2], "rotation": 180 },
+        { "type": "chair", "offset": [2.5, 0, 0], "rotation": 270 },
+        { "type": "barrel", "offset": [-3.5, 0, -3.5] }
+      ]
+    },
+    {
+      "piece": "room_3x3",
+      "pos": [
+        -2,
+        -3
+      ],
+      "rotation": 90,
+      "purpose": "cargo_bay"
+    },
+    {
+      "piece": "room_3x3",
+      "pos": [
+        -6,
+        0
+      ],
+      "rotation": 90,
+      "purpose": "engineering"
+    },
+    {
+      "piece": "corridor_1x2",
+      "pos": [
+        -3,
+        1
+      ],
+      "rotation": 90
+    },
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        -4,
+        3
+      ],
+      "rotation": 90
+    },
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        -4,
+        4
+      ],
+      "rotation": 90
+    },
+    {
+      "piece": "stairwell_1x2",
+      "pos": [
+        -6,
+        4
+      ],
+      "rotation": 270
+    },
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        -7,
+        4
+      ],
+      "level": 1,
+      "rotation": 270
+    },
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        -7,
+        5
+      ],
+      "level": 1,
+      "rotation": 270
+    },
+    {
+      "piece": "stairwell_1x2",
+      "pos": [
+        -6,
+        5
+      ],
+      "level": 1,
+      "rotation": 90
+    },
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        -4,
+        5
+      ],
+      "level": 2,
+      "rotation": 90
+    },
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        -4,
+        4
+      ],
+      "level": 2,
+      "rotation": 90
+    },
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        -4,
+        3
+      ],
+      "level": 2,
+      "rotation": 90
+    },
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        -5,
+        3
+      ],
+      "level": 2,
+      "rotation": 90
+    },
+    {
+      "piece": "room_3x3",
+      "pos": [
+        -8,
+        1
+      ],
+      "level": 2,
+      "rotation": 90,
+      "purpose": "quarters"
+    },
+    {
+      "piece": "corridor_1x1",
+      "pos": [
+        -3,
+        3
+      ],
+      "level": 2,
+      "rotation": 90
+    },
+    {
+      "piece": "room_3x3",
+      "pos": [
+        -2,
+        1
+      ],
+      "level": 2,
+      "rotation": 90,
+      "purpose": "bridge"
+    },
+    {
+      "piece": "airlock_1x1",
+      "pos": [
+        3,
+        1
+      ],
+      "rotation": 90
+    }
+  ]
+}

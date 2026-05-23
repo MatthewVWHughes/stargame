@@ -2,11 +2,13 @@
 
 #include "Components/ChildActorComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Runtime/StargameSessionSubsystem.h"
 #include "Station/StationInteriorHostileActor.h"
 #include "Station/StationInteriorInteractableActor.h"
 #include "Station/StationInteriorPawn.h"
 #include "Station/StationMissionContactActor.h"
+#include "UObject/ConstructorHelpers.h"
 
 namespace
 {
@@ -32,6 +34,62 @@ AStationInteriorRoomActor::AStationInteriorRoomActor()
 
 	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
 	SetRootComponent(SceneRoot);
+
+	FloorMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FloorMesh"));
+	FloorMesh->SetupAttachment(SceneRoot);
+	FloorMesh->SetRelativeLocation(FVector(0.0, 0.0, -5.0));
+	FloorMesh->SetRelativeScale3D(FVector(10.0, 8.0, 0.1));
+	FloorMesh->SetCollisionProfileName(TEXT("BlockAll"));
+
+	CeilingMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CeilingMesh"));
+	CeilingMesh->SetupAttachment(SceneRoot);
+	CeilingMesh->SetRelativeLocation(FVector(0.0, 0.0, 235.0));
+	CeilingMesh->SetRelativeScale3D(FVector(10.0, 8.0, 0.1));
+	CeilingMesh->SetCollisionProfileName(TEXT("BlockAll"));
+
+	NorthWallMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("NorthWallMesh"));
+	NorthWallMesh->SetupAttachment(SceneRoot);
+	NorthWallMesh->SetRelativeLocation(FVector(0.0, 500.0, 115.0));
+	NorthWallMesh->SetRelativeScale3D(FVector(10.0, 0.1, 2.3));
+	NorthWallMesh->SetCollisionProfileName(TEXT("BlockAll"));
+
+	SouthWallMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("SouthWallMesh"));
+	SouthWallMesh->SetupAttachment(SceneRoot);
+	SouthWallMesh->SetRelativeLocation(FVector(0.0, -500.0, 115.0));
+	SouthWallMesh->SetRelativeScale3D(FVector(10.0, 0.1, 2.3));
+	SouthWallMesh->SetCollisionProfileName(TEXT("BlockAll"));
+
+	EastWallMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("EastWallMesh"));
+	EastWallMesh->SetupAttachment(SceneRoot);
+	EastWallMesh->SetRelativeLocation(FVector(620.0, 0.0, 115.0));
+	EastWallMesh->SetRelativeScale3D(FVector(0.1, 8.0, 2.3));
+	EastWallMesh->SetCollisionProfileName(TEXT("BlockAll"));
+
+	WestWallMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WestWallMesh"));
+	WestWallMesh->SetupAttachment(SceneRoot);
+	WestWallMesh->SetRelativeLocation(FVector(-620.0, 0.0, 115.0));
+	WestWallMesh->SetRelativeScale3D(FVector(0.1, 8.0, 2.3));
+	WestWallMesh->SetCollisionProfileName(TEXT("BlockAll"));
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
+	if (CubeMesh.Succeeded())
+	{
+		FloorMesh->SetStaticMesh(CubeMesh.Object);
+		CeilingMesh->SetStaticMesh(CubeMesh.Object);
+		NorthWallMesh->SetStaticMesh(CubeMesh.Object);
+		SouthWallMesh->SetStaticMesh(CubeMesh.Object);
+		EastWallMesh->SetStaticMesh(CubeMesh.Object);
+		WestWallMesh->SetStaticMesh(CubeMesh.Object);
+	}
+
+	MissionContactActorClass = AStationMissionContactActor::StaticClass();
+	InteractableActorClass = AStationInteriorInteractableActor::StaticClass();
+	HostileActorClass = AStationInteriorHostileActor::StaticClass();
+	HostileSpawnLocalTransforms = {
+		FTransform(FRotator::ZeroRotator, FVector(260.0, 260.0, 0.0)),
+		FTransform(FRotator::ZeroRotator, FVector(260.0, -260.0, 0.0)),
+		FTransform(FRotator::ZeroRotator, FVector(-120.0, 360.0, 0.0))
+	};
 }
 
 FTransform AStationInteriorRoomActor::GetPlayerStartTransform() const
@@ -315,6 +373,59 @@ void AStationInteriorRoomActor::RegisterAuthoredInteractables()
 
 		RegisterInteractable(Interactable);
 	}
+
+	ConfigureOrSpawnDefaultInteractable(TEXT("repair"), NSLOCTEXT("StationInterior", "RepairDesk", "Repair Service"), FVector(-180.0, -430.0, 0.0));
+	ConfigureOrSpawnDefaultInteractable(TEXT("refuel"), NSLOCTEXT("StationInterior", "RefuelDesk", "Refuel Service"), FVector(120.0, -430.0, 0.0));
+	ConfigureOrSpawnDefaultInteractable(TEXT("market"), NSLOCTEXT("StationInterior", "CommodityDesk", "Commodity Desk"), FVector(360.0, 0.0, 0.0));
+	ConfigureOrSpawnDefaultInteractable(TEXT("mission_board"), NSLOCTEXT("StationInterior", "MissionBoard", "Mission Board"), FVector(360.0, 320.0, 0.0));
+	ConfigureOrSpawnDefaultInteractable(TEXT("launch"), NSLOCTEXT("StationInterior", "LaunchPoint", "Airlock / Departure"), FVector(-430.0, 360.0, 0.0));
+}
+
+void AStationInteriorRoomActor::SpawnDefaultInteractable(FName InteractionType, const FText& DisplayName, const FVector& LocalPositionCm)
+{
+	UWorld* World = GetWorld();
+	if (!World || !InteractableActorClass || InteractionType.IsNone())
+	{
+		return;
+	}
+
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.Owner = this;
+	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AStationInteriorInteractableActor* Interactable = World->SpawnActor<AStationInteriorInteractableActor>(
+		InteractableActorClass,
+		FTransform(GetActorRotation(), GetActorTransform().TransformPosition(LocalPositionCm)),
+		SpawnParameters);
+	if (!Interactable)
+	{
+		return;
+	}
+
+	Interactable->AttachToActor(this, FAttachmentTransformRules::KeepWorldTransform);
+	Interactable->ConfigureInteractable(StationId, InteractionType, DisplayName);
+	RegisterInteractable(Interactable);
+}
+
+void AStationInteriorRoomActor::ConfigureOrSpawnDefaultInteractable(FName InteractionType, const FText& DisplayName, const FVector& LocalPositionCm)
+{
+	if (InteractionType.IsNone())
+	{
+		return;
+	}
+
+	const FVector WorldPosition = GetActorTransform().TransformPosition(LocalPositionCm);
+	for (AStationInteriorInteractableActor* Interactable : InteractableActors)
+	{
+		if (IsValid(Interactable) && Interactable->GetInteractionType() == InteractionType)
+		{
+			Interactable->SetActorLocation(WorldPosition);
+			Interactable->ConfigureInteractable(StationId, InteractionType, DisplayName);
+			return;
+		}
+	}
+
+	SpawnDefaultInteractable(InteractionType, DisplayName, LocalPositionCm);
 }
 
 void AStationInteriorRoomActor::SpawnDefaultHostiles(AStationInteriorPawn* PlayerPawn, const FStationInteriorCombatProfileDefinition& CombatProfile)

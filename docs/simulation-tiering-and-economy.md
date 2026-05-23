@@ -1,6 +1,8 @@
 # Simulation Tiering And Economy
 
-This document defines how NPC ships, distant sectors, and economy simulation should work in Unreal.
+This document defines how NPC ships, local traffic, and economy simulation
+should work in Unreal. Broad distant-sector and cross-sector simulation are
+future-compatible requirements, not current content scope.
 
 Space NPC decision-making, formations, patrols, piracy, and fleeing are covered in more detail by `space-ai-and-dynamic-orbits.md`.
 
@@ -14,7 +16,10 @@ Keep the tiered simulation model:
 
 - most ships are logical data
 - only nearby ships become rendered/interactable Unreal actors
-- distant sectors run economy and travel as serialized simulation events, scheduled timestamps, and stock deltas
+- current work stays inside the primary frontier sector plus the minimal
+  gate-arrival fixture
+- future distant sectors can run economy and travel as serialized simulation
+  events, scheduled timestamps, and stock deltas
 - the player sees a local slice of a much larger simulation
 
 Do not port the Godot `NpcManager`, `DistantSector`, or hard-coded trade-route setup directly. Preserve the model, replace the implementation with Unreal-native subsystems, structs, data assets, event queues, actor pooling, and optional MassEntity support.
@@ -27,7 +32,8 @@ The useful Godot ideas:
 - spawn/despawn hysteresis so ships do not flicker at the boundary
 - data-only distant sectors
 - cargo movement as timed arrivals
-- economy stock changes triggered by NPC docking/arrival
+- economy stock changes triggered by NPC docking/arrival, currently as
+  Starlight roadmap intent rather than proven implementation behavior
 - resilient economy rules that recover from disruption
 - star/catalog tiers used for map readability and progression pacing
 - one goal state machine shared across tiers, with different execution detail per tier
@@ -51,7 +57,9 @@ Use separate ownership layers.
 
 `UGameInstanceSubsystem`.
 
-Owns persistent logical simulation:
+Owns persistent logical simulation. In the current foundation this is scoped to
+the primary frontier sector, its minimal arrival fixture, and saved systemic
+state; broader galaxy simulation remains future support:
 
 - star catalog
 - catalog/route tiers
@@ -308,9 +316,11 @@ Tier 2 may run logical encounters through durable event records:
 
 Abstract checks must write records. They must not be hidden transient calculations that can apply twice after save/load or disappear when the player arrives.
 
-### Tier 3: Distant Sector Jobs
+### Tier 3: Future Distant Sector Jobs
 
-Other systems/sectors.
+Other systems/sectors. This tier is future architecture. It must not expand the
+current content target beyond the primary frontier sector and deliberately tiny
+gate-arrival fixture.
 
 No actor.
 No per-frame position.
@@ -438,9 +448,11 @@ Avoid full per-frame simulation for all distant sectors. Use:
 - dirty market lists
 - capped catch-up work per frame when needed
 
-## Cross-Sector Trade And Influence
+## Future Cross-Sector Trade And Influence
 
-The economy is one persistent simulation across all sectors, not separate unloaded worlds.
+The long-term economy can become one persistent simulation across sectors, not
+separate unloaded worlds. This is future support, not a first playable-sector
+requirement.
 
 Cross-sector trade jobs require:
 
@@ -508,7 +520,9 @@ Required outputs:
 - patrols: patrol zones, patrol assets, authority faction, response profiles, cooldown/budget state, and moving anchor references
 - ambushes: ambush zones tied to valuable route segments, risk windows, escape targets, owning pirate group/faction, and interdiction hazard seeds
 - factions: local faction presence, relationships, influence, operational state, legal authority, station ownership, and service posture
-- services: station service endpoint definitions for market, repair/refuel/rearm, legal office, mission board, storage, shipyard/outfitting, vendors, and black markets where present
+- services: station service endpoint definitions for market, repair/refuel/rearm,
+  legal office, mission contact/board, storage, shipyard/outfitting, vendors,
+  and black markets where present
 - missions: mission source pools, generated offer seeds, objective target pools, reward policies, legal exception policies, and turn-in service endpoints
 - follow-up opportunities: validated records for mission offers, bounties, distress responses, market tips, patrol requests, smuggling offers, and story hooks created after simulation events
 
@@ -595,9 +609,14 @@ Do not make MassEntity a prerequisite for the foundation or the first economy sl
 
 World Partition is not the answer for NPC ships or economy. It is useful for authored spatial content and large maps, not for simulating distant markets or millions of logical ships.
 
-## Required Data
+## Related Contract Owners
 
-Add these later as contracts:
+This document owns behavioral tiering requirements. Canonical data contracts
+belong in [System Data Contracts](system-data-contracts.md) and [Systemic
+Gameplay Foundations](systemic-gameplay-foundations.md). Add or extend concrete
+record definitions there when a selected slice needs them.
+
+Expected contract families include:
 
 - `FShipTrafficInstance`
 - `FTrafficRouteDefinition`

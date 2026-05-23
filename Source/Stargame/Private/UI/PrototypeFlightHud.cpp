@@ -433,9 +433,9 @@ void APrototypeFlightHud::DrawDockedStationPanel(float ViewWidth, float ViewHeig
 	TextY += 24.0f * Scale;
 	DrawText(TEXT("COMMANDS"), Cyan, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.72f, false);
 	TextY += 18.0f * Scale;
-	DrawText(TEXT("1 REPAIR   2 REFUEL   3 BUY MARKET ITEM"), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.68f, false);
+	DrawText(TEXT("F ENTER STATION   WALK TO SERVICES / CONTACTS"), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.68f, false);
 	TextY += 18.0f * Scale;
-	DrawText(TEXT("4 ACCEPT MISSION   5 TURN IN   F ENTER   U LAUNCH"), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.68f, false);
+	DrawText(TEXT("DOCKED ACTIONS AUTOSAVE   DEBUG HOTKEYS DISABLED"), Text, X + 18.0f * Scale, TextY, GEngine->GetSmallFont(), Scale * 0.68f, false);
 	const int32 CommandLimit = FMath::Min(Panel.Commands.Num(), 5);
 	for (int32 CommandIndex = 0; CommandIndex < CommandLimit; ++CommandIndex)
 	{
@@ -583,6 +583,18 @@ void APrototypeFlightHud::DrawDockedStationPanel(float ViewWidth, float ViewHeig
 			TextY,
 			GEngine->GetSmallFont(),
 			Scale * 0.78f,
+			false);
+	}
+	if (!Session->GetLastAutosaveStatus().IsEmpty())
+	{
+		TextY += 20.0f * Scale;
+		DrawText(
+			Session->GetLastAutosaveStatus().ToUpper(),
+			Session->WasLastAutosaveSuccessful() ? Green : Warning,
+			X + 18.0f * Scale,
+			TextY,
+			GEngine->GetSmallFont(),
+			Scale * 0.62f,
 			false);
 	}
 }

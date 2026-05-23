@@ -976,6 +976,9 @@ bool FM4SupercruiseStateMachineTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("M4 dropout clamps speed to normal range"), FlightMode->GetCurrentSupercruiseSpeedCmPerSec() <= SystemDefinition.Scale.NormalFlightMaxSpeedCmPerSec);
 
 	TestEqual(TEXT("M4 re-entry is blocked during dropout cooldown"), FlightMode->RequestEnterSupercruise(ClearGravity, DistantTarget), ESupercruiseRequestResult::SpoolInterrupted);
+	FlightMode->TickSupercruise(SystemDefinition.Scale.DropoutCooldownSeconds + 0.1, ClearGravity, DistantTarget);
+	TestEqual(TEXT("M4 dropout cooldown returns to inactive"), FlightMode->GetSupercruiseState(), ESupercruiseState::Inactive);
+	TestEqual(TEXT("M4 re-entry succeeds after dropout cooldown"), FlightMode->RequestEnterSupercruise(ClearGravity, DistantTarget), ESupercruiseRequestResult::Success);
 	return true;
 }
 
@@ -2854,6 +2857,23 @@ bool FM9InventoryEquipmentParityTest::RunTest(const FString& Parameters)
 			WeaponStats.ProjectileCollisionRadiusCm == 850.0 &&
 			WeaponStats.PresentationType == FName(TEXT("projectile_bolt"));
 	}));
+	TestTrue(TEXT("M9 Godot ship equipment stats carry starter shield/engine/thrusters"), State.ShipEquipmentStats.ContainsByPredicate([](const FShipEquipmentStatDefinition& EquipmentStats)
+	{
+		return EquipmentStats.EquipmentStatId == FName(TEXT("equipment_stat_shield_basic")) &&
+			EquipmentStats.ItemId == FName(TEXT("shield_basic")) &&
+			EquipmentStats.MaxShieldBonus == 35.0;
+	}) && State.ShipEquipmentStats.ContainsByPredicate([](const FShipEquipmentStatDefinition& EquipmentStats)
+	{
+		return EquipmentStats.EquipmentStatId == FName(TEXT("equipment_stat_engine_basic")) &&
+			EquipmentStats.ItemId == FName(TEXT("engine_basic")) &&
+			EquipmentStats.NormalMaxSpeedMultiplier > 1.0 &&
+			EquipmentStats.ThrustAccelerationMultiplier > 1.0;
+	}) && State.ShipEquipmentStats.ContainsByPredicate([](const FShipEquipmentStatDefinition& EquipmentStats)
+	{
+		return EquipmentStats.EquipmentStatId == FName(TEXT("equipment_stat_thrusters_basic")) &&
+			EquipmentStats.ItemId == FName(TEXT("thrusters_basic")) &&
+			EquipmentStats.StrafeAccelerationMultiplier > 1.0;
+	}));
 	TestTrue(TEXT("M9 Godot station combat profile carries FPS boarding values"), State.StationInteriorCombatProfiles.ContainsByPredicate([](const FStationInteriorCombatProfileDefinition& Profile)
 	{
 		return Profile.ProfileId == FName(TEXT("profile_godot_hostile_boarding_basic")) &&
@@ -3632,6 +3652,12 @@ bool FM10WorldLifeActivatesRuntimeEncounterBehaviorTest::RunTest(const FString& 
 	{
 		return false;
 	}
+	const FResolvedShipEquipmentStats StarterEquipmentStats = Context.Session->ResolvePlayerShipEquipmentStats();
+	TestTrue(TEXT("M10 starter ship equipment resolves shield bonus"), StarterEquipmentStats.ResolvedMaxShield > StarterEquipmentStats.BaseMaxShield);
+	TestTrue(TEXT("M10 starter ship equipment resolves engine speed"), StarterEquipmentStats.NormalMaxSpeedMultiplier > 1.0);
+	TestTrue(TEXT("M10 starter ship equipment resolves thruster strafe"), StarterEquipmentStats.StrafeAccelerationMultiplier > 1.0);
+	TestTrue(TEXT("M10 player pawn consumes equipped engine speed"), Pawn->GetNormalMaxSpeedCentimetersPerSecond() > 24000.0f);
+	TestTrue(TEXT("M10 player pawn consumes equipped thrusters"), Pawn->GetStrafeAccelerationCentimetersPerSecondSquared() > 6000.0f);
 
 	const FVector PlayerCombatPositionCm = PirateEntry->Actor->GetActorLocation() - FVector(1000.0, 0.0, 0.0);
 	const FRotator PlayerCombatRotation = FRotationMatrix::MakeFromX((PirateEntry->Actor->GetActorLocation() - PlayerCombatPositionCm).GetSafeNormal()).Rotator();
@@ -3649,6 +3675,7 @@ bool FM10WorldLifeActivatesRuntimeEncounterBehaviorTest::RunTest(const FString& 
 	TestTrue(TEXT("M10 runtime behavior waits for engagement id"), EncounterView.EngagementId.IsNone());
 	TestEqual(TEXT("M10 runtime behavior applies warning-shot damage"), EncounterView.DamageResultState, FName(TEXT("applied")));
 	TestEqual(TEXT("M10 runtime behavior records damaged target state"), EncounterView.TargetDurabilityState, FName(TEXT("damaged")));
+	TestEqual(TEXT("M10 runtime behavior exposes hostile AI engage state"), EncounterView.HostileAIStateId, FName(TEXT("engage")));
 
 	FSystemicGameplayState State = Context.Session->GetSystemicGameplayState();
 	TestTrue(TEXT("M10 runtime behavior engages systemic encounter without resolving"), State.LogicalEncounters.ContainsByPredicate([](const FLogicalEncounterRecord& Encounter)
@@ -3760,6 +3787,7 @@ bool FM10WorldLifeActivatesRuntimeEncounterBehaviorTest::RunTest(const FString& 
 	TestEqual(TEXT("M10 runtime encounter view exposes shot presentation"), WeaponFeedbackView.ShotPresentationType, FName(TEXT("projectile_bolt")));
 	TestFalse(TEXT("M10 runtime encounter view projectile hit is not still in flight"), WeaponFeedbackView.bProjectileInFlight);
 	TestFalse(TEXT("M10 runtime encounter view exposes hostile response movement"), WeaponFeedbackView.HostileManeuverStateId.IsNone());
+	TestEqual(TEXT("M10 runtime encounter keeps hostile AI in engage state"), WeaponFeedbackView.HostileAIStateId, FName(TEXT("engage")));
 	Context.Session->AdvanceSimulationClock(0.36);
 	TestTrue(TEXT("M10 runtime encounter view refreshes after hostile cooldown"), Context.Session->TryUpdateRuntimeEncounterBehavior());
 	const FRuntimeEncounterViewModel HostileFireView = Context.Session->GetRuntimeEncounterView();
@@ -3828,6 +3856,7 @@ bool FM10WorldLifeActivatesRuntimeEncounterBehaviorTest::RunTest(const FString& 
 	const FRuntimeEncounterViewModel ResolvedEncounterView = Context.Session->GetRuntimeEncounterView();
 	TestEqual(TEXT("M10 runtime behavior resolves encounter after explicit outcome"), ResolvedEncounterView.bResolvedEncounter, true);
 	TestEqual(TEXT("M10 runtime behavior records patrol outcome"), ResolvedEncounterView.OutcomeType, FName(TEXT("patrol_response")));
+	TestEqual(TEXT("M10 runtime behavior exposes hostile AI return-to-anchor state"), ResolvedEncounterView.HostileAIStateId, FName(TEXT("return_to_anchor")));
 	TestFalse(TEXT("M10 runtime behavior records engagement id"), ResolvedEncounterView.EngagementId.IsNone());
 
 	State = Context.Session->GetSystemicGameplayState();
@@ -3883,6 +3912,7 @@ bool FM10WorldLifeAppliesRuntimeEscapeOutcomeTest::RunTest(const FString& Parame
 	TestTrue(TEXT("M10 escape outcome applies"), Context.Session->ApplyRuntimeEncounterOutcome(TEXT("encounter_pirate_trade_lane_01"), TEXT("escape")));
 	const FRuntimeEncounterViewModel EscapeView = Context.Session->GetRuntimeEncounterView();
 	TestEqual(TEXT("M10 escape outcome is recorded"), EscapeView.OutcomeType, FName(TEXT("escape")));
+	TestEqual(TEXT("M10 escape outcome exposes hostile AI disengage state"), EscapeView.HostileAIStateId, FName(TEXT("disengage")));
 	TestEqual(TEXT("M10 escape outcome writes durability"), EscapeView.TargetDurabilityState, FName(TEXT("escaped")));
 	TestEqual(TEXT("M10 escape outcome damage applies"), EscapeView.DamageResultState, FName(TEXT("applied")));
 
@@ -4323,6 +4353,21 @@ bool FM12GameplayValidationTest::RunTest(const FString& Parameters)
 	{
 		return Endpoint.ServiceType == FName(TEXT("mission_board"));
 	}));
+	FSystemicStationGameplaySnapshot StationSnapshot;
+	TestTrue(TEXT("M12 station gameplay snapshot resolves Brink Watch"), USystemicGameplayQueryService::BuildStationGameplaySnapshot(SystemDefinition, SystemDefinition.SystemicGameplay, TEXT("brink_watch"), StationSnapshot));
+	TestTrue(TEXT("M12 station snapshot exposes market and services"), StationSnapshot.bHasMarket && StationSnapshot.ServiceCount >= 5 && StationSnapshot.TotalMarketStock > 0);
+	const bool bStationSnapshotExposesCommoditiesAndMissions =
+		StationSnapshot.CommodityIds.Contains(FName(TEXT("commodity_ember_ore"))) &&
+		StationSnapshot.MissionOfferIds.Contains(FName(TEXT("offer_m12_wayfarer_security_01")));
+	TestTrue(TEXT("M12 station snapshot exposes commodities and missions"), bStationSnapshotExposesCommoditiesAndMissions);
+	TestEqual(TEXT("M12 station snapshot preserves owner faction"), StationSnapshot.OwnerFactionId, FName(TEXT("frontier_local_authority")));
+
+	FSystemicRouteGameplaySnapshot RouteSnapshot;
+	const FSimulationClockSnapshot SnapshotClock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(SystemDefinition.SystemId, 30.0);
+	TestTrue(TEXT("M12 route gameplay snapshot resolves trade lane"), USystemicGameplayQueryService::BuildRouteGameplaySnapshot(SystemDefinition, SystemDefinition.SystemicGameplay, TEXT("m7_brink_watch_wayfarer_trade"), SnapshotClock, 30.0, RouteSnapshot));
+	TestTrue(TEXT("M12 route snapshot exposes security and ambush pressure"), RouteSnapshot.bSupportsPatrolCoverage && RouteSnapshot.bSupportsPirateAmbush && RouteSnapshot.PirateAmbushScore > 0.0);
+	TestEqual(TEXT("M12 route snapshot preserves jurisdiction"), RouteSnapshot.JurisdictionId, FName(TEXT("frontier_local_authority")));
+	TestFalse(TEXT("M12 route snapshot recommends a gameplay encounter category"), RouteSnapshot.RecommendedEncounterType.IsNone());
 	TestTrue(TEXT("M12 mission offer carries station registry giver and tags"), SystemDefinition.SystemicGameplay.MissionOffers.ContainsByPredicate([](const FMissionOfferRecord& Offer)
 	{
 		return Offer.OfferId == FName(TEXT("offer_m12_wayfarer_security_01")) &&
@@ -4893,6 +4938,7 @@ bool FPlayableLoopDockedStationCommandPanelTest::RunTest(const FString& Paramete
 	TestTrue(TEXT("Pause menu inventory summarizes personal inventory"), PauseView.InventoryText.Contains(TEXT("Personal Inventory")));
 	TestTrue(TEXT("Pause menu inventory summarizes ship cargo"), PauseView.InventoryText.Contains(TEXT("Ship Cargo")));
 	TestTrue(TEXT("Pause menu settings keeps foundation controls"), PauseView.SettingsText.Contains(TEXT("Resume")));
+	TestTrue(TEXT("Pause menu settings exposes exit option"), PauseView.SettingsText.Contains(TEXT("Exit")));
 
 	FDockedInventoryEquipmentPanelView InventoryPanel;
 	TestTrue(TEXT("Station command panel resolves inventory equipment panel"), Context.Session->GetDockedInventoryEquipmentPanel(InventoryPanel));
@@ -5185,7 +5231,7 @@ bool FPlayableLoopStationInteriorTransitionTest::RunTest(const FString& Paramete
 		return false;
 	}
 	TestEqual(TEXT("Station interior spawns quest-giver contact actors"), InteriorRoom->GetMissionContactCount(), 2);
-	TestEqual(TEXT("Station interior spawns basic service interactables"), InteriorRoom->GetInteractableCount(), 4);
+	TestEqual(TEXT("Station interior spawns basic service interactables"), InteriorRoom->GetInteractableCount(), 5);
 	AStationMissionContactActor* DispatchContact = InteriorRoom->FindMissionContact(TEXT("npc_brink_watch_dispatch"));
 	TestNotNull(TEXT("Station interior spawns dispatch contact"), DispatchContact);
 	if (!DispatchContact)
@@ -5234,7 +5280,6 @@ bool FPlayableLoopStationInteriorTransitionTest::RunTest(const FString& Paramete
 		RepairPanelWidget->ShowStationObject(InteriorPawn, RepairService->GetInteractionType(), RepairService->GetDisplayName());
 		RepairPanelWidget->RemoveFromParent();
 	}
-	TestTrue(TEXT("Station interior pawn executes repair service"), InteriorPawn->InteractWithFocusedStationObject());
 
 	AStationInteriorInteractableActor* MarketDesk = InteriorRoom->FindNearestInteractable(InteriorRoom->GetActorLocation() + FVector(360.0, 0.0, 0.0), 80.0f);
 	TestNotNull(TEXT("Station interior market desk exists"), MarketDesk);
@@ -5247,13 +5292,72 @@ bool FPlayableLoopStationInteriorTransitionTest::RunTest(const FString& Paramete
 	InteriorPawn->RefreshFocusedStationActor();
 	TestFalse(TEXT("Station interior repair focus clears near market desk"), RepairService->IsFocusedByPlayer());
 	TestTrue(TEXT("Station interior market desk shows focused prompt"), MarketDesk->IsFocusedByPlayer());
-	TestTrue(TEXT("Station interior pawn executes market buy"), InteriorPawn->InteractWithFocusedStationObject());
-	FDockedMarketView InteriorMarketView;
-	TestTrue(TEXT("Station interior market view resolves after spatial buy"), Context.Session->GetDockedMarketView(InteriorMarketView));
-	TestTrue(TEXT("Station interior spatial market buy updates player cargo holding"), InteriorMarketView.Commodities.ContainsByPredicate([](const FDockedMarketCommodityView& Commodity)
+	UStargameStationInteractionWidget* MarketPanelWidget = CreateWidget<UStargameStationInteractionWidget>(Context.World, UStargameStationInteractionWidget::StaticClass());
+	TestNotNull(TEXT("Station interior market panel widget constructs"), MarketPanelWidget);
+	if (!MarketPanelWidget)
 	{
-		return Commodity.PlayerCargoQuantity > 0;
+		return false;
+	}
+	MarketPanelWidget->ShowStationObject(InteriorPawn, MarketDesk->GetInteractionType(), MarketDesk->GetDisplayName());
+	TestTrue(TEXT("Station interior market panel exposes buy actions"), MarketPanelWidget->GetCurrentActions().ContainsByPredicate([](const FStargameStationInteractionActionView& Action)
+	{
+		return Action.ActionId == FName(TEXT("market_buy")) && !Action.CommodityId.IsNone();
 	}));
+	const FStargameStationInteractionActionView* BuyAction = MarketPanelWidget->GetCurrentActions().FindByPredicate([](const FStargameStationInteractionActionView& Action)
+	{
+		return Action.ActionId == FName(TEXT("market_buy")) && Action.bEnabled && !Action.CommodityId.IsNone();
+	});
+	FDockedMarketView InteriorMarketView;
+	TestTrue(TEXT("Station interior market view resolves from panel"), Context.Session->GetDockedMarketView(InteriorMarketView));
+	if (BuyAction)
+	{
+		const FName BoughtCommodityId = BuyAction->CommodityId;
+		MarketPanelWidget->ExecuteAction(*BuyAction);
+		TestTrue(TEXT("Station interior market view resolves after panel buy"), Context.Session->GetDockedMarketView(InteriorMarketView));
+		TestTrue(TEXT("Station interior panel buy updates player cargo holding"), InteriorMarketView.Commodities.ContainsByPredicate([](const FDockedMarketCommodityView& Commodity)
+		{
+			return Commodity.PlayerCargoQuantity > 0;
+		}));
+		const FStargameStationInteractionActionView* SellAction = MarketPanelWidget->GetCurrentActions().FindByPredicate([BoughtCommodityId](const FStargameStationInteractionActionView& Action)
+		{
+			return Action.ActionId == FName(TEXT("market_sell")) && Action.bEnabled && Action.CommodityId == BoughtCommodityId;
+		});
+		TestNotNull(TEXT("Station interior market panel exposes sell action after buy"), SellAction);
+		if (!SellAction)
+		{
+			return false;
+		}
+		MarketPanelWidget->ExecuteAction(*SellAction);
+		TestTrue(TEXT("Station interior market view resolves after panel sell"), Context.Session->GetDockedMarketView(InteriorMarketView));
+		TestTrue(TEXT("Station interior panel sell clears bought cargo holding"), InteriorMarketView.Commodities.ContainsByPredicate([BoughtCommodityId](const FDockedMarketCommodityView& Commodity)
+		{
+			return Commodity.CommodityId == BoughtCommodityId && Commodity.PlayerCargoQuantity == 0;
+		}));
+	}
+	MarketPanelWidget->RemoveFromParent();
+
+	AStationInteriorInteractableActor* MissionBoard = InteriorRoom->FindNearestInteractable(InteriorRoom->GetActorLocation() + FVector(360.0, 320.0, 0.0), 80.0f);
+	TestNotNull(TEXT("Station interior mission board exists"), MissionBoard);
+	if (!MissionBoard)
+	{
+		return false;
+	}
+	TestEqual(TEXT("Station interior mission board type"), MissionBoard->GetInteractionType(), FName(TEXT("mission_board")));
+	UStargameStationInteractionWidget* MissionBoardWidget = CreateWidget<UStargameStationInteractionWidget>(Context.World, UStargameStationInteractionWidget::StaticClass());
+	TestNotNull(TEXT("Station interior mission board widget constructs"), MissionBoardWidget);
+	if (MissionBoardWidget)
+	{
+		MissionBoardWidget->ShowStationObject(InteriorPawn, MissionBoard->GetInteractionType(), MissionBoard->GetDisplayName());
+		TestTrue(TEXT("Station interior mission board exposes contact actions"), MissionBoardWidget->GetCurrentActions().ContainsByPredicate([](const FStargameStationInteractionActionView& Action)
+		{
+			return Action.ActionId == FName(TEXT("mission_contact")) && Action.GiverNpcId == FName(TEXT("npc_brink_watch_dispatch"));
+		}));
+		MissionBoardWidget->RemoveFromParent();
+	}
+
+	InteriorPawn->SetActorLocation(RepairService->GetActorLocation() + FVector(60.0, 0.0, 90.0));
+	InteriorPawn->RefreshFocusedStationActor();
+	TestTrue(TEXT("Station interior pawn executes repair service"), InteriorPawn->InteractWithFocusedStationObject());
 
 	const FStargameM0SaveState InteriorSave = Context.Session->MakeCurrentM0SaveState();
 	TestEqual(TEXT("Station interior save remains station docked"), InteriorSave.ShipLocation.LocationMode, EShipLocationMode::StationDocked);
@@ -5264,16 +5368,13 @@ bool FPlayableLoopStationInteriorTransitionTest::RunTest(const FString& Paramete
 	UGameplayStatics::DeleteGameInSlot(UStargameSessionSubsystem::DevelopmentSlotName, 0);
 	TestEqual(TEXT("Station interior loaded save remains station docked"), LoadedInteriorSave.ShipLocation.LocationMode, EShipLocationMode::StationDocked);
 	TestEqual(TEXT("Station interior loaded save captures docked station"), LoadedInteriorSave.ShipLocation.DockedStationId, FName(TEXT("brink_watch")));
-	TestTrue(TEXT("Station interior loaded save preserves spatial market cargo"), LoadedInteriorSave.SystemicGameplayState.Containers.ContainsByPredicate([](const FContainerState& Container)
-	{
-		return Container.ContainerId == FName(TEXT("player_ship_cargo")) && Container.Stacks.ContainsByPredicate([](const FItemStackState& Stack)
-		{
-			return Stack.Quantity > 0;
-		});
-	}));
 	TestTrue(TEXT("Station interior loaded save preserves accepted mission"), LoadedInteriorSave.SystemicGameplayState.MissionInstances.ContainsByPredicate([](const FMissionInstanceState& Candidate)
 	{
 		return Candidate.MissionInstanceId == FName(TEXT("mission_m12_wayfarer_security_01")) && Candidate.CurrentState == FName(TEXT("active"));
+	}));
+	TestTrue(TEXT("Station interior loaded save preserves market round-trip without phantom cargo"), LoadedInteriorSave.SystemicGameplayState.Containers.ContainsByPredicate([](const FContainerState& Container)
+	{
+		return Container.ContainerId == FName(TEXT("player_ship_cargo")) && Container.Stacks.IsEmpty();
 	}));
 
 	AStationInteriorInteractableActor* LaunchPoint = InteriorRoom->FindNearestInteractable(InteriorRoom->GetActorLocation() + FVector(-430.0, 360.0, 0.0), 80.0f);
@@ -5778,6 +5879,14 @@ bool FPlayableLoopDockedStationFacadeTest::RunTest(const FString& Parameters)
 	{
 		return Contact.GiverNpcId == FName(TEXT("npc_brink_watch_dispatch")) &&
 			Contact.MissionInstanceId == FName(TEXT("mission_m12_wayfarer_security_01"));
+	}));
+	TestTrue(TEXT("Playable loop docked mutation autosave reports success"), Context.Session->WasLastAutosaveSuccessful());
+	TestTrue(TEXT("Playable loop docked mutation autosave has status"), Context.Session->GetLastAutosaveStatus().Contains(TEXT("Autosaved while docked")));
+	FStargameM0SaveState AutosavedState;
+	TestTrue(TEXT("Playable loop docked mutation autosave reads"), Context.Session->LoadDevelopmentSlot(AutosavedState));
+	TestTrue(TEXT("Playable loop autosave preserves completed mission before manual save"), AutosavedState.SystemicGameplayState.ProgressionDebugLedger.ContainsByPredicate([](const FProgressionDebugLedgerEntry& Entry)
+	{
+		return Entry.EntryType == FName(TEXT("mission_complete")) && Entry.MissionInstanceId == FName(TEXT("mission_m12_wayfarer_security_01"));
 	}));
 
 	const FSystemicGameplayState MutatedState = Context.Session->GetSystemicGameplayState();

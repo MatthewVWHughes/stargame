@@ -1,6 +1,9 @@
 #include "Space/CombatShotPresentationActor.h"
 
 #include "Components/SceneComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "UObject/ConstructorHelpers.h"
 
 namespace
 {
@@ -19,6 +22,18 @@ ACombatShotPresentationActor::ACombatShotPresentationActor()
 
 	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
 	SetRootComponent(SceneRoot);
+
+	VisualMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("NativeShotBeamMesh"));
+	VisualMesh->SetupAttachment(SceneRoot);
+	VisualMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	VisualMesh->SetGenerateOverlapEvents(false);
+	VisualMesh->SetCanEverAffectNavigation(false);
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(TEXT("/Engine/BasicShapes/Cube.Cube"));
+	if (CubeMesh.Succeeded())
+	{
+		VisualMesh->SetStaticMesh(CubeMesh.Object);
+	}
 }
 
 void ACombatShotPresentationActor::ConfigureShotPresentation(FName InShotPresentationId, FName InPresentationType, const FVector& StartPositionCm, const FVector& EndPositionCm, double InStartedAtTimeSeconds, double InDurationSeconds)
@@ -29,6 +44,8 @@ void ACombatShotPresentationActor::ConfigureShotPresentation(FName InShotPresent
 	PresentationType = InPresentationType;
 	StartedAtTimeSeconds = InStartedAtTimeSeconds;
 	DurationSeconds = FMath::Max(0.0, InDurationSeconds);
+	StoredStartPositionCm = StartPositionCm;
+	StoredEndPositionCm = EndPositionCm;
 
 	const FVector TraceVectorCm = EndPositionCm - StartPositionCm;
 	const double TraceLengthCm = FMath::Max(TraceVectorCm.Size(), 1.0);

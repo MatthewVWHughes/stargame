@@ -8,6 +8,7 @@ class AStationInteriorPawn;
 class UButton;
 class UTextBlock;
 class UStargameStationMarketAction;
+struct FDockedMissionContactOption;
 
 USTRUCT(BlueprintType)
 struct FStargameStationInteractionActionView
@@ -28,6 +29,9 @@ struct FStargameStationInteractionActionView
 
 	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Station")
 	bool bBuy = true;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Station")
+	FName GiverNpcId;
 };
 
 UCLASS()
@@ -47,6 +51,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Station")
 	void ExecuteMarketAction(FName CommodityId, bool bBuy);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Station")
+	void ExecuteAction(const FStargameStationInteractionActionView& Action);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Station")
+	const TArray<FStargameStationInteractionActionView>& GetCurrentActions() const { return CurrentActions; }
 
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Station")
 	void ClosePanel();
@@ -73,6 +83,7 @@ private:
 	void ClearActionButtons();
 	void AddActionButton(const FText& Label, bool bEnabled);
 	void AddMarketActionButton(const FText& Label, bool bEnabled, FName CommodityId, bool bBuy);
+	void AddMissionContactActionButton(const FDockedMissionContactOption& Contact);
 	void SetPanelText(const FText& InTitle, const FString& InBody, const FString& InStatus = FString(), bool bStatusIsError = false);
 	void RefreshStationObject();
 	void RefreshMissionContact();

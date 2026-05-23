@@ -8,6 +8,7 @@
 class AStationInteriorPawn;
 class AStationInteriorRoomActor;
 class UCapsuleComponent;
+class UStaticMeshComponent;
 
 UCLASS()
 class STARGAME_API AStationInteriorHostileActor : public AActor
@@ -78,6 +79,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<UCapsuleComponent> CollisionCapsule;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> HostileMesh;
 
 	UPROPERTY(VisibleAnywhere, Category = "Station|Combat")
 	FName HostileId;

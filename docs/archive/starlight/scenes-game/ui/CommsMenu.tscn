@@ -1,0 +1,61 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/ui/CommsMenuController.cs" id="1_script"]
+
+[node name="CommsMenu" type="CanvasLayer"]
+script = ExtResource("1_script")
+
+[node name="Dimmer" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.35)
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -250.0
+offset_top = -145.0
+offset_right = 250.0
+offset_bottom = 145.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBox" type="VBoxContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Panel/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Station Comms"
+horizontal_alignment = 0
+
+[node name="Body" type="Label" parent="Panel/VBox"]
+custom_minimum_size = Vector2(0, 86)
+layout_mode = 2
+text = "No station selected."
+horizontal_alignment = 0
+autowrap_mode = 3
+
+[node name="RequestDockButton" type="Button" parent="Panel/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 40)
+text = "Request Docking"
+
+[node name="CloseButton" type="Button" parent="Panel/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 40)
+text = "Close"
+
+[node name="Hint" type="Label" parent="Panel/VBox"]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Docking works when you are near a station and the hostile contact is not crowding the area."
+autowrap_mode = 3

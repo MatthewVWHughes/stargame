@@ -4,6 +4,14 @@ Save/load is the durable boundary between a playable session and the game simula
 
 The save file is not a snapshot of the Unreal world. It is a structured record of stable gameplay IDs, logical frames, simulation clocks, event watermarks, and mutable gameplay state. Actors, components, object paths, transient registries, and cached transforms are rebuilt from data during load.
 
+M0 scope is deliberately smaller than the full long-term save system. The first
+docked autosave path must preserve player ship/location, current system,
+credits/account balance, cargo, active mission state, basic reputation/faction
+deltas, station market/service mutations, selected target where useful, and
+pending gate-arrival state. Event catch-up, escrow recovery, broad legal state,
+ship ownership fleets, conversations, and distant simulation restore are future
+hardening unless the selected slice actively uses them.
+
 ## Goals
 
 The save system must support:
@@ -32,7 +40,7 @@ It owns:
 
 `UStargameSessionSubsystem` may delegate serialization details to a helper such as `UStargameSaveSubsystem` later, but only one system may own the top-level envelope contract. Other systems contribute section snapshots through explicit C++ APIs. They do not write their own independent `USaveGame` objects.
 
-Required section owners:
+Required section owners for the full save architecture:
 
 | Section | Owner | Notes |
 | --- | --- | --- |
@@ -243,7 +251,7 @@ The event owner persists pending events and processed watermarks in the save env
 
 ## Idempotent Catch-Up
 
-Catch-up is the simulation work needed when a saved game loads at time `T` and the game needs markets, AI, production, travel, and legal consequences to be coherent at a later authoritative time.
+Catch-up is the simulation work needed when a saved game loads at time `T` and the game needs markets, AI, production, travel, and legal consequences to be coherent at a later authoritative time. It is a full-simulation requirement, not a prerequisite for the first docked autosave unless that slice includes due scheduled events.
 
 Catch-up must be idempotent: retrying load, crashing mid-load, or realizing an event near the player must not apply the same trade delivery, market delta, distress call, interdiction, crime record, or AI outcome twice.
 
@@ -429,22 +437,29 @@ On load, markets and AI catch up before the active system realizes actors. The a
 
 ## Implementation Checklist
 
-The save/load implementation must provide:
+The M0 save/load implementation must provide:
 
 1. `USaveGame` envelope and version header validation.
 2. Development invalidation through `BuildCompatibilityId`.
 3. Startup save/load for `SystemId`, `SpawnZoneId`, and optional `SelectedTargetId`.
 4. Guarded load state so normal ticks cannot advance simulation during restore.
 5. `FSimulationClockSnapshot` persistence.
-6. Event queue and processed watermark persistence.
-7. Idempotent catch-up for markets and scheduled AI events.
-8. `FShipSaveLocation` for free flight.
-9. Docked restore ordering.
-10. Gate arrival and respawn restore paths.
-11. Production save upgrade steps when versions change.
-12. Gameplay transaction prepare/commit/recovery journal persistence.
-13. Ship instance durability/loadout resource persistence and service result restore.
-14. Systemic save/load tests for mission, legal cargo, services, arbitration, and faction/reputation deltas.
+6. `FShipSaveLocation` for free flight.
+7. Docked restore ordering.
+8. Gate arrival restore path.
+9. Player-visible credits/account, cargo, market/service, mission, and basic
+   reputation mutations used by the current loop.
+10. Systemic save/load tests for each current player-visible mutation.
+
+Future hardening adds:
+
+- event queue and processed watermark persistence
+- idempotent catch-up for markets and scheduled AI events
+- respawn restore paths
+- production save upgrade steps when versions change
+- gameplay transaction prepare/commit/recovery journal persistence
+- ship instance durability/loadout resource persistence and service result restore
+- broader legal cargo, arbitration, and faction-operation restore tests
 
 ## Test Matrix
 

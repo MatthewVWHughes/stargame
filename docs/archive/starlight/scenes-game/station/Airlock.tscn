@@ -1,0 +1,121 @@
+[gd_scene format=3 uid="uid://cd6647wop1y03"]
+
+[ext_resource type="PackedScene" uid="uid://fnejlnom3y3s" path="res://assets/station_kit/pieces/Airlock/Airlock.glb" id="1_o7lh6"]
+[ext_resource type="Script" path="res://scripts/station_interior/AirlockDoor.cs" id="2_door"]
+[ext_resource type="Script" path="res://scripts/station_interior/DoorInteractable.cs" id="3_interact"]
+[ext_resource type="Script" path="res://scripts/game/stations/StationInteractableArea.cs" id="4_launch_interact"]
+
+[sub_resource type="Animation" id="Animation_ngfl4"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Airlock_Gate_Gate_Side2:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 4, -6)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Airlock_Gate_Gate_Side2_02:position")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 4, -6)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Airlock_Gate_Gate_Up:position")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 4, -6)]
+}
+
+[sub_resource type="Animation" id="Animation_fqjhd"]
+resource_name = "door_open"
+length = 1.0666667
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Airlock_Gate_Gate_Side2:position")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 0.73333335),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [Vector3(0, 4, -6), Vector3(-1.358, 4, -6)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Airlock_Gate_Gate_Side2_02:position")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.73333335),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [Vector3(0, 4, -6), Vector3(1.437, 4, -6)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Airlock_Gate_Gate_Up:position")
+tracks/2/interp = 1
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 0.73333335),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [Vector3(0, 4, -6), Vector3(0, 5.463, -6)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_bjw2n"]
+_data = {
+&"RESET": SubResource("Animation_ngfl4"),
+&"door_open": SubResource("Animation_fqjhd")
+}
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_door"]
+size = Vector3(3, 4, 0.3)
+
+[node name="Airlock" instance=ExtResource("1_o7lh6")]
+script = ExtResource("2_door")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." index="51"]
+libraries/ = SubResource("AnimationLibrary_bjw2n")
+
+[node name="DoorTrigger" type="Area3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5, -6)
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("3_interact")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="DoorTrigger"]
+shape = SubResource("BoxShape3D_door")
+
+[node name="LaunchTrigger" type="Area3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 5, 6)
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("4_launch_interact")
+ActionId = "launch"
+InteractLabel = "Launch Ship"
+InteractionRange = 3.0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="LaunchTrigger"]
+shape = SubResource("BoxShape3D_door")

@@ -6,6 +6,7 @@
 #include "LogicalTrafficActor.generated.h"
 
 class USceneComponent;
+class UStaticMeshComponent;
 
 UCLASS()
 class STARGAME_API ALogicalTrafficActor : public AActor
@@ -48,6 +49,29 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stargame|Traffic AI")
 	FString GetCommsLine() const { return CommsLine; }
 
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Combat")
+	void ConfigureCombatPresentation(FName InFactionId, double InShield, double InHull, bool bInHostile, bool bInFreeRoamCombat);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Combat")
+	bool ApplyCombatPresentationDamage(double DamageAmount, FName DamageType);
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Combat")
+	bool BuildShotPresentationToLocation(const FVector& TargetLocationCm, double MaxRangeCm, FVector& OutStartPositionCm, FVector& OutEndPositionCm) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Combat")
+	bool IsHostilePresentation() const { return bHostilePresentation; }
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Combat")
+	bool IsDestroyedPresentation() const { return bDestroyedPresentation; }
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Combat")
+	double GetShieldPresentation() const { return ShieldPresentation; }
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Combat")
+	double GetHullPresentation() const { return HullPresentation; }
+
+	virtual void Tick(float DeltaSeconds) override;
+
 protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Stargame|Traffic AI")
 	void OnTrafficActorConfigured(FName InShipInstanceId, FName InGroupId, EShipGoalKind InGoalKind);
@@ -55,9 +79,18 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Stargame|Traffic AI")
 	void OnEncounterBehaviorConfigured(FName InEncounterId, FName InIntentId, FName InIntentType, FName InThreatId, FName InTargetShipId, FName InBehaviorVariantId, FName InCommsVariantId, FName InLocalBehaviorStateId, const FString& InCommsLine);
 
+	UFUNCTION(BlueprintImplementableEvent, Category = "Stargame|Combat")
+	void OnCombatPresentationConfigured(FName InFactionId, double InShield, double InHull, bool bInHostile, bool bInFreeRoamCombat);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Stargame|Combat")
+	void OnCombatPresentationDamaged(double AppliedDamage, FName DamageType, double RemainingShield, double RemainingHull, bool bInDestroyed);
+
 private:
 	UPROPERTY(VisibleAnywhere, Category = "Stargame|Traffic AI")
 	TObjectPtr<USceneComponent> SceneRoot;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> VisualMesh;
 
 	UPROPERTY(VisibleAnywhere, Category = "Stargame|Traffic AI")
 	FName ShipInstanceId;
@@ -94,4 +127,24 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Stargame|Traffic AI")
 	FString CommsLine;
+
+	UPROPERTY(VisibleAnywhere, Category = "Stargame|Combat")
+	FName FactionId;
+
+	UPROPERTY(VisibleAnywhere, Category = "Stargame|Combat")
+	double ShieldPresentation = 50.0;
+
+	UPROPERTY(VisibleAnywhere, Category = "Stargame|Combat")
+	double HullPresentation = 100.0;
+
+	UPROPERTY(VisibleAnywhere, Category = "Stargame|Combat")
+	bool bHostilePresentation = false;
+
+	UPROPERTY(VisibleAnywhere, Category = "Stargame|Combat")
+	bool bFreeRoamCombatPresentation = false;
+
+	UPROPERTY(VisibleAnywhere, Category = "Stargame|Combat")
+	bool bDestroyedPresentation = false;
+
+	double NativePresentationPhaseSeconds = 0.0;
 };

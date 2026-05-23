@@ -1,0 +1,57 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/ui/CombatHudController.cs" id="1_script"]
+
+[node name="CombatHud" type="CanvasLayer"]
+script = ExtResource("1_script")
+
+[node name="StatusLabel" type="Label" parent="."]
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -320.0
+offset_top = 120.0
+offset_right = 320.0
+offset_bottom = 162.0
+theme_override_font_sizes/font_size = 20
+theme_override_colors/font_color = Color(1, 0.82, 0.36, 0.95)
+theme_override_colors/font_outline_color = Color(0.02, 0.05, 0.08, 0.9)
+theme_override_constants/outline_size = 6
+horizontal_alignment = 1
+text = ""
+autowrap_mode = 3
+
+[node name="SummaryLabel" type="Label" parent="."]
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -540.0
+offset_top = -204.0
+offset_right = -140.0
+offset_bottom = -156.0
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.9, 0.95, 1, 0.88)
+theme_override_colors/font_outline_color = Color(0.02, 0.05, 0.08, 0.86)
+theme_override_constants/outline_size = 5
+horizontal_alignment = 2
+text = ""
+autowrap_mode = 3
+
+[node name="HintLabel" type="Label" parent="."]
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -560.0
+offset_top = -170.0
+offset_right = -140.0
+offset_bottom = -124.0
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.72, 0.9, 1, 0.82)
+theme_override_colors/font_outline_color = Color(0.02, 0.05, 0.08, 0.86)
+theme_override_constants/outline_size = 5
+horizontal_alignment = 2
+text = ""
+autowrap_mode = 3

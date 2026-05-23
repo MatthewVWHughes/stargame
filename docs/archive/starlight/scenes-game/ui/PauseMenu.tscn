@@ -1,0 +1,219 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/ui/PauseMenuController.cs" id="1_script"]
+
+[node name="PauseMenu" type="CanvasLayer"]
+layer = 128
+script = ExtResource("1_script")
+
+[node name="Root" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+
+[node name="Backdrop" type="ColorRect" parent="Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0, 0, 0, 0.55)
+
+[node name="CenterPanel" type="PanelContainer" parent="Root"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -560.0
+offset_top = -360.0
+offset_right = 560.0
+offset_bottom = 360.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Margin" type="MarginContainer" parent="Root/CenterPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 18
+
+[node name="VBox" type="VBoxContainer" parent="Root/CenterPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Root/CenterPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 28
+text = "Paused"
+
+[node name="Tabs" type="TabContainer" parent="Root/CenterPanel/Margin/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+current_tab = 0
+
+[node name="Inventory" type="Control" parent="Root/CenterPanel/Margin/VBox/Tabs"]
+layout_mode = 2
+
+[node name="Margin" type="MarginContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="HBox" type="HBoxContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="PlayerEquippedCol" type="VBoxContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin/HBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Header" type="Label" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin/HBox/PlayerEquippedCol"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Player Equipped"
+
+[node name="List" type="VBoxContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin/HBox/PlayerEquippedCol"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="PlayerInventoryCol" type="VBoxContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin/HBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Header" type="Label" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin/HBox/PlayerInventoryCol"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Player Inventory"
+
+[node name="Grid" type="GridContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin/HBox/PlayerInventoryCol"]
+layout_mode = 2
+size_flags_vertical = 3
+columns = 4
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6
+
+[node name="ShipEquippedCol" type="VBoxContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin/HBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Header" type="Label" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin/HBox/ShipEquippedCol"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Ship Equipped"
+
+[node name="List" type="VBoxContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin/HBox/ShipEquippedCol"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="ShipCargoCol" type="VBoxContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin/HBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Header" type="Label" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin/HBox/ShipCargoCol"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Cargo Hold"
+
+[node name="List" type="VBoxContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Inventory/Margin/HBox/ShipCargoCol"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 4
+
+[node name="Missions" type="Control" parent="Root/CenterPanel/Margin/VBox/Tabs"]
+visible = false
+layout_mode = 2
+
+[node name="Margin" type="MarginContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Missions"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Missions/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Header" type="Label" parent="Root/CenterPanel/Margin/VBox/Tabs/Missions/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Active Contracts"
+
+[node name="Subheader" type="Label" parent="Root/CenterPanel/Margin/VBox/Tabs/Missions/Margin/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Mission progress updates here as objectives advance in stations and space."
+
+[node name="EmptyLabel" type="Label" parent="Root/CenterPanel/Margin/VBox/Tabs/Missions/Margin/VBox"]
+layout_mode = 2
+text = "No active missions yet. Talk to contacts at Earth Hub to pick up work."
+
+[node name="Scroll" type="ScrollContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Missions/Margin/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="List" type="VBoxContainer" parent="Root/CenterPanel/Margin/VBox/Tabs/Missions/Margin/VBox/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Settings" type="Control" parent="Root/CenterPanel/Margin/VBox/Tabs"]
+visible = false
+layout_mode = 2
+
+[node name="ComingSoon" type="Label" parent="Root/CenterPanel/Margin/VBox/Tabs/Settings"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -80.0
+offset_top = -20.0
+offset_right = 80.0
+offset_bottom = 20.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "Settings — coming soon."
+horizontal_alignment = 1
+
+[node name="Footer" type="HBoxContainer" parent="Root/CenterPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 10
+alignment = 2
+
+[node name="MainMenuButton" type="Button" parent="Root/CenterPanel/Margin/VBox/Footer"]
+layout_mode = 2
+custom_minimum_size = Vector2(180, 40)
+text = "Quit to Main Menu"
+
+[node name="ResumeButton" type="Button" parent="Root/CenterPanel/Margin/VBox/Footer"]
+layout_mode = 2
+custom_minimum_size = Vector2(140, 40)
+text = "Resume"

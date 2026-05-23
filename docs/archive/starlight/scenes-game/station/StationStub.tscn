@@ -1,0 +1,343 @@
+[gd_scene format=3 uid="uid://bej8xiqcc8lii"]
+
+[ext_resource type="Script" uid="uid://rvaymo3srr58" path="res://scripts/game/stations/StationStubController.cs" id="1_script"]
+[ext_resource type="Script" uid="uid://dgbviau8ivkux" path="res://scripts/game/stations/StationInteractableArea.cs" id="2_interact"]
+[ext_resource type="PackedScene" uid="uid://cd6647wop1y03" path="res://scenes/game/station/Airlock.tscn" id="3_airlock"]
+
+[sub_resource type="Environment" id="3_env"]
+background_color = Color(0.02, 0.02, 0.04, 1)
+ambient_light_color = Color(0.18, 0.18, 0.22, 1)
+ambient_light_energy = 0.8
+
+[sub_resource type="StandardMaterial3D" id="2_floor_mat"]
+albedo_color = Color(0.18, 0.2, 0.24, 1)
+roughness = 0.85
+
+[sub_resource type="BoxMesh" id="1_floor"]
+size = Vector3(18, 0.2, 18)
+
+[sub_resource type="BoxShape3D" id="9_floor_shape"]
+size = Vector3(18, 0.2, 18)
+
+[sub_resource type="StandardMaterial3D" id="5_wall_mat"]
+albedo_color = Color(0.24, 0.27, 0.32, 1)
+
+[sub_resource type="BoxMesh" id="4_wall"]
+size = Vector3(18, 5, 0.3)
+
+[sub_resource type="BoxShape3D" id="10_wall_shape"]
+size = Vector3(18, 5, 0.3)
+
+[sub_resource type="BoxShape3D" id="11_side_wall_shape"]
+size = Vector3(0.3, 5, 18)
+
+[sub_resource type="StandardMaterial3D" id="7_trader_mat"]
+albedo_color = Color(0.35, 0.7, 1, 1)
+
+[sub_resource type="CylinderMesh" id="6_cyl"]
+
+[sub_resource type="CylinderShape3D" id="12_interact_shape"]
+height = 2.2
+radius = 0.9
+
+[sub_resource type="StandardMaterial3D" id="8_repair_mat"]
+albedo_color = Color(1, 0.65, 0.35, 1)
+
+[node name="StationStub" type="Node3D" unique_id=445061444]
+script = ExtResource("1_script")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=2108166153]
+environment = SubResource("3_env")
+
+[node name="Floor" type="MeshInstance3D" parent="." unique_id=218518240]
+material_override = SubResource("2_floor_mat")
+mesh = SubResource("1_floor")
+
+[node name="FloorBody" type="StaticBody3D" parent="." unique_id=1396429568]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="FloorBody" unique_id=550147514]
+shape = SubResource("9_floor_shape")
+
+[node name="AirlockMarker" type="Marker3D" parent="." unique_id=1809519538]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.7381847, 1.248053, 16.1)
+
+[node name="ServiceMarker" type="Marker3D" parent="." unique_id=1695574119]
+
+[node name="ExitMarker" type="Marker3D" parent="." unique_id=1525615376]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 7)
+
+[node name="WallBack" type="MeshInstance3D" parent="." unique_id=578778682]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, -8)
+material_override = SubResource("5_wall_mat")
+mesh = SubResource("4_wall")
+
+[node name="WallBackBody" type="StaticBody3D" parent="." unique_id=421086786]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, -8)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallBackBody" unique_id=32456086]
+shape = SubResource("10_wall_shape")
+
+[node name="WallLeft" type="MeshInstance3D" parent="." unique_id=1521546972]
+transform = Transform3D(-3.6199901e-06, 0, 1, 0, 1, 0, -1, 0, -3.6199901e-06, -9, 2.5, 0)
+material_override = SubResource("5_wall_mat")
+mesh = SubResource("4_wall")
+
+[node name="WallLeftBody" type="StaticBody3D" parent="." unique_id=22058152]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9, 2.5, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallLeftBody" unique_id=368568827]
+shape = SubResource("11_side_wall_shape")
+
+[node name="WallRight" type="MeshInstance3D" parent="." unique_id=1601612588]
+transform = Transform3D(-3.6199901e-06, 0, 1, 0, 1, 0, -1, 0, -3.6199901e-06, 9, 2.5, 0)
+material_override = SubResource("5_wall_mat")
+mesh = SubResource("4_wall")
+
+[node name="WallRightBody" type="StaticBody3D" parent="." unique_id=1920882743]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9, 2.5, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallRightBody" unique_id=449575067]
+shape = SubResource("11_side_wall_shape")
+
+[node name="TraderCylinder" type="MeshInstance3D" parent="." unique_id=949508511]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 1, -1)
+material_override = SubResource("7_trader_mat")
+mesh = SubResource("6_cyl")
+
+[node name="TraderArea" type="Area3D" parent="TraderCylinder" unique_id=1459786969]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("2_interact")
+ActionId = "trade"
+InteractLabel = "Commodity Trader"
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TraderCylinder/TraderArea" unique_id=1921578379]
+shape = SubResource("12_interact_shape")
+
+[node name="RepairCylinder" type="MeshInstance3D" parent="." unique_id=265264078]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.5, 1, -1)
+material_override = SubResource("8_repair_mat")
+mesh = SubResource("6_cyl")
+
+[node name="RepairArea" type="Area3D" parent="RepairCylinder" unique_id=68067265]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("2_interact")
+ActionId = "repair"
+InteractLabel = "Repair Service"
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="RepairCylinder/RepairArea" unique_id=1991371623]
+shape = SubResource("12_interact_shape")
+
+[node name="Airlock" parent="." unique_id=1931850228 instance=ExtResource("3_airlock")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.475132, -3.8649597, 15.046259)
+
+[node name="StationLabel3D" type="Label3D" parent="." unique_id=123210882]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.4, -2)
+billboard = 1
+text = "Station"
+font_size = 46
+
+[node name="AirlockLabel3D" type="Label3D" parent="." unique_id=779198338]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.2, 6.2)
+billboard = 1
+text = "Airlock"
+font_size = 24
+
+[node name="TraderLabel3D" type="Label3D" parent="." unique_id=1633132164]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.5, 2.5, -1)
+billboard = 1
+text = "Trader"
+font_size = 24
+
+[node name="RepairLabel3D" type="Label3D" parent="." unique_id=361021938]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.5, 2.5, -1)
+billboard = 1
+text = "Repairs"
+font_size = 24
+
+[node name="LaunchLabel3D" type="Label3D" parent="." unique_id=1015824337]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.9, 18)
+billboard = 1
+text = "Launch Ship"
+font_size = 22
+
+[node name="LightMain" type="OmniLight3D" parent="." unique_id=507016170]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.5, 0)
+light_color = Color(0.95, 0.92, 0.82, 1)
+light_energy = 2.0
+omni_range = 24.0
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=1487045625]
+
+[node name="QuickPanel" type="PanelContainer" parent="UI" unique_id=492259427]
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 360.0
+offset_bottom = 210.0
+grow_vertical = 0
+
+[node name="VBox" type="VBoxContainer" parent="UI/QuickPanel" unique_id=1455987609]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="UI/QuickPanel/VBox" unique_id=792650819]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Docked"
+
+[node name="Hint" type="Label" parent="UI/QuickPanel/VBox" unique_id=119833533]
+layout_mode = 2
+text = "Walk to Trader, Repairs, or the airlock and press F."
+autowrap_mode = 3
+
+[node name="StationFlowHint" type="Label" parent="UI/QuickPanel/VBox" unique_id=1804405978]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Loop: dock, interact, trade, launch, fly to another station, sell."
+autowrap_mode = 3
+
+[node name="StationTitle" type="Label" parent="UI/QuickPanel/VBox" unique_id=873851309]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Station"
+
+[node name="PlayerSummary" type="Label" parent="UI/QuickPanel/VBox" unique_id=1277522787]
+custom_minimum_size = Vector2(0, 68)
+layout_mode = 2
+text = "Credits: 0"
+autowrap_mode = 3
+
+[node name="EquipmentSummary" type="Label" parent="UI/QuickPanel/VBox" unique_id=1970163523]
+custom_minimum_size = Vector2(0, 84)
+layout_mode = 2
+text = "Equipment summary"
+autowrap_mode = 3
+
+[node name="ServiceStatus" type="Label" parent="UI/QuickPanel/VBox" unique_id=264324667]
+custom_minimum_size = Vector2(0, 68)
+layout_mode = 2
+text = "Docked."
+autowrap_mode = 3
+
+[node name="ServiceWindow" type="PanelContainer" parent="UI" unique_id=1709362106]
+visible = false
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -260.0
+offset_top = -190.0
+offset_right = 260.0
+offset_bottom = 190.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Margin" type="MarginContainer" parent="UI/ServiceWindow" unique_id=740984034]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 18
+
+[node name="VBox" type="VBoxContainer" parent="UI/ServiceWindow/Margin" unique_id=1051194239]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="UI/ServiceWindow/Margin/VBox" unique_id=128669803]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Service"
+
+[node name="Body" type="Label" parent="UI/ServiceWindow/Margin/VBox" unique_id=1226534187]
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+text = "Service details"
+autowrap_mode = 3
+
+[node name="TradeSummary" type="Label" parent="UI/ServiceWindow/Margin/VBox" unique_id=1843802987]
+custom_minimum_size = Vector2(0, 90)
+layout_mode = 2
+text = "Trade summary"
+autowrap_mode = 3
+
+[node name="TradeActions" type="VBoxContainer" parent="UI/ServiceWindow/Margin/VBox" unique_id=725384571]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TradeRowFood" type="HBoxContainer" parent="UI/ServiceWindow/Margin/VBox/TradeActions" unique_id=1536593698]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="BuyFoodButton" type="Button" parent="UI/ServiceWindow/Margin/VBox/TradeActions/TradeRowFood" unique_id=1975250182]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Buy Food"
+
+[node name="SellFoodButton" type="Button" parent="UI/ServiceWindow/Margin/VBox/TradeActions/TradeRowFood" unique_id=706121661]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Sell Food"
+
+[node name="TradeRowWater" type="HBoxContainer" parent="UI/ServiceWindow/Margin/VBox/TradeActions" unique_id=910867903]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="BuyWaterButton" type="Button" parent="UI/ServiceWindow/Margin/VBox/TradeActions/TradeRowWater" unique_id=1334774617]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Buy Water"
+
+[node name="SellWaterButton" type="Button" parent="UI/ServiceWindow/Margin/VBox/TradeActions/TradeRowWater" unique_id=394196968]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Sell Water"
+
+[node name="RepairSummary" type="Label" parent="UI/ServiceWindow/Margin/VBox" unique_id=111120400]
+visible = false
+custom_minimum_size = Vector2(0, 74)
+layout_mode = 2
+text = "Repair summary"
+autowrap_mode = 3
+
+[node name="RepairActions" type="VBoxContainer" parent="UI/ServiceWindow/Margin/VBox" unique_id=1048786275]
+visible = false
+layout_mode = 2
+
+[node name="ConfirmRepairButton" type="Button" parent="UI/ServiceWindow/Margin/VBox/RepairActions" unique_id=787637736]
+custom_minimum_size = Vector2(0, 38)
+layout_mode = 2
+text = "Confirm Repairs"
+
+[node name="LaunchSummary" type="Label" parent="UI/ServiceWindow/Margin/VBox" unique_id=1274966939]
+visible = false
+custom_minimum_size = Vector2(0, 74)
+layout_mode = 2
+text = "Launch summary"
+autowrap_mode = 3
+
+[node name="LaunchActions" type="VBoxContainer" parent="UI/ServiceWindow/Margin/VBox" unique_id=1473892220]
+visible = false
+layout_mode = 2
+
+[node name="ConfirmLaunchButton" type="Button" parent="UI/ServiceWindow/Margin/VBox/LaunchActions" unique_id=2146986675]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+text = "Yes, Leave Station"
+
+[node name="CloseServiceButton" type="Button" parent="UI/ServiceWindow/Margin/VBox" unique_id=1180635834]
+custom_minimum_size = Vector2(0, 38)
+layout_mode = 2
+text = "Close"
+
+[connection signal="pressed" from="UI/ServiceWindow/Margin/VBox/TradeActions/TradeRowFood/BuyFoodButton" to="." method="OnBuyFoodPressed"]
+[connection signal="pressed" from="UI/ServiceWindow/Margin/VBox/TradeActions/TradeRowFood/SellFoodButton" to="." method="OnSellFoodPressed"]
+[connection signal="pressed" from="UI/ServiceWindow/Margin/VBox/TradeActions/TradeRowWater/BuyWaterButton" to="." method="OnBuyWaterPressed"]
+[connection signal="pressed" from="UI/ServiceWindow/Margin/VBox/TradeActions/TradeRowWater/SellWaterButton" to="." method="OnSellWaterPressed"]
+[connection signal="pressed" from="UI/ServiceWindow/Margin/VBox/RepairActions/ConfirmRepairButton" to="." method="OnConfirmRepairPressed"]
+[connection signal="pressed" from="UI/ServiceWindow/Margin/VBox/LaunchActions/ConfirmLaunchButton" to="." method="OnConfirmLaunchPressed"]
+[connection signal="pressed" from="UI/ServiceWindow/Margin/VBox/CloseServiceButton" to="." method="OnCloseServiceWindowPressed"]

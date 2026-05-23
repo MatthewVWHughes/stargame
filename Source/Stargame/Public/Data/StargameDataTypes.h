@@ -2211,6 +2211,36 @@ struct STARGAME_API FShipWeaponStatDefinition
 };
 
 USTRUCT(BlueprintType)
+struct STARGAME_API FShipEquipmentStatDefinition
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Equipment")
+	FName EquipmentStatId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Equipment")
+	FName ItemId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Equipment")
+	FName EquipmentType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Equipment")
+	double MaxShieldBonus = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Equipment")
+	double NormalMaxSpeedMultiplier = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Equipment")
+	double ThrustAccelerationMultiplier = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Equipment")
+	double StrafeAccelerationMultiplier = 1.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Equipment")
+	FText DisplayName;
+};
+
+USTRUCT(BlueprintType)
 struct STARGAME_API FStationInteriorCombatProfileDefinition
 {
 	GENERATED_BODY()
@@ -3044,6 +3074,105 @@ struct STARGAME_API FSystemicDecisionInputSnapshot
 	bool bValid = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Decision")
+	FString DebugReason;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSystemicStationGameplaySnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	FName StationId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	FName OwnerFactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	FName MarketId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	FName MarketProfileId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	FName LegalContextId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	TArray<FName> ServiceEndpointIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	TArray<FName> CommodityIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	TArray<FName> MissionOfferIds;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	int32 TotalMarketStock = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	int32 ServiceCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	int32 AvailableMissionCount = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	int64 PlayerCredits = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	bool bHasMarket = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	bool bHasMissionContact = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	bool bValid = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Station Snapshot")
+	FString DebugReason;
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FSystemicRouteGameplaySnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
+	FName RouteSegmentId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
+	FName JurisdictionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
+	FName AuthorityFactionId;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
+	double SecurityRating = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
+	double RouteValue = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
+	double PatrolScore = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
+	double PirateAmbushScore = 0.0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
+	bool bSupportsPatrolCoverage = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
+	bool bSupportsPirateAmbush = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
+	FName RecommendedEncounterType;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
+	FRouteSample RouteSample;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
+	bool bValid = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic|Route Snapshot")
 	FString DebugReason;
 };
 
@@ -3999,6 +4128,9 @@ struct STARGAME_API FSystemicGameplayState
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
 	TArray<FShipWeaponStatDefinition> ShipWeaponStats;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
+	TArray<FShipEquipmentStatDefinition> ShipEquipmentStats;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Systemic")
 	TArray<FStationInteriorCombatProfileDefinition> StationInteriorCombatProfiles;

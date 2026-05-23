@@ -79,20 +79,24 @@ namespace
 		TSubclassOf<ALogicalTrafficActor> ResolvedClass;
 		if (!GameInstance || Ship.ShipArchetypeId.IsNone())
 		{
-			return ResolvedClass;
+			return ALogicalTrafficActor::StaticClass();
 		}
 
 		const UStarCatalogSubsystem* Catalog = GameInstance->GetSubsystem<UStarCatalogSubsystem>();
 		FShipArchetypeDefinition Archetype;
 		if (!Catalog || !Catalog->ResolveShipArchetype(Ship.ShipArchetypeId, Archetype) || Archetype.ActorClass.IsNull())
 		{
-			return ResolvedClass;
+			return ALogicalTrafficActor::StaticClass();
 		}
 
 		UClass* ActorClass = Archetype.ActorClass.LoadSynchronous();
 		if (ActorClass && ActorClass->IsChildOf(ALogicalTrafficActor::StaticClass()))
 		{
 			ResolvedClass = ActorClass;
+		}
+		if (!ResolvedClass)
+		{
+			ResolvedClass = ALogicalTrafficActor::StaticClass();
 		}
 		return ResolvedClass;
 	}
@@ -354,6 +358,27 @@ namespace
 			return TEXT("Authority patrol holding overwatch on this route.");
 		}
 		return TEXT("Authority patrol screening the trade lane.");
+	}
+
+	bool ShouldEncounterActorFire(const FRealizedEncounterActorEntry& Entry)
+	{
+		return Entry.Role == EShipGoalKind::Pirate ||
+			Entry.IntentType == FName(TEXT("attack")) ||
+			Entry.BehaviorVariantId.ToString().Contains(TEXT("pirate"), ESearchCase::IgnoreCase);
+	}
+
+	double ResolveEncounterShotIntervalSeconds(const FRealizedEncounterActorEntry& Entry)
+	{
+		if (Entry.LocalBehaviorStateId == FName(TEXT("local_intercept_closing")) ||
+			Entry.LocalBehaviorStateId == FName(TEXT("local_priority_intercept")))
+		{
+			return 1.8;
+		}
+		if (Entry.LocalBehaviorStateId == FName(TEXT("local_shadowing")))
+		{
+			return 3.5;
+		}
+		return 2.6;
 	}
 }
 
@@ -914,6 +939,10 @@ bool UStarSystemSubsystem::RealizeSystemicEncounterActors(const FSystemicGamepla
 	TSet<FName> LiveActorIds;
 	const FSimulationClockSnapshot RouteClock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(ActiveSystemDefinition.SystemId, SimulationTimeSeconds);
 	TSubclassOf<ALogicalTrafficActor> EncounterActorClass = ResolveAuthoredActorClass<ALogicalTrafficActor>(ActiveSystemDefinition.EncounterActorClass);
+	if (!EncounterActorClass)
+	{
+		EncounterActorClass = ALogicalTrafficActor::StaticClass();
+	}
 
 	auto UpsertEncounterActor = [this, World, &LiveActorIds, SimulationTimeSeconds, EncounterActorClass](
 		const FName ActorId,
@@ -944,10 +973,6 @@ bool UStarSystemSubsystem::RealizeSystemicEncounterActors(const FSystemicGamepla
 		FTransform AppliedTransform = ActorTransform;
 		if (!Actor)
 		{
-			if (!EncounterActorClass)
-			{
-				return true;
-			}
 			FActorSpawnParameters SpawnParameters;
 			SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 			const FName BaseActorName = FName(*FString::Printf(TEXT("encounter_%s"), *ActorId.ToString()));
@@ -1008,6 +1033,8 @@ bool UStarSystemSubsystem::RealizeSystemicEncounterActors(const FSystemicGamepla
 		Entry.DistanceTrendCm = DistanceTrendCm;
 		Entry.bSteeringActive = bSteeringActive;
 		Entry.LastSteeringSimulationTimeSeconds = SimulationTimeSeconds;
+		Entry.LastShotSimulationTimeSeconds = ExistingEntry ? ExistingEntry->LastShotSimulationTimeSeconds : -1.0;
+		Entry.FiredShotCount = ExistingEntry ? ExistingEntry->FiredShotCount : 0;
 		Entry.Actor = Actor;
 		RealizedEncounterActorsById.Add(ActorId, Entry);
 		return true;
@@ -1262,6 +1289,74 @@ bool UStarSystemSubsystem::ApplyEncounterResponseManeuver(FName EncounterId, FNa
 	return false;
 }
 
+bool UStarSystemSubsystem::UpdateFoundationalSpaceWorld(const FActiveTrafficSimulationState& TrafficState, const FSystemicGameplayState& SystemicState, double SimulationTimeSeconds)
+{
+	if (!RefreshRegisteredEntityTransforms(SimulationTimeSeconds))
+	{
+		return false;
+	}
+
+	if (!TrafficState.SystemId.IsNone() && !RefreshRealizedTrafficActors(TrafficState, SimulationTimeSeconds))
+	{
+		return false;
+	}
+
+	if (!RealizeSystemicEncounterActors(SystemicState, SimulationTimeSeconds))
+	{
+		return false;
+	}
+
+	if (!UpdateRealizedEncounterCombat(SimulationTimeSeconds))
+	{
+		return false;
+	}
+
+	RefreshCombatShotPresentations(SimulationTimeSeconds);
+	return true;
+}
+
+bool UStarSystemSubsystem::UpdateRealizedEncounterCombat(double SimulationTimeSeconds)
+{
+	for (TPair<FName, FRealizedEncounterActorEntry>& Pair : RealizedEncounterActorsById)
+	{
+		FRealizedEncounterActorEntry& Entry = Pair.Value;
+		ALogicalTrafficActor* Actor = Entry.Actor.Get();
+		if (!Actor || !ShouldEncounterActorFire(Entry))
+		{
+			continue;
+		}
+
+		const double ShotIntervalSeconds = ResolveEncounterShotIntervalSeconds(Entry);
+		if (Entry.LastShotSimulationTimeSeconds >= 0.0 &&
+			SimulationTimeSeconds - Entry.LastShotSimulationTimeSeconds < ShotIntervalSeconds)
+		{
+			continue;
+		}
+
+		FVector StartPositionCm = FVector::ZeroVector;
+		FVector EndPositionCm = FVector::ZeroVector;
+		const FVector TargetPositionCm = Entry.TargetRouteSample.ResolvedTransform.PositionCm.IsNearlyZero()
+			? Entry.RouteSample.ResolvedTransform.PositionCm
+			: Entry.TargetRouteSample.ResolvedTransform.PositionCm;
+		if (!Actor->BuildShotPresentationToLocation(TargetPositionCm, 250000.0, StartPositionCm, EndPositionCm))
+		{
+			continue;
+		}
+
+		++Entry.FiredShotCount;
+		const FName ShotPresentationId(*FString::Printf(TEXT("%s_shot_%03d"), *Entry.ActorId.ToString(), Entry.FiredShotCount));
+		FName ShotActorId;
+		if (!SpawnCombatShotPresentation(ShotPresentationId, TEXT("hostile_laser_burst"), StartPositionCm, EndPositionCm, SimulationTimeSeconds, 0.35, ShotActorId))
+		{
+			return false;
+		}
+		Entry.LastShotSimulationTimeSeconds = SimulationTimeSeconds;
+	}
+
+	LastBuildError.Reset();
+	return true;
+}
+
 bool UStarSystemSubsystem::SpawnCombatShotPresentation(FName ShotPresentationId, FName PresentationType, const FVector& StartPositionCm, const FVector& EndPositionCm, double StartedAtTimeSeconds, double DurationSeconds, FName& OutActorId)
 {
 	OutActorId = NAME_None;
@@ -1288,8 +1383,7 @@ bool UStarSystemSubsystem::SpawnCombatShotPresentation(FName ShotPresentationId,
 		TSubclassOf<ACombatShotPresentationActor> SpawnClass = ResolveAuthoredActorClass<ACombatShotPresentationActor>(ActiveSystemDefinition.CombatShotPresentationActorClass);
 		if (!SpawnClass)
 		{
-			OutActorId = NAME_None;
-			return true;
+			SpawnClass = ACombatShotPresentationActor::StaticClass();
 		}
 
 		SpawnParameters.Name = MakeUniqueObjectName(World->PersistentLevel, *SpawnClass, BaseActorName);
@@ -2041,12 +2135,7 @@ bool UStarSystemSubsystem::RegisterEntity(FName EntityId, FName EntityType, cons
 	TSubclassOf<AM0SystemMarkerActor> MarkerClass = ResolveAuthoredActorClass<AM0SystemMarkerActor>(ActiveSystemDefinition.EntityMarkerActorClass);
 	if (!MarkerClass)
 	{
-		FActiveSystemEntityEntry Entry;
-		Entry.EntityId = EntityId;
-		Entry.EntityType = EntityType;
-		Entry.BuildGeneration = ActiveBuildGeneration;
-		RegisteredEntities.Add(EntityId, Entry);
-		return true;
+		MarkerClass = AM0SystemMarkerActor::StaticClass();
 	}
 
 	AM0SystemMarkerActor* Marker = World->SpawnActor<AM0SystemMarkerActor>(MarkerClass, Transform, SpawnParameters);
@@ -2082,7 +2171,7 @@ bool UStarSystemSubsystem::SpawnSystemPresentation(FName SystemId)
 	TSubclassOf<ASystemSpacePresentationActor> PresentationClass = ResolveAuthoredActorClass<ASystemSpacePresentationActor>(ActiveSystemDefinition.PresentationActorClass);
 	if (!PresentationClass)
 	{
-		return true;
+		PresentationClass = ASystemSpacePresentationActor::StaticClass();
 	}
 
 	ASystemSpacePresentationActor* Presentation = World->SpawnActor<ASystemSpacePresentationActor>(

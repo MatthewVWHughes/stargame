@@ -1,0 +1,232 @@
+[gd_scene format=3 uid="uid://ckbravhw4vg1x"]
+
+[ext_resource type="Script" uid="uid://be3r6e60j71s2" path="res://scripts/game/stations/HostileStationController.cs" id="1_script"]
+[ext_resource type="PackedScene" uid="uid://cd6647wop1y03" path="res://scenes/game/station/Airlock.tscn" id="3_airlock"]
+
+[sub_resource type="Environment" id="3_env"]
+background_color = Color(0.015, 0.015, 0.025, 1)
+ambient_light_color = Color(0.12, 0.1, 0.12, 1)
+ambient_light_energy = 0.5
+
+[sub_resource type="StandardMaterial3D" id="2_floor_mat"]
+albedo_color = Color(0.13, 0.13, 0.16, 1)
+roughness = 0.9
+
+[sub_resource type="BoxMesh" id="1_floor"]
+size = Vector3(30, 0.2, 30)
+
+[sub_resource type="BoxShape3D" id="9_floor_shape"]
+size = Vector3(30, 0.2, 30)
+
+[sub_resource type="StandardMaterial3D" id="5_wall_mat"]
+albedo_color = Color(0.2, 0.18, 0.2, 1)
+
+[sub_resource type="BoxMesh" id="4_wall_long"]
+size = Vector3(30, 5, 0.3)
+
+[sub_resource type="BoxShape3D" id="10_wall_long_shape"]
+size = Vector3(30, 5, 0.3)
+
+[sub_resource type="BoxMesh" id="4b_wall_side"]
+size = Vector3(0.3, 5, 30)
+
+[sub_resource type="BoxShape3D" id="11_wall_side_shape"]
+size = Vector3(0.3, 5, 30)
+
+[sub_resource type="StandardMaterial3D" id="13_cover_mat"]
+albedo_color = Color(0.32, 0.3, 0.34, 1)
+roughness = 0.8
+
+[sub_resource type="BoxMesh" id="12_cover"]
+size = Vector3(2.4, 1.3, 0.8)
+
+[sub_resource type="BoxShape3D" id="14_cover_shape"]
+size = Vector3(2.4, 1.3, 0.8)
+
+[node name="HostileStation" type="Node3D" unique_id=298340211]
+script = ExtResource("1_script")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=216675634]
+environment = SubResource("3_env")
+
+[node name="Floor" type="MeshInstance3D" parent="." unique_id=1017758290]
+material_override = SubResource("2_floor_mat")
+mesh = SubResource("1_floor")
+
+[node name="FloorBody" type="StaticBody3D" parent="." unique_id=1704307480]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="FloorBody" unique_id=485756875]
+shape = SubResource("9_floor_shape")
+
+[node name="WallBack" type="MeshInstance3D" parent="." unique_id=1229803663]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, -15)
+material_override = SubResource("5_wall_mat")
+mesh = SubResource("4_wall_long")
+
+[node name="WallBackBody" type="StaticBody3D" parent="." unique_id=539236620]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, -15)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallBackBody" unique_id=2109807868]
+shape = SubResource("10_wall_long_shape")
+
+[node name="WallFront" type="MeshInstance3D" parent="." unique_id=1226962847]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, 15)
+visible = false
+material_override = SubResource("5_wall_mat")
+mesh = SubResource("4_wall_long")
+
+[node name="WallFrontBody" type="StaticBody3D" parent="." unique_id=1124531415]
+process_mode = 4
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, 15)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallFrontBody" unique_id=1242718190]
+shape = SubResource("10_wall_long_shape")
+disabled = true
+
+[node name="WallLeft" type="MeshInstance3D" parent="." unique_id=1084935410]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15, 2.5, 0)
+material_override = SubResource("5_wall_mat")
+mesh = SubResource("4b_wall_side")
+
+[node name="WallLeftBody" type="StaticBody3D" parent="." unique_id=1047074128]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -15, 2.5, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallLeftBody" unique_id=1742090501]
+shape = SubResource("11_wall_side_shape")
+
+[node name="WallRight" type="MeshInstance3D" parent="." unique_id=1077609445]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 2.5, 0)
+material_override = SubResource("5_wall_mat")
+mesh = SubResource("4b_wall_side")
+
+[node name="WallRightBody" type="StaticBody3D" parent="." unique_id=2080859932]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 15, 2.5, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="WallRightBody" unique_id=1147511288]
+shape = SubResource("11_wall_side_shape")
+
+[node name="AirlockMarker" type="Marker3D" parent="." unique_id=950716937]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 21.6)
+
+[node name="CoverA" type="MeshInstance3D" parent="." unique_id=1375263672]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 0.65, -3)
+material_override = SubResource("13_cover_mat")
+mesh = SubResource("12_cover")
+
+[node name="CoverABody" type="StaticBody3D" parent="." unique_id=121494948]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 0.65, -3)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="CoverABody" unique_id=2089653951]
+shape = SubResource("14_cover_shape")
+
+[node name="CoverB" type="MeshInstance3D" parent="." unique_id=806803199]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0.65, -3)
+material_override = SubResource("13_cover_mat")
+mesh = SubResource("12_cover")
+
+[node name="CoverBBody" type="StaticBody3D" parent="." unique_id=1303349950]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0.65, -3)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="CoverBBody" unique_id=1384614786]
+shape = SubResource("14_cover_shape")
+
+[node name="CoverC" type="MeshInstance3D" parent="." unique_id=770560987]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.65, 2)
+material_override = SubResource("13_cover_mat")
+mesh = SubResource("12_cover")
+
+[node name="CoverCBody" type="StaticBody3D" parent="." unique_id=1999931880]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.65, 2)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="CoverCBody" unique_id=287133914]
+shape = SubResource("14_cover_shape")
+
+[node name="CoverD" type="MeshInstance3D" parent="." unique_id=69291925]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0.65, -9)
+material_override = SubResource("13_cover_mat")
+mesh = SubResource("12_cover")
+
+[node name="CoverDBody" type="StaticBody3D" parent="." unique_id=224456184]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 0.65, -9)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="CoverDBody" unique_id=2103963769]
+shape = SubResource("14_cover_shape")
+
+[node name="HostileSpawns" type="Node3D" parent="." unique_id=846310460]
+
+[node name="Spawn1" type="Marker3D" parent="HostileSpawns" unique_id=1051092477]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, -5, 0, -6)
+
+[node name="Spawn2" type="Marker3D" parent="HostileSpawns" unique_id=1036847976]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 5, 0, -6)
+
+[node name="Spawn3" type="Marker3D" parent="HostileSpawns" unique_id=399939870]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0, -12)
+
+[node name="Spawn4" type="Marker3D" parent="HostileSpawns" unique_id=1824027679]
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, -10, 0, -10)
+
+[node name="Airlock" parent="." unique_id=1399265234 instance=ExtResource("3_airlock")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, -3.8694878, 20.5)
+
+[node name="StationLabel3D" type="Label3D" parent="." unique_id=1618333333]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.6, -4)
+billboard = 1
+modulate = Color(1, 0.75, 0.7, 1)
+text = "Derelict Outpost"
+font_size = 40
+
+[node name="LaunchLabel3D" type="Label3D" parent="." unique_id=795730591]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.9, 23.5)
+billboard = 1
+text = "Back to Ship"
+font_size = 22
+
+[node name="LightMain" type="OmniLight3D" parent="." unique_id=901875132]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.2, 0)
+light_color = Color(0.95, 0.6, 0.55, 1)
+light_energy = 1.4
+omni_range = 36.0
+
+[node name="LightBack" type="OmniLight3D" parent="." unique_id=2068110615]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.2, -10)
+light_color = Color(0.7, 0.75, 1, 1)
+omni_range = 24.0
+
+[node name="UI" type="CanvasLayer" parent="." unique_id=949037745]
+
+[node name="Panel" type="PanelContainer" parent="UI" unique_id=2133340805]
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 360.0
+offset_bottom = 160.0
+grow_vertical = 0
+
+[node name="VBox" type="VBoxContainer" parent="UI/Panel" unique_id=493523236]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="UI/Panel/VBox" unique_id=1832682052]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "Derelict Outpost"
+
+[node name="Status" type="Label" parent="UI/Panel/VBox" unique_id=936070398]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+text = "Hostiles remaining: --"
+autowrap_mode = 3
+
+[node name="Health" type="Label" parent="UI/Panel/VBox" unique_id=965911037]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+text = "Health: 100/100"
+
+[node name="Hint" type="Label" parent="UI/Panel/VBox" unique_id=1059184435]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "WASD move  Mouse look  Left click fire  F interact  Esc release mouse"
+autowrap_mode = 3

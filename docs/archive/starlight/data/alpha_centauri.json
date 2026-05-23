@@ -1,0 +1,139 @@
+{
+	"id": "alpha_centauri",
+	"display_name": "Alpha Centauri",
+	"primary_star_gravity_radius": 2400.0,
+
+	"bodies": [
+		{
+			"name": "AlphaCentauriA",
+			"display_name": "Alpha Centauri A",
+			"stellar_class": "G",
+			"gameplay_radius": 2400.0,
+			"map_color": "#ffeb8c",
+			"scene_visual": {
+				"node_name": "AlphaCentauriAVisual",
+				"scene_path": "res://scenes/game/space/Sun.tscn",
+				"scale": [1.22, 1.22, 1.22]
+			},
+			"children": [
+				{
+					"name": "Minos",
+					"orbit": { "semi_major_axis": 36000.0, "period": 8400.0, "phase_offset": 0.5, "inclination": 1.2 },
+					"sphere_visual": { "node_name": "MinosMesh", "radius": 100.0, "albedo_color": "#948575", "scale": [2.1, 2.1, 2.1] }
+				},
+				{
+					"name": "Theseus",
+					"orbit": { "semi_major_axis": 62000.0, "period": 14800.0, "phase_offset": 2.0, "eccentricity": 0.08, "inclination": 0.8 },
+					"sphere_visual": { "node_name": "TheseusMesh", "radius": 100.0, "albedo_color": "#5775ad", "scale": [2.8, 2.8, 2.8] }
+				}
+			]
+		},
+
+		{
+			"name": "AlphaCentauriB",
+			"display_name": "Alpha Centauri B",
+			"stellar_class": "K",
+			"gameplay_radius": 1800.0,
+			"map_color": "#ffc76b",
+			"orbit": { "semi_major_axis": 720000.0, "period": 220000.0, "phase_offset": 1.3, "eccentricity": 0.52, "inclination": 79.2 },
+			"scene_visual": {
+				"node_name": "AlphaCentauriBVisual",
+				"scene_path": "res://scenes/game/space/Sun.tscn",
+				"scale": [0.88, 0.88, 0.88]
+			},
+			"children": [
+				{
+					"name": "Orpheus",
+					"orbit": { "semi_major_axis": 21000.0, "period": 6200.0, "phase_offset": 0.9, "inclination": 2.4 },
+					"sphere_visual": { "node_name": "OrpheusMesh", "radius": 100.0, "albedo_color": "#a37f57", "scale": [1.7, 1.7, 1.7] }
+				},
+				{
+					"name": "Eurydice",
+					"orbit": { "semi_major_axis": 47000.0, "period": 12400.0, "phase_offset": 3.1, "eccentricity": 0.05, "inclination": 1.1 },
+					"sphere_visual": { "node_name": "EurydiceMesh", "radius": 100.0, "albedo_color": "#478f9e", "scale": [2.4, 2.4, 2.4] }
+				}
+			]
+		},
+
+		{
+			"name": "ProximaCentauri",
+			"display_name": "Proxima Centauri",
+			"stellar_class": "M",
+			"gameplay_radius": 900.0,
+			"map_color": "#ff7356",
+			"orbit": { "semi_major_axis": 4700000.0, "period": 1800000.0, "phase_offset": 4.1, "eccentricity": 0.5, "inclination": 107.0 },
+			"scene_visual": {
+				"node_name": "ProximaCentauriVisual",
+				"scene_path": "res://scenes/game/space/Sun.tscn",
+				"scale": [0.22, 0.22, 0.22]
+			},
+			"children": [
+				{
+					"name": "ProximaD",
+					"display_name": "Proxima d",
+					"orbit": { "semi_major_axis": 1600.0, "period": 900.0, "phase_offset": 0.2, "eccentricity": 0.04, "inclination": 0.5 },
+					"sphere_visual": { "node_name": "ProximaDMesh", "radius": 100.0, "albedo_color": "#85756b", "scale": [0.82, 0.82, 0.82] }
+				},
+				{
+					"name": "ProximaB",
+					"display_name": "Proxima b",
+					"orbit": { "semi_major_axis": 2200.0, "period": 1800.0, "phase_offset": 1.4, "eccentricity": 0.02, "inclination": 0.3 },
+					"sphere_visual": { "node_name": "ProximaBMesh", "radius": 100.0, "albedo_color": "#428070", "scale": [1.32, 1.32, 1.32] },
+					"children": [
+						{
+							"name": "Auran",
+							"orbit": { "semi_major_axis": 320.0, "period": 320.0, "phase_offset": 0.8, "inclination": 3.6 },
+							"sphere_visual": { "node_name": "AuranMesh", "radius": 100.0, "albedo_color": "#6ba3eb", "scale": [0.38, 0.38, 0.38] }
+						},
+						{
+							"name": "Nysa",
+							"orbit": { "semi_major_axis": 210.0, "period": 210.0, "phase_offset": 2.1, "inclination": 1.2 },
+							"sphere_visual": { "node_name": "NysaMesh", "radius": 100.0, "albedo_color": "#8f949e", "scale": [0.24, 0.24, 0.24] }
+						},
+						{
+							"name": "Syrma",
+							"orbit": { "semi_major_axis": 470.0, "period": 520.0, "phase_offset": 4.3, "eccentricity": 0.06, "inclination": 5.8 },
+							"sphere_visual": { "node_name": "SyrmaMesh", "radius": 100.0, "albedo_color": "#4c5c75", "scale": [0.29, 0.29, 0.29] }
+						}
+					]
+				},
+				{
+					"name": "ProximaC",
+					"display_name": "Proxima c",
+					"orbit": { "semi_major_axis": 12500.0, "period": 28000.0, "phase_offset": 2.7, "eccentricity": 0.12, "inclination": 5.0 },
+					"sphere_visual": { "node_name": "ProximaCMesh", "radius": 100.0, "albedo_color": "#7561a8", "scale": [2.2, 2.2, 2.2] },
+					"children": [
+						{
+							"name": "Thale",
+							"orbit": { "semi_major_axis": 520.0, "period": 720.0, "phase_offset": 0.4, "inclination": 1.4 },
+							"sphere_visual": { "node_name": "ThaleMesh", "radius": 100.0, "albedo_color": "#a8b3c2", "scale": [0.33, 0.33, 0.33] }
+						},
+						{
+							"name": "Eidon",
+							"orbit": { "semi_major_axis": 760.0, "period": 980.0, "phase_offset": 2.2, "eccentricity": 0.04, "inclination": 3.9 },
+							"sphere_visual": { "node_name": "EidonMesh", "radius": 100.0, "albedo_color": "#708094", "scale": [0.27, 0.27, 0.27] }
+						},
+						{
+							"name": "Brontes",
+							"orbit": { "semi_major_axis": 1120.0, "period": 1420.0, "phase_offset": 5.1, "eccentricity": 0.08, "inclination": 7.2 },
+							"sphere_visual": { "node_name": "BrontesMesh", "radius": 100.0, "albedo_color": "#94857a", "scale": [0.22, 0.22, 0.22] }
+						}
+					]
+				}
+			]
+		}
+	],
+
+	"jump_gates": [
+		{
+			"gate_id": "alpha_gate_primary",
+			"destination_system_id": "sol",
+			"arrival_gate_id": "sol_gate_earth_l2",
+			"display_name": "Sol Transit Gate",
+			"anchor_body": "Star/AlphaCentauriA/Theseus",
+			"distance": 1400.0,
+			"parent_path": "Star/AlphaCentauriA",
+			"node_name": "TheseusL2Gate"
+		}
+	]
+}

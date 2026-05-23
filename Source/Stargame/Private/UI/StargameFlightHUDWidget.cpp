@@ -10,12 +10,19 @@ void UStargameFlightHUDWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 	SetVisibility(ESlateVisibility::Collapsed);
+	RefreshAccumulatorSeconds = 0.0f;
 	RefreshFlightHUD();
 }
 
 void UStargameFlightHUDWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
+	RefreshAccumulatorSeconds += InDeltaTime;
+	if (RefreshAccumulatorSeconds < RefreshIntervalSeconds)
+	{
+		return;
+	}
+	RefreshAccumulatorSeconds = 0.0f;
 	RefreshFlightHUD();
 }
 
@@ -34,6 +41,8 @@ void UStargameFlightHUDWidget::RefreshFlightHUD()
 	View.FlightModeText = TEXT("NO LINK");
 	View.SelectedTargetText = TEXT("TARGET NONE");
 	View.DockingText = TEXT("DOCKING IDLE");
+	View.MissionText = TEXT("MISSION: DOCK AT BRINK WATCH AND TALK TO DISPATCH");
+	View.ActionHintText = TEXT("SPACE MOUSE FLIGHT   T TARGET   F INTERACT / DOCK   C SUPERCRUISE");
 	View.WeaponText = TEXT("WEAPONS STANDBY");
 	View.RadarText = TEXT("RADAR 0 / TRAFFIC 0");
 
@@ -42,7 +51,20 @@ void UStargameFlightHUDWidget::RefreshFlightHUD()
 		View.SpeedMetersPerSecond = FlightPawn->GetSpeedMetersPerSecond();
 		View.AccelerationMetersPerSecondSquared = FlightPawn->GetAccelerationMetersPerSecondSquared();
 		View.Throttle01 = FMath::Clamp(static_cast<double>(FlightPawn->GetThrottlePercent()), 0.0, 1.0);
+		const FSupercruiseTelemetry Supercruise = FlightPawn->GetSupercruiseTelemetry();
 		View.FlightModeText = MakeReadableName(UEnum::GetValueAsName(FlightPawn->GetFlightMode()));
+		if (Supercruise.SupercruiseState == ESupercruiseState::Spooling)
+		{
+			View.FlightModeText = FString::Printf(TEXT("SUPERCRUISE SPOOL %.0fs"), Supercruise.StateRemainingSeconds);
+		}
+		else if (Supercruise.SupercruiseState == ESupercruiseState::Cruising)
+		{
+			View.FlightModeText = FString::Printf(TEXT("SUPERCRUISE %.0f km/s"), Supercruise.CurrentSpeedCmPerSec / 100000.0);
+		}
+		else if (Supercruise.SupercruiseState == ESupercruiseState::DropoutCooldown)
+		{
+			View.FlightModeText = FString::Printf(TEXT("DROPOUT COOLDOWN %.0fs"), Supercruise.StateRemainingSeconds);
+		}
 		View.DockingText = MakeDockingText(FlightPawn->GetDockingOperationState());
 	}
 
@@ -50,6 +72,12 @@ void UStargameFlightHUDWidget::RefreshFlightHUD()
 
 	if (Session)
 	{
+		FMissionWaypointViewModel Mission;
+		if (Session->GetActiveMissionWaypoint(Mission) && Mission.bHasActiveMission)
+		{
+			View.MissionText = MakeMissionObjectiveText(Mission);
+		}
+
 		const FRuntimeEncounterViewModel Encounter = Session->GetRuntimeEncounterView();
 		View.WeaponEnergy01 = Encounter.PlayerWeaponMaxEnergy > 0.0
 			? FMath::Clamp(Encounter.PlayerWeaponEnergy / Encounter.PlayerWeaponMaxEnergy, 0.0, 1.0)
@@ -87,6 +115,18 @@ void UStargameFlightHUDWidget::RefreshFlightHUD()
 				View.SelectedTargetDistanceKm = Target.DistanceCm / 100000.0;
 				const FString TargetName = Target.DisplayName.IsEmpty() ? MakeReadableName(Target.TargetId) : Target.DisplayName.ToString().ToUpper();
 				View.SelectedTargetText = FString::Printf(TEXT("TARGET %s  %.1f km"), *TargetName, View.SelectedTargetDistanceKm);
+				if (Target.TargetType == FName(TEXT("station")))
+				{
+					View.ActionHintText = Target.bInsideStationApproachBubble
+						? TEXT("F REQUEST DOCKING   RMB FIRE")
+						: TEXT("C SUPERCRUISE   FLY TO STATION APPROACH RANGE");
+				}
+				else if (Target.TargetType == FName(TEXT("gate")))
+				{
+					View.ActionHintText = Target.bInsideGateActivationRange
+						? TEXT("F TRANSIT GATE")
+						: TEXT("C SUPERCRUISE   FLY TO GATE ACTIVATION RANGE");
+				}
 				break;
 			}
 		}
@@ -122,6 +162,34 @@ FString UStargameFlightHUDWidget::MakeDockingText(const FDockingOperationState& 
 	return FString::Printf(TEXT("DOCKING %s"), *State);
 }
 
+FString UStargameFlightHUDWidget::MakeMissionObjectiveText(const FMissionWaypointViewModel& Mission)
+{
+	if (Mission.bReadyToTurnIn)
+	{
+		return TEXT("MISSION: RETURN TO THE CONTACT FOR TURN-IN");
+	}
+
+	const FString Target = MakeReadableName(Mission.TargetId);
+	if (Mission.ObjectiveType == FName(TEXT("reach_station")))
+	{
+		return Mission.bTargetResolved
+			? FString::Printf(TEXT("MISSION: FLY TO %s  %.1f km"), *Target, Mission.DistanceCm / 100000.0)
+			: FString::Printf(TEXT("MISSION: FLY TO %s"), *Target);
+	}
+	if (Mission.ObjectiveType == FName(TEXT("clear_station_hostiles")) ||
+		Mission.ObjectiveType == FName(TEXT("clear_hostiles")) ||
+		Mission.ObjectiveType == FName(TEXT("hostile_boarding")) ||
+		Mission.ObjectiveType == FName(TEXT("boarding_clearance")))
+	{
+		return FString::Printf(TEXT("MISSION: BOARD %s AND CLEAR HOSTILES"), *Target);
+	}
+	if (!Mission.TargetId.IsNone())
+	{
+		return FString::Printf(TEXT("MISSION: %s AT %s"), *MakeReadableName(Mission.ObjectiveType), *Target);
+	}
+	return FString::Printf(TEXT("MISSION: %s"), *MakeReadableName(Mission.MissionInstanceId));
+}
+
 void UStargameFlightHUDWidget::ApplyViewToBoundWidgets()
 {
 	if (SpeedText)
@@ -143,6 +211,14 @@ void UStargameFlightHUDWidget::ApplyViewToBoundWidgets()
 	if (DockingText)
 	{
 		DockingText->SetText(FText::FromString(CachedView.DockingText));
+	}
+	if (MissionText)
+	{
+		MissionText->SetText(FText::FromString(CachedView.MissionText));
+	}
+	if (CommsLineText)
+	{
+		CommsLineText->SetText(FText::FromString(CachedView.ActionHintText));
 	}
 	if (WeaponText)
 	{

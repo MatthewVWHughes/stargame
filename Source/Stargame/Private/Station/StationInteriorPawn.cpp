@@ -599,6 +599,10 @@ bool AStationInteriorPawn::ExecuteStationObjectCommand(FName InteractionType)
 	{
 		return ExecuteMarketBuy();
 	}
+	if (InteractionType == FName(TEXT("mission_board")))
+	{
+		return ExecuteMissionBoard();
+	}
 	if (InteractionType == FName(TEXT("launch")))
 	{
 		return TryLaunchFromInterior();
@@ -664,6 +668,27 @@ bool AStationInteriorPawn::ExecuteStationService(FName ServiceType, double Amoun
 		*ServiceType.ToString(),
 		*CommandResult.FailureReason);
 	return bAccepted;
+}
+
+bool AStationInteriorPawn::ExecuteMissionBoard()
+{
+	UStargameSessionSubsystem* Session = OwningSession.Get();
+	if (!Session)
+	{
+		UGameInstance* GameInstance = GetGameInstance();
+		Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	}
+	if (!Session)
+	{
+		return false;
+	}
+
+	FDockedMissionContactPanelView Panel;
+	const bool bResolved = Session->GetDockedMissionContactPanel(Panel) && Panel.bAvailable;
+	UE_LOG(LogStargameStationInterior, Display, TEXT("Station mission board %s Contacts=%d"),
+		bResolved ? TEXT("opened") : TEXT("unavailable"),
+		bResolved ? Panel.Contacts.Num() : 0);
+	return bResolved;
 }
 
 void AStationInteriorPawn::TakeOnFootDamage(float Amount)

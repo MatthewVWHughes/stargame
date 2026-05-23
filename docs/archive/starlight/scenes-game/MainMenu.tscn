@@ -1,0 +1,111 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/game/boot/MainMenuController.cs" id="1_menu"]
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_menu")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.0156863, 0.0196078, 0.0431373, 1)
+
+[node name="BackdropGlowTop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+grow_horizontal = 2
+color = Color(0.0627451, 0.113725, 0.231373, 0.35)
+
+[node name="BackdropGlowBottom" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -220.0
+grow_horizontal = 2
+grow_vertical = 0
+color = Color(0.0352941, 0.0823529, 0.0980392, 0.3)
+
+[node name="CenterPanel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -250.0
+offset_top = -185.0
+offset_right = 250.0
+offset_bottom = 185.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBox" type="VBoxContainer" parent="CenterPanel"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="CenterPanel/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 38
+text = "STARLIGHT"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="CenterPanel/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "Foundation Build"
+horizontal_alignment = 1
+
+[node name="Summary" type="Label" parent="CenterPanel/VBox"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "Fly from Earth, dock at stations, walk the reusable station stub, trade commodities, launch back out, and pressure-test the core architecture."
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="Spacer" type="Control" parent="CenterPanel/VBox"]
+custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
+
+[node name="NewGameButton" type="Button" parent="CenterPanel/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 42)
+text = "New Game"
+
+[node name="ContinueButton" type="Button" parent="CenterPanel/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 42)
+text = "Continue"
+
+[node name="QuitButton" type="Button" parent="CenterPanel/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 42)
+text = "Quit"
+
+[node name="ControlsHint" type="Label" parent="CenterPanel/VBox"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "In space: C comms, M map, Tab cycle target, left mouse fire, F interact"
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="StatusLabel" type="Label" parent="CenterPanel/VBox"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Checking saves..."
+horizontal_alignment = 1
+autowrap_mode = 3

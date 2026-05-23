@@ -5,6 +5,7 @@
 #include "SystemSpacePresentationActor.generated.h"
 
 class USceneComponent;
+class UStaticMeshComponent;
 
 UCLASS()
 class STARGAME_API ASystemSpacePresentationActor : public AActor
@@ -23,6 +24,9 @@ protected:
 private:
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<USceneComponent> SceneRoot;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> SystemOriginMesh;
 
 	UPROPERTY(VisibleAnywhere, Category = "Stargame|Space")
 	FName SystemId;

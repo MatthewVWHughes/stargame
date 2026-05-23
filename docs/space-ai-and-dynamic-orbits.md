@@ -38,6 +38,12 @@ Kepler/orbit evaluation is the common source for AI prediction.
 
 Authoritative time is owned by the persistent session/galaxy simulation. `UStarSystemSubsystem` may expose an active-system view of that time and cache frame evaluations, but it does not advance the authoritative gameplay clock.
 
+This is an engineering constraint, not a request to turn combat into a hard
+orbital sim. The first player-facing acceptance target remains
+Freelancer-readable traffic and encounters: ships appear where the player
+expects, pirates and patrols communicate clearly, shooting/fleeing/help choices
+are understandable, and the player does not fight invisible frame math.
+
 AI queries need APIs equivalent to:
 
 - evaluate body/station/gate transform at simulation time
@@ -613,7 +619,10 @@ Acceptance:
 
 ## First Playable AI Slice
 
-The first slice should be deliberately small:
+The first slice should remain deliberately small. Some of this foundation is now
+implemented or partially implemented; `playable-parity-roadmap.md` is the live
+status tracker. This list is the design shape that the implementation should
+continue to satisfy:
 
 - one generated or authored non-Sol system
 - two stations on moving anchors
@@ -639,11 +648,18 @@ Expected player experience:
 7. save/reload during the pending event does not duplicate or erase it
 8. promotion/demotion during flee preserves target, threat, velocity frame, and recovery policy
 
-This slice proves the AI architecture. It is not trying to produce final combat, final economy, or final mission content.
+This slice proves the AI architecture. It is not trying to produce final combat,
+final economy, or final mission content. Accepted Unreal scoring/posture work
+may improve staging, comms, and debug visibility, but it must not hide missing
+Godot-backed hostile AI state-machine behavior.
+
+The player-facing bar for this slice is simple: visible traders, a readable
+pirate/patrol encounter, clear comms or distress behavior, basic fight/flee/help
+outcomes, and no duplicate events after save/load.
 
 ## Required Data
 
-Add these contracts when space AI enters implementation:
+The space AI foundation uses or is expected to grow around these contracts:
 
 - `FMovingFrameTarget`
 - `FAIPredictedTransform`

@@ -1,0 +1,32 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Shader" path="res://shaders/Moon.gdshader" id="1_moon_shader"]
+[ext_resource type="Script" path="res://scripts/game/space/MoonShader.cs" id="2_controller"]
+[ext_resource type="Texture2D" path="res://textures/planets/moon_color.png" id="3_color"]
+[ext_resource type="Texture2D" path="res://textures/planets/moon_elevation.png" id="4_elev"]
+
+[sub_resource type="SphereMesh" id="1_moon_mesh"]
+radius = 218.0
+height = 436.0
+radial_segments = 96
+rings = 48
+
+[sub_resource type="ShaderMaterial" id="2_moon_mat"]
+shader = ExtResource("1_moon_shader")
+shader_parameter/sun_direction = Vector3(1, 0, 0)
+shader_parameter/day_intensity = 1.6
+shader_parameter/terminator_softness = 0.025
+shader_parameter/elevation_ao = 0.15
+shader_parameter/night_ambient = 0.012
+shader_parameter/night_tint = Color(0.35, 0.45, 0.7, 1)
+shader_parameter/normal_strength = 4.0
+shader_parameter/color_tex = ExtResource("3_color")
+shader_parameter/elevation_tex = ExtResource("4_elev")
+
+[node name="Moon" type="Node3D"]
+script = ExtResource("2_controller")
+
+[node name="MoonMesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("1_moon_mesh")
+material_override = SubResource("2_moon_mat")
+extra_cull_margin = 100000.0
