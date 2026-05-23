@@ -131,6 +131,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Stargame|Star")
 	FText GetStellarClassLabel() const;
 
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Star")
+	void ConfigureRuntimeStar(FName InStarId, double InPhotosphereRadiusCm, EStargameStellarClass InClass);
+
 protected:
 	virtual void SetupPreviewInput();
 

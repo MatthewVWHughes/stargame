@@ -162,8 +162,7 @@ namespace
 
 	bool ShouldApplyFrontierPlayableMetadata(const FStarSystemDefinition& SystemDefinition)
 	{
-		return SystemDefinition.SystemId == FFrontierTestFixtureProvider::FrontierSystemId ||
-			SystemDefinition.Stations.ContainsByPredicate([](const FStationDefinition& Station)
+		return SystemDefinition.Stations.ContainsByPredicate([](const FStationDefinition& Station)
 			{
 				return Station.StationId == FName(TEXT("brink_watch"));
 			});
@@ -385,41 +384,23 @@ void UStarCatalogSubsystem::BuildNativeFixtureCache()
 			SystemDefinition.Gates[0].DestinationArrivalLocalOffsetCm = FVector(0.0, 18000.0, 0.0);
 			SystemDefinition.Gates[0].DestinationArrivalRotation = FRotator(0.0, 180.0, 0.0);
 		}
-		ApplyGodotStationRegistryMetadata(SystemDefinition);
-		ApplyGodotMissionBoardMetadata(SystemDefinition);
-		SystemDefinition.SystemicGameplay = USystemicGameplayQueryService::MakeM12FixtureState(SystemDefinition);
-
-		FGravityWellDefinition Well;
-		Well.WellId = TEXT("ember_well");
-		Well.AnchorBodyId = TEXT("ember");
-		Well.SlowdownRadiusCm = 120000.0;
-		Well.LockoutRadiusCm = 90000.0;
-		Well.DropoutRadiusCm = 45000.0;
-		SystemDefinition.GravityWells = { Well };
-
-		for (const FBodyDefinition& Body : SystemDefinition.Bodies)
+		if (ShouldApplyFrontierPlayableMetadata(SystemDefinition))
 		{
-			FMapEntryDefinition Entry;
-			Entry.MapEntryId = Body.BodyId;
-			Entry.SourceId = Body.BodyId;
-			Entry.EntryType = TEXT("body");
-			SystemDefinition.MapEntries.Add(Entry);
+			ApplyGodotStationRegistryMetadata(SystemDefinition);
+			ApplyGodotMissionBoardMetadata(SystemDefinition);
+			SystemDefinition.SystemicGameplay = USystemicGameplayQueryService::MakeM12FixtureState(SystemDefinition);
 		}
-		for (const FStationDefinition& Station : SystemDefinition.Stations)
+
+		if (SystemDefinition.MapEntries.IsEmpty())
 		{
-			FMapEntryDefinition Entry;
-			Entry.MapEntryId = Station.StationId;
-			Entry.SourceId = Station.StationId;
-			Entry.EntryType = TEXT("station");
-			SystemDefinition.MapEntries.Add(Entry);
-		}
-		for (const FGateDefinition& Gate : SystemDefinition.Gates)
-		{
-			FMapEntryDefinition Entry;
-			Entry.MapEntryId = Gate.GateId;
-			Entry.SourceId = Gate.GateId;
-			Entry.EntryType = TEXT("gate");
-			SystemDefinition.MapEntries.Add(Entry);
+			for (const FBodyDefinition& Body : SystemDefinition.Bodies)
+			{
+				FMapEntryDefinition Entry;
+				Entry.MapEntryId = Body.BodyId;
+				Entry.SourceId = Body.BodyId;
+				Entry.EntryType = TEXT("body");
+				SystemDefinition.MapEntries.Add(Entry);
+			}
 		}
 
 		SystemsById.Add(SystemDefinition.SystemId, SystemDefinition);

@@ -65,6 +65,19 @@ repeatable as a player-facing loop.
 The next phase should remain player-facing loop integration, not another
 backend-only stage.
 
+Related planning note: [Planetary Scale And Rendering Plan](planetary-scale-rendering-plan.md)
+captures the current discussion direction for compressed system scale, planet
+representation, low-altitude flybys without arbitrary landings, gravity-well
+supercruise, and the proposed scale lab.
+
+Research support: [Planetary Scale And Rendering Research](planetary-scale-rendering-research.md)
+records Unreal technologies, shipped-game references, reusable plugins/libraries,
+and open risks for planetary rendering and system scale.
+
+Current flyaround seed: [HD 219134 Frontier System](hd-219134-frontier-system.md)
+records the nearby-star research basis and the distinction between observed
+planets and game extrapolations for the body-only scale pass.
+
 Recommended target: Non-Sol Playable Loop Integration.
 
 Goal:

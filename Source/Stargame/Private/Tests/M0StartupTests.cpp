@@ -82,10 +82,10 @@ bool FM0FixtureTargetsTest::RunTest(const FString& Parameters)
 		TargetIds.Add(Gate.NavigationTarget.TargetId);
 	}
 
-	TestEqual(TEXT("M0 target count"), TargetIds.Num(), 3);
-	TestTrue(TEXT("Contains ember"), TargetIds.Contains(FName(TEXT("ember"))));
-	TestTrue(TEXT("Contains brink_watch"), TargetIds.Contains(FName(TEXT("brink_watch"))));
-	TestTrue(TEXT("Contains frontier_gate_a"), TargetIds.Contains(FName(TEXT("frontier_gate_a"))));
+	TestEqual(TEXT("M0 target count"), TargetIds.Num(), SystemDefinition.Bodies.Num());
+	TestTrue(TEXT("Contains HD 219134 primary"), TargetIds.Contains(FName(TEXT("hd219134"))));
+	TestTrue(TEXT("Contains HD 219134 b"), TargetIds.Contains(FName(TEXT("hd219134_b"))));
+	TestTrue(TEXT("Contains HD 219134 h"), TargetIds.Contains(FName(TEXT("hd219134_h"))));
 	return true;
 }
 
@@ -211,18 +211,18 @@ bool FM0WorldBuildRegistersTargetsTest::RunTest(const FString& Parameters)
 
 	TArray<FName> EntityIds;
 	StarSystem->GetRegisteredEntityIds(EntityIds);
-	TestEqual(TEXT("Registered entity count"), EntityIds.Num(), 3);
-	TestTrue(TEXT("Entity ember registered"), EntityIds.Contains(FName(TEXT("ember"))));
-	TestTrue(TEXT("Entity brink_watch registered"), EntityIds.Contains(FName(TEXT("brink_watch"))));
-	TestTrue(TEXT("Entity frontier_gate_a registered"), EntityIds.Contains(FName(TEXT("frontier_gate_a"))));
+	TestEqual(TEXT("Registered entity count"), EntityIds.Num(), SystemDefinition.Bodies.Num());
+	TestTrue(TEXT("Entity HD 219134 registered"), EntityIds.Contains(FName(TEXT("hd219134"))));
+	TestTrue(TEXT("Entity HD 219134 b registered"), EntityIds.Contains(FName(TEXT("hd219134_b"))));
+	TestTrue(TEXT("Entity HD 219134 h registered"), EntityIds.Contains(FName(TEXT("hd219134_h"))));
 
 	TArray<FNavigationTargetDefinition> Targets;
 	StarSystem->GetNavigationTargets(Targets);
-	TestEqual(TEXT("Navigation target count"), Targets.Num(), 3);
+	TestEqual(TEXT("Navigation target count"), Targets.Num(), SystemDefinition.Bodies.Num());
 
 	const FString DebugSummary = StarSystem->GetM0DebugSummary();
 	TestTrue(TEXT("Debug includes build state"), DebugSummary.Contains(TEXT("BuildComplete=true")));
-	TestTrue(TEXT("Debug includes target"), DebugSummary.Contains(TEXT("frontier_gate_a")));
+	TestTrue(TEXT("Debug includes target"), DebugSummary.Contains(TEXT("hd219134_h")));
 
 	if (StarSystem)
 	{

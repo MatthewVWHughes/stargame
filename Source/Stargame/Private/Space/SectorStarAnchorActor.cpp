@@ -267,10 +267,7 @@ ASectorStarAnchorActor::ASectorStarAnchorActor()
 		}
 	}
 
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> SurfaceMaterialFinder(TEXT("/Game/Materials/Space/M_StarSurface.M_StarSurface"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> CoronaMaterialFinder(TEXT("/Game/Materials/Space/M_StarCorona.M_StarCorona"));
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> HaloMaterialFinder(TEXT("/Game/Materials/Space/M_StarHaloBillboard.M_StarHaloBillboard"));
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> ProminenceMaterialFinder(TEXT("/Game/Materials/Space/M_StarProminence.M_StarProminence"));
 	static ConstructorHelpers::FObjectFinder<UTexture> PhotosphereMaskFinder(TEXT("/Game/Textures/Space/Star/T_StarPhotosphereMasks.T_StarPhotosphereMasks"));
 	if (UMaterialInterface* ProceduralSurfaceMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarPhotosphereProcedural.M_StarPhotosphereProcedural")))
 	{
@@ -281,12 +278,6 @@ ASectorStarAnchorActor::ASectorStarAnchorActor()
 	else if (UMaterialInterface* DynamicSurfaceMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarSurfaceDynamic.M_StarSurfaceDynamic")))
 	{
 		StarSurfaceMaterial = DynamicSurfaceMaterial;
-		StarBody->SetMaterial(0, StarSurfaceMaterial);
-		PhotosphereSurface->SetMaterial(0, StarSurfaceMaterial);
-	}
-	else if (SurfaceMaterialFinder.Succeeded())
-	{
-		StarSurfaceMaterial = SurfaceMaterialFinder.Object;
 		StarBody->SetMaterial(0, StarSurfaceMaterial);
 		PhotosphereSurface->SetMaterial(0, StarSurfaceMaterial);
 	}
@@ -306,29 +297,9 @@ ASectorStarAnchorActor::ASectorStarAnchorActor()
 		CoronaShell->SetMaterial(0, StarCoronaMaterial);
 		CoronaSurface->SetMaterial(0, StarCoronaMaterial);
 	}
-	if (HaloMaterialFinder.Succeeded())
-	{
-		StarHaloMaterial = HaloMaterialFinder.Object;
-		StarHaloBillboard->SetMaterial(0, StarHaloMaterial);
-	}
-	if (ProminenceMaterialFinder.Succeeded())
-	{
-		StarProminenceMaterial = ProminenceMaterialFinder.Object;
-		for (UProceduralMeshComponent* Arc : ProminenceArcs)
-		{
-			if (Arc)
-			{
-				Arc->SetMaterial(0, StarProminenceMaterial);
-			}
-		}
-		for (UStaticMeshComponent* Ejection : GetEjectionBillboards())
-		{
-			if (Ejection)
-			{
-				Ejection->SetMaterial(0, StarProminenceMaterial);
-			}
-		}
-	}
+	StarHaloMaterial = nullptr;
+	StarHaloBillboard->SetMaterial(0, nullptr);
+	StarProminenceMaterial = nullptr;
 
 	StellarClassPresets.Add(EStargameStellarClass::O, MakePreset(
 		FLinearColor(0.72f, 0.82f, 1.0f), FLinearColor(0.50f, 0.66f, 1.0f), FLinearColor(0.10f, 0.15f, 0.34f),
@@ -557,10 +528,56 @@ FText ASectorStarAnchorActor::GetStellarClassLabel() const
 	}
 }
 
+void ASectorStarAnchorActor::ConfigureRuntimeStar(FName InStarId, double InPhotosphereRadiusCm, EStargameStellarClass InClass)
+{
+	if (!InStarId.IsNone())
+	{
+		Tags.AddUnique(InStarId);
+	}
+	Tags.AddUnique(TEXT("star"));
+	Tags.AddUnique(TEXT("stellar_presentation"));
+
+	BasePhotosphereRadiusCm = static_cast<float>(FMath::Max(1.0, InPhotosphereRadiusCm));
+	bApplyClassRadiusScale = false;
+	bShowClassLabel = false;
+	bUseAsAtmosphereSunLight = false;
+	if (UMaterialInterface* ProceduralSurfaceMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarPhotosphereProcedural.M_StarPhotosphereProcedural")))
+	{
+		StarSurfaceMaterial = ProceduralSurfaceMaterial;
+	}
+	if (UMaterialInterface* ProceduralCoronaMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarCoronaProcedural.M_StarCoronaProcedural")))
+	{
+		StarCoronaMaterial = ProceduralCoronaMaterial;
+	}
+	StarHaloMaterial = nullptr;
+	bShowHaloBillboard = false;
+	StarProminenceMaterial = nullptr;
+	bShowProminences = false;
+	bShowEjections = false;
+	ApplyStellarClass(InClass);
+	if (StarLight)
+	{
+		StarLight->SetVisibility(false);
+	}
+
+#if WITH_EDITOR
+	if (!InStarId.IsNone())
+	{
+		SetActorLabel(FString::Printf(TEXT("Star_%s"), *InStarId.ToString()));
+	}
+#endif
+}
+
 void ASectorStarAnchorActor::SetupPreviewInput()
 {
 	if (bUsePreviewCamera)
 	{
+		const FString MapName = GetWorld() ? GetWorld()->GetMapName() : FString();
+		if (!MapName.Contains(TEXT("StellarClassPreview")))
+		{
+			return;
+		}
+
 		APlayerController* PlayerController = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
 		if (!PlayerController)
 		{

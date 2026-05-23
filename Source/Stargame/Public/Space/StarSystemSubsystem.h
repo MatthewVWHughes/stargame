@@ -316,6 +316,7 @@ public:
 private:
 	bool ValidateSystemForBuild(const FStarSystemDefinition& SystemDefinition, FString& OutError) const;
 	void AddBuildValidationIssue(FName Code, FName ObjectId, const FString& Message);
+	bool RegisterBodyEntity(const FBodyDefinition& Body, const FTransform& Transform);
 	bool RegisterEntity(FName EntityId, FName EntityType, const FTransform& Transform, double VisualRadiusCm);
 	bool RegisterNavigationTarget(const FNavigationTargetDefinition& Target);
 	bool RegisterSpawnZone(const FSpawnZoneDefinition& SpawnZone);

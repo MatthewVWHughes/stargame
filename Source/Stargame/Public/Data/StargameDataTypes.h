@@ -1037,6 +1037,9 @@ struct STARGAME_API FBodyDefinition
 	FName BodyType;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+	FName StellarClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
 	FName FrameType;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")

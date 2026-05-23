@@ -3,6 +3,7 @@
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
 
 AM0SystemMarkerActor::AM0SystemMarkerActor()
@@ -31,7 +32,12 @@ void AM0SystemMarkerActor::InitializeMarker(FName InGameplayId, FName InEntityTy
 	EntityType = InEntityType;
 
 	const TCHAR* MeshPath = TEXT("/Engine/BasicShapes/Sphere.Sphere");
-	if (EntityType == FName(TEXT("station")))
+	const bool bIsCurrentFixtureStar = EntityType == FName(TEXT("body")) && GameplayId == FName(TEXT("hd219134"));
+	if (bIsCurrentFixtureStar)
+	{
+		MeshPath = TEXT("/Game/Meshes/Space/SM_StarPhotosphereSmooth.SM_StarPhotosphereSmooth");
+	}
+	else if (EntityType == FName(TEXT("station")))
 	{
 		MeshPath = TEXT("/Engine/BasicShapes/Cube.Cube");
 	}
@@ -47,6 +53,18 @@ void AM0SystemMarkerActor::InitializeMarker(FName InGameplayId, FName InEntityTy
 	if (UStaticMesh* Mesh = LoadObject<UStaticMesh>(nullptr, MeshPath))
 	{
 		VisualMesh->SetStaticMesh(Mesh);
+	}
+
+	if (bIsCurrentFixtureStar)
+	{
+		if (UMaterialInterface* DynamicStarMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarSurfaceDynamic.M_StarSurfaceDynamic")))
+		{
+			VisualMesh->SetMaterial(0, DynamicStarMaterial);
+		}
+		else if (UMaterialInterface* ProceduralStarMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarPhotosphereProcedural.M_StarPhotosphereProcedural")))
+		{
+			VisualMesh->SetMaterial(0, ProceduralStarMaterial);
+		}
 	}
 
 	const double MeshDiameterCm = 100.0;

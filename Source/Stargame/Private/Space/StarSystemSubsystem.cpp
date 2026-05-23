@@ -7,6 +7,7 @@
 #include "Space/LogicalTrafficActor.h"
 #include "Space/OrbitRouteFrameQueryService.h"
 #include "Space/M0SystemMarkerActor.h"
+#include "Space/SectorStarAnchorActor.h"
 #include "Space/SystemSpacePresentationActor.h"
 
 namespace
@@ -17,6 +18,22 @@ namespace
 		{
 			return Candidate.GroupId == GroupId;
 		});
+	}
+
+	EStargameStellarClass ResolveStellarClass(FName StellarClassName)
+	{
+		const FString Normalized = StellarClassName.ToString().TrimStartAndEnd().ToUpper();
+		if (Normalized.Contains(TEXT("BLUE"))) { return EStargameStellarClass::BlueGiant; }
+		if (Normalized.Contains(TEXT("RED"))) { return EStargameStellarClass::RedGiant; }
+		if (Normalized.Contains(TEXT("WHITE"))) { return EStargameStellarClass::WhiteDwarf; }
+		if (Normalized.StartsWith(TEXT("O"))) { return EStargameStellarClass::O; }
+		if (Normalized.StartsWith(TEXT("B"))) { return EStargameStellarClass::B; }
+		if (Normalized.StartsWith(TEXT("A"))) { return EStargameStellarClass::A; }
+		if (Normalized.StartsWith(TEXT("F"))) { return EStargameStellarClass::F; }
+		if (Normalized.StartsWith(TEXT("K"))) { return EStargameStellarClass::K; }
+		if (Normalized.StartsWith(TEXT("M"))) { return EStargameStellarClass::M; }
+		if (Normalized.StartsWith(TEXT("L"))) { return EStargameStellarClass::L; }
+		return EStargameStellarClass::G;
 	}
 
 	const FShipFormationSlot* FindFormationSlot(const FShipGroupState* Group, FName ShipInstanceId, FName SlotId)
@@ -429,7 +446,7 @@ bool UStarSystemSubsystem::BuildSystem(const FStarSystemDefinition& SystemDefini
 			return false;
 		}
 
-		if (!RegisterEntity(Body.BodyId, TEXT("body"), FTransform(ResolvedTransform.Rotation, ResolvedTransform.PositionCm), Body.VisualRadiusCm) ||
+		if (!RegisterBodyEntity(Body, FTransform(ResolvedTransform.Rotation, ResolvedTransform.PositionCm)) ||
 			!RegisterNavigationTarget(Body.NavigationTarget))
 		{
 			AddBuildValidationIssue(TEXT("active_system_body_registration_failed"), Body.BodyId, LastBuildError);
@@ -610,7 +627,13 @@ bool UStarSystemSubsystem::SpawnPlayerAtSpawnZone(FName SpawnZoneId, APlayerCont
 			LastBuildError = TEXT("Cannot spawn player without an authored pawn class.");
 			return false;
 		}
-		Pawn = World->SpawnActor<APawn>(SpawnClass, SpawnZone.Transform, SpawnParameters);
+		FTransform ActorSpawnTransform = SpawnZone.Transform;
+		ActorSpawnTransform.SetLocation(FVector::ZeroVector);
+		Pawn = World->SpawnActor<APawn>(SpawnClass, ActorSpawnTransform, SpawnParameters);
+		if (ASpaceFlightPawn* SpaceFlightPawn = Cast<ASpaceFlightPawn>(Pawn))
+		{
+			SpaceFlightPawn->SetFlightTestLogicalTransformAndActorLocation(SpawnZone.Transform, FVector::ZeroVector, FVector::ZeroVector);
+		}
 		if (PlayerController && Pawn)
 		{
 			PlayerController->Possess(Pawn);
@@ -627,15 +650,19 @@ bool UStarSystemSubsystem::SpawnPlayerAtSpawnZone(FName SpawnZoneId, APlayerCont
 		}
 		if (ASpaceFlightPawn* SpaceFlightPawn = Cast<ASpaceFlightPawn>(Pawn))
 		{
-			SpaceFlightPawn->SetFlightTestTransformAndVelocity(SpawnZone.Transform, FVector::ZeroVector);
+			SpaceFlightPawn->SetFlightTestLogicalTransformAndActorLocation(SpawnZone.Transform, FVector::ZeroVector, FVector::ZeroVector);
 		}
 		else
 		{
-			Pawn->SetActorTransform(SpawnZone.Transform, false, nullptr, ETeleportType::TeleportPhysics);
+			Pawn->SetActorTransform(FTransform(SpawnZone.Transform.GetRotation(), FVector::ZeroVector), false, nullptr, ETeleportType::TeleportPhysics);
 		}
 	}
 
 	ActivePlayerPawn = Pawn;
+	if (Pawn)
+	{
+		RefreshRegisteredEntityTransforms(0.0);
+	}
 	return Pawn != nullptr;
 }
 
@@ -791,6 +818,9 @@ bool UStarSystemSubsystem::RefreshRegisteredEntityTransforms(double SimulationTi
 		return false;
 	}
 
+	const ASpaceFlightPawn* SpaceFlightPawn = Cast<ASpaceFlightPawn>(ActivePlayerPawn.Get());
+	const FVector BubbleOriginSystemPositionCm = SpaceFlightPawn ? SpaceFlightPawn->GetLogicalSystemPositionCm() : FVector::ZeroVector;
+	const FVector BubbleOriginActorPositionCm = ActivePlayerPawn.IsValid() ? ActivePlayerPawn->GetActorLocation() : FVector::ZeroVector;
 	const FSimulationClockSnapshot ClockSnapshot = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(ActiveSystemDefinition.SystemId, SimulationTimeSeconds);
 	for (TPair<FName, FActiveSystemEntityEntry>& EntryPair : RegisteredEntities)
 	{
@@ -803,7 +833,33 @@ bool UStarSystemSubsystem::RefreshRegisteredEntityTransforms(double SimulationTi
 
 		if (AActor* Actor = EntryPair.Value.Actor.Get())
 		{
-			Actor->SetActorTransform(FTransform(ResolvedTransform.Rotation, ResolvedTransform.PositionCm), false, nullptr, ETeleportType::TeleportPhysics);
+			FVector ProjectedPositionCm = ResolvedTransform.PositionCm;
+			double ProjectionVisualScale = 1.0;
+			bool bInsideLocalBubble = true;
+			if (SpaceFlightPawn)
+			{
+				FVector ActorOffsetCm = FVector::ZeroVector;
+				bInsideLocalBubble = UOrbitRouteFrameQueryService::ProjectSystemPositionToLocalBubble(
+					ActiveSystemDefinition.Scale,
+					BubbleOriginSystemPositionCm,
+					ResolvedTransform.PositionCm,
+					ActorOffsetCm);
+				if (!bInsideLocalBubble)
+				{
+					const double TrueDistanceCm = ActorOffsetCm.Size();
+					const double FarShellRadiusCm = ActiveSystemDefinition.Scale.LocalBubbleRadiusCm;
+					if (TrueDistanceCm > UE_DOUBLE_SMALL_NUMBER)
+					{
+						ActorOffsetCm = ActorOffsetCm.GetSafeNormal() * FarShellRadiusCm;
+						ProjectionVisualScale = FarShellRadiusCm / TrueDistanceCm;
+					}
+				}
+				ProjectedPositionCm = BubbleOriginActorPositionCm + ActorOffsetCm;
+			}
+
+			Actor->SetActorTransform(FTransform(ResolvedTransform.Rotation, ProjectedPositionCm, FVector(ProjectionVisualScale)), false, nullptr, ETeleportType::TeleportPhysics);
+			Actor->SetActorHiddenInGame(false);
+			Actor->SetActorEnableCollision(bInsideLocalBubble);
 		}
 	}
 
@@ -2187,6 +2243,57 @@ bool UStarSystemSubsystem::SpawnSystemPresentation(FName SystemId)
 	Presentation->ConfigureForSystem(SystemId);
 	SpacePresentationActor = Presentation;
 	SpawnedSystemActors.Add(Presentation);
+	return true;
+}
+
+bool UStarSystemSubsystem::RegisterBodyEntity(const FBodyDefinition& Body, const FTransform& Transform)
+{
+	if (Body.BodyType != FName(TEXT("star")))
+	{
+		return RegisterEntity(Body.BodyId, TEXT("body"), Transform, Body.VisualRadiusCm);
+	}
+
+	if (Body.BodyId.IsNone())
+	{
+		LastBuildError = TEXT("Cannot register star body with an empty ID.");
+		return false;
+	}
+
+	if (RegisteredEntities.Contains(Body.BodyId))
+	{
+		LastBuildError = FString::Printf(TEXT("Duplicate active system entity ID '%s'."), *Body.BodyId.ToString());
+		return false;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		LastBuildError = TEXT("Cannot register active system star without a world.");
+		return false;
+	}
+
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	ASectorStarAnchorActor* StarActor = World->SpawnActor<ASectorStarAnchorActor>(
+		ASectorStarAnchorActor::StaticClass(),
+		Transform,
+		SpawnParameters);
+	if (!StarActor)
+	{
+		LastBuildError = FString::Printf(TEXT("Failed to spawn reusable star actor for '%s'."), *Body.BodyId.ToString());
+		return false;
+	}
+
+	StarActor->ConfigureRuntimeStar(Body.BodyId, Body.VisualRadiusCm, ResolveStellarClass(Body.StellarClass));
+	SpawnedSystemActors.Add(StarActor);
+
+	FActiveSystemEntityEntry Entry;
+	Entry.EntityId = Body.BodyId;
+	Entry.EntityType = TEXT("star");
+	Entry.BuildGeneration = ActiveBuildGeneration;
+	Entry.Actor = StarActor;
+	RegisteredEntities.Add(Body.BodyId, Entry);
 	return true;
 }
 

@@ -43,6 +43,56 @@ namespace
 		}
 		return true;
 	}
+
+	FBodyDefinition MakeBody(FName BodyId, const TCHAR* DisplayName, FName BodyType, double RadiusCm, FName ParentId, double SemiMajorAxisCm, double PeriodSeconds, double PhaseOffsetRadians, double Eccentricity = 0.0, double InclinationDegrees = 0.0, FName StellarClass = NAME_None)
+	{
+		FBodyDefinition Body;
+		Body.BodyId = BodyId;
+		Body.DisplayName = FText::FromString(DisplayName);
+		Body.BodyType = BodyType;
+		Body.StellarClass = StellarClass;
+		Body.FrameType = ParentId.IsNone() ? SystemFrameType : FName(TEXT("body_relative"));
+		Body.AnchorId = ParentId;
+		Body.VisualRadiusCm = RadiusCm;
+		Body.PhysicalReferenceRadiusCm = RadiusCm;
+		Body.CollisionRadiusCm = RadiusCm;
+		Body.NavigationTarget = MakeNavigationTarget(BodyId, DisplayName, TEXT("body"));
+		Body.NavigationTarget.FrameType = Body.FrameType;
+		Body.NavigationTarget.AnchorId = ParentId;
+		Body.Orbit.ParentId = ParentId;
+		Body.Orbit.SemiMajorAxisCm = SemiMajorAxisCm;
+		Body.Orbit.PeriodSeconds = PeriodSeconds;
+		Body.Orbit.PhaseOffsetRadians = PhaseOffsetRadians;
+		Body.Orbit.Eccentricity = Eccentricity;
+		Body.Orbit.InclinationDegrees = InclinationDegrees;
+		return Body;
+	}
+
+	FGravityWellDefinition MakeWell(FName WellId, FName AnchorBodyId, double SlowdownRadiusCm, double LockoutRadiusCm, double DropoutRadiusCm, double Strength)
+	{
+		FGravityWellDefinition Well;
+		Well.WellId = WellId;
+		Well.AnchorBodyId = AnchorBodyId;
+		Well.SlowdownRadiusCm = SlowdownRadiusCm;
+		Well.LockoutRadiusCm = LockoutRadiusCm;
+		Well.DropoutRadiusCm = DropoutRadiusCm;
+		Well.Strength = Strength;
+		return Well;
+	}
+
+	void AddBodyMapEntries(FStarSystemDefinition& SystemDefinition)
+	{
+		SystemDefinition.MapEntries.Reset();
+		for (const FBodyDefinition& Body : SystemDefinition.Bodies)
+		{
+			FMapEntryDefinition Entry;
+			Entry.MapEntryId = Body.BodyId;
+			Entry.SourceId = Body.BodyId;
+			Entry.EntryType = TEXT("body");
+			Entry.bVisibleInSystemMap = true;
+			SystemDefinition.MapEntries.Add(Entry);
+		}
+	}
 }
 
 bool FFrontierTestFixtureProvider::ResolveStartProfile(FName StartProfileId, FStartProfileDefinition& OutStartProfile)
@@ -101,64 +151,45 @@ bool FFrontierTestFixtureProvider::ResolveSystemDefinition(FName SystemId, FStar
 		return true;
 	}
 
-	FBodyDefinition Body;
-	Body.BodyId = TEXT("ember");
-	Body.DisplayName = FText::FromString(TEXT("Ember"));
-	Body.BodyType = TEXT("rocky_planet");
-	Body.FrameType = SystemFrameType;
-	Body.Transform = FTransform(FRotator::ZeroRotator, FVector(450000.0, -120000.0, 0.0));
-	Body.VisualRadiusCm = 45000.0;
-	Body.NavigationTarget = MakeNavigationTarget(Body.BodyId, TEXT("Ember"), TEXT("body"));
-
-	FStationDefinition Station;
-	Station.StationId = TEXT("brink_watch");
-	Station.DisplayName = FText::FromString(TEXT("Brink Watch"));
-	Station.FrameType = SystemFrameType;
-	Station.Transform = FTransform(FRotator(0.0, 25.0, 0.0), FVector(230000.0, 180000.0, 25000.0));
-	Station.VisualRadiusCm = 12000.0;
-	Station.OwnerFactionId = TEXT("frontier_local_authority");
-	Station.StationRole = TEXT("frontier_security_market");
-	Station.RegionName = TEXT("brink_orbital_corridor");
-	Station.SecurityProfile = TEXT("low_to_moderate_frontier_security");
-	Station.MarketProfileId = TEXT("brink_watch_market");
-	Station.MissionTags = { TEXT("convoy_defense"), TEXT("patrol_response"), TEXT("ore_trade"), TEXT("frontier_security") };
-	Station.QuestGiverNpcIds = { TEXT("npc_brink_watch_dispatch"), TEXT("npc_brink_market_factor") };
-	Station.QuestGivers = {
-		{ TEXT("npc_brink_watch_dispatch"), FText::FromString(TEXT("Brink Watch Dispatch")), FVector(-320.0, -180.0, 10.0) },
-		{ TEXT("npc_brink_market_factor"), FText::FromString(TEXT("Brink Market Factor")), FVector(-320.0, 220.0, 10.0) }
-	};
-	Station.NavigationTarget = MakeNavigationTarget(Station.StationId, TEXT("Brink Watch"), TEXT("station"));
-
-	FGateDefinition Gate;
-	Gate.GateId = TEXT("frontier_gate_a");
-	Gate.DisplayName = FText::FromString(TEXT("Frontier Gate A"));
-	Gate.FrameType = SystemFrameType;
-	Gate.Transform = FTransform(FRotator(0.0, -35.0, 0.0), FVector(-360000.0, -210000.0, 10000.0));
-	Gate.VisualRadiusCm = 16000.0;
-	Gate.ActivationRangeCm = 50000.0;
-	Gate.DestinationSystemId = ArrivalSystemId;
-	Gate.DestinationGateId = TEXT("arrival_gate_a");
-	Gate.DestinationArrivalId = TEXT("arrival_from_frontier_gate_a");
-	Gate.DestinationArrivalFrame = TEXT("gate_relative");
-	Gate.DestinationArrivalLocalOffsetCm = FVector(0.0, 18000.0, 0.0);
-	Gate.DestinationArrivalRotation = FRotator(0.0, 180.0, 0.0);
-	Gate.NavigationTarget = MakeNavigationTarget(Gate.GateId, TEXT("Frontier Gate A"), TEXT("gate"));
-
 	FSpawnZoneDefinition SpawnZone;
 	SpawnZone.SpawnZoneId = DeepSpaceSpawnZoneId;
-	SpawnZone.DisplayName = FText::FromString(TEXT("Deep Space Spawn"));
+	SpawnZone.DisplayName = FText::FromString(TEXT("HD 219134 Flyaround Spawn"));
 	SpawnZone.FrameType = SystemFrameType;
-	SpawnZone.Transform = FTransform(FRotator(0.0, 18.0, 0.0), FVector(0.0, -320000.0, 40000.0));
-	SpawnZone.RadiusCm = 15000.0;
+	SpawnZone.Transform = FTransform(FRotator(4.0, 90.0, 0.0), FVector(0.0, -65000000.0, 2500000.0));
+	SpawnZone.RadiusCm = 50000.0;
 	SpawnZone.AllowedContexts = { TEXT("new_session"), TEXT("reload") };
 
 	OutSystemDefinition = FStarSystemDefinition();
 	OutSystemDefinition.SystemId = FrontierSystemId;
-	OutSystemDefinition.DisplayName = FText::FromString(TEXT("Frontier Test 01"));
-	OutSystemDefinition.Bodies = { Body };
-	OutSystemDefinition.Stations = { Station };
-	OutSystemDefinition.Gates = { Gate };
+	OutSystemDefinition.DisplayName = FText::FromString(TEXT("HD 219134 Frontier"));
+	OutSystemDefinition.Seed = 219134;
+	OutSystemDefinition.Bodies = {
+		MakeBody(TEXT("hd219134"), TEXT("HD 219134"), TEXT("star"), 1500000.0, NAME_None, 0.0, 0.0, 0.0, 0.0, 0.0, TEXT("K")),
+		MakeBody(TEXT("hd219134_b"), TEXT("HD 219134 b"), TEXT("venus_like_planet"), 68000.0, TEXT("hd219134"), 3876000.0, 268.0, 0.15, 0.0, 0.6),
+		MakeBody(TEXT("hd219134_c"), TEXT("HD 219134 c"), TEXT("rocky_planet"), 64000.0, TEXT("hd219134"), 6530000.0, 588.0, 1.2, 0.06, 1.1),
+		MakeBody(TEXT("hd219134_f"), TEXT("HD 219134 f"), TEXT("rocky_planet"), 56000.0, TEXT("hd219134"), 14630000.0, 1961.0, 2.5, 0.15, 2.4),
+		MakeBody(TEXT("hd219134_d"), TEXT("HD 219134 d"), TEXT("dense_rocky_planet"), 82000.0, TEXT("hd219134"), 23700000.0, 4052.0, 3.4, 0.14, 3.0),
+		MakeBody(TEXT("hd219134_g"), TEXT("HD 219134 g"), TEXT("ice_giant"), 230000.0, TEXT("hd219134"), 37530000.0, 8139.0, 4.8, 0.0, 1.7),
+		MakeBody(TEXT("hd219134_h"), TEXT("HD 219134 h"), TEXT("gas_giant"), 520000.0, TEXT("hd219134"), 311000000.0, 19548.0, 5.6, 0.06, 4.1),
+		MakeBody(TEXT("hd219134_g_i"), TEXT("HD 219134 g-i"), TEXT("moon"), 26000.0, TEXT("hd219134_g"), 1800000.0, 520.0, 2.2, 0.02, 4.0),
+		MakeBody(TEXT("hd219134_g_ii"), TEXT("HD 219134 g-ii"), TEXT("moon"), 18000.0, TEXT("hd219134_g"), 2900000.0, 780.0, 5.1, 0.04, 11.0),
+		MakeBody(TEXT("hd219134_h_i"), TEXT("HD 219134 h-i"), TEXT("moon"), 24000.0, TEXT("hd219134_h"), 2300000.0, 520.0, 0.8, 0.01, 2.0),
+		MakeBody(TEXT("hd219134_h_ii"), TEXT("HD 219134 h-ii"), TEXT("moon"), 38000.0, TEXT("hd219134_h"), 4200000.0, 980.0, 2.8, 0.03, 6.0),
+		MakeBody(TEXT("hd219134_h_iii"), TEXT("HD 219134 h-iii"), TEXT("moon"), 30000.0, TEXT("hd219134_h"), 6900000.0, 1600.0, 4.1, 0.08, 14.0),
+		MakeBody(TEXT("hd219134_h_iv"), TEXT("HD 219134 h-iv"), TEXT("moon"), 17000.0, TEXT("hd219134_h"), 9600000.0, 2400.0, 5.6, 0.05, 9.0),
+		MakeBody(TEXT("hd219134_h_v"), TEXT("HD 219134 h-v"), TEXT("moon"), 46000.0, TEXT("hd219134_h"), 14200000.0, 3600.0, 1.9, 0.12, 21.0)
+	};
+	OutSystemDefinition.GravityWells = {
+		MakeWell(TEXT("hd219134_well"), TEXT("hd219134"), 30000000.0, 7000000.0, 2200000.0, 1.0),
+		MakeWell(TEXT("hd219134_b_well"), TEXT("hd219134_b"), 1300000.0, 360000.0, 180000.0, 0.35),
+		MakeWell(TEXT("hd219134_c_well"), TEXT("hd219134_c"), 1200000.0, 340000.0, 170000.0, 0.35),
+		MakeWell(TEXT("hd219134_f_well"), TEXT("hd219134_f"), 1100000.0, 300000.0, 150000.0, 0.30),
+		MakeWell(TEXT("hd219134_d_well"), TEXT("hd219134_d"), 1600000.0, 460000.0, 230000.0, 0.45),
+		MakeWell(TEXT("hd219134_g_well"), TEXT("hd219134_g"), 4000000.0, 1300000.0, 650000.0, 0.65),
+		MakeWell(TEXT("hd219134_h_well"), TEXT("hd219134_h"), 9000000.0, 3000000.0, 1500000.0, 0.85)
+	};
 	OutSystemDefinition.SpawnZones = { SpawnZone };
+	AddBodyMapEntries(OutSystemDefinition);
 	return true;
 }
 
@@ -172,9 +203,9 @@ bool FFrontierTestFixtureProvider::ValidateM0Fixture(const FStarSystemDefinition
 		return false;
 	}
 
-	if (SystemDefinition.Bodies.Num() != 1 || SystemDefinition.Stations.Num() != 1 || SystemDefinition.Gates.Num() != 1 || SystemDefinition.SpawnZones.Num() != 1)
+	if (SystemDefinition.Bodies.Num() < 14 || !SystemDefinition.Stations.IsEmpty() || !SystemDefinition.Gates.IsEmpty() || SystemDefinition.SpawnZones.Num() != 1)
 	{
-		OutError = TEXT("M0 fixture must contain exactly one body, one station, one gate, and one spawn zone.");
+		OutError = TEXT("M0 fixture must contain the HD 219134 flyaround body set, no stations, no gates, and one spawn zone.");
 		return false;
 	}
 
@@ -192,16 +223,19 @@ bool FFrontierTestFixtureProvider::ValidateM0Fixture(const FStarSystemDefinition
 		return false;
 	}
 
-	const TSet<FName> ExpectedTargets = { TEXT("ember"), TEXT("brink_watch"), TEXT("frontier_gate_a") };
+	const TSet<FName> ExpectedTargets = {
+		TEXT("hd219134"),
+		TEXT("hd219134_b"),
+		TEXT("hd219134_c"),
+		TEXT("hd219134_f"),
+		TEXT("hd219134_d"),
+		TEXT("hd219134_g"),
+		TEXT("hd219134_h")
+	};
 	TSet<FName> ActualTargets;
-	ActualTargets.Add(SystemDefinition.Bodies[0].NavigationTarget.TargetId);
-	ActualTargets.Add(SystemDefinition.Stations[0].NavigationTarget.TargetId);
-	ActualTargets.Add(SystemDefinition.Gates[0].NavigationTarget.TargetId);
-
-	if (ActualTargets.Num() != ExpectedTargets.Num())
+	for (const FBodyDefinition& Body : SystemDefinition.Bodies)
 	{
-		OutError = TEXT("M0 fixture target IDs are not unique.");
-		return false;
+		ActualTargets.Add(Body.NavigationTarget.TargetId);
 	}
 
 	for (const FName ExpectedTarget : ExpectedTargets)

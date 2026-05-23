@@ -726,7 +726,8 @@ int32 UStargameCreateM1FixtureAssetsCommandlet::Main(const FString& Params)
 	AssetsToSave.Add(Ship);
 
 	UStarSystemDefinitionAsset* System = CreateOrLoadAsset<UStarSystemDefinitionAsset>(TEXT("/Game/Data/Systems/frontier_test_01"), TEXT("frontier_test_01"));
-	System->Definition = MakeM1SystemDefinition();
+	FFrontierTestFixtureProvider::ResolveSystemDefinition(FFrontierTestFixtureProvider::FrontierSystemId, System->Definition);
+	System->Definition.SourceType = ESystemSourceType::Authored;
 	AssetsToSave.Add(System);
 
 	UStarSystemDefinitionAsset* ArrivalSystem = CreateOrLoadAsset<UStarSystemDefinitionAsset>(TEXT("/Game/Data/Systems/frontier_arrival_test_01"), TEXT("frontier_arrival_test_01"));
@@ -744,8 +745,8 @@ int32 UStargameCreateM1FixtureAssetsCommandlet::Main(const FString& Params)
 	FStarCatalogEntry CatalogEntry;
 	CatalogEntry.SystemId = System->Definition.SystemId;
 	CatalogEntry.DisplayName = System->Definition.DisplayName;
-	CatalogEntry.StellarClass = TEXT("test_fixture");
-	CatalogEntry.CatalogSource = TEXT("authored_m1_fixture");
+	CatalogEntry.StellarClass = TEXT("K3V");
+	CatalogEntry.CatalogSource = TEXT("HD_219134_science_seeded_fixture");
 	CatalogEntry.SystemDefinitionAsset = FPrimaryAssetId(UStarSystemDefinitionAsset::AssetType, System->Definition.SystemId);
 	Catalog->Systems.Add(CatalogEntry);
 
@@ -758,17 +759,6 @@ int32 UStargameCreateM1FixtureAssetsCommandlet::Main(const FString& Params)
 	Catalog->Systems.Add(ArrivalCatalogEntry);
 
 	Catalog->RouteEdges.Reset();
-	FRouteGraphEdge GateRouteEdge;
-	GateRouteEdge.RouteEdgeId = TEXT("edge_frontier_gate_a_to_arrival_gate_a");
-	GateRouteEdge.SourceSystemId = System->Definition.SystemId;
-	GateRouteEdge.SourceGateId = TEXT("frontier_gate_a");
-	GateRouteEdge.DestinationSystemId = ArrivalSystem->Definition.SystemId;
-	GateRouteEdge.DestinationGateId = TEXT("arrival_gate_a");
-	GateRouteEdge.DestinationArrivalId = TEXT("arrival_from_frontier_gate_a");
-	GateRouteEdge.RouteType = TEXT("jump_gate");
-	GateRouteEdge.bArtificialGate = true;
-	GateRouteEdge.bInitiallyKnown = true;
-	Catalog->RouteEdges.Add(GateRouteEdge);
 	AssetsToSave.Add(Catalog);
 
 	bool bSavedAll = true;

@@ -9,6 +9,7 @@ class USpringArmComponent;
 class UCameraComponent;
 class USceneComponent;
 class UBoxComponent;
+class UStaticMeshComponent;
 class UShipFlightModeComponent;
 class UStarSystemSubsystem;
 class UStargameSessionSubsystem;
@@ -98,6 +99,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Flight|Testing")
 	void SetFlightTestTransformAndVelocity(const FTransform& NewTransform, FVector NewVelocityCmPerSec);
 
+	void SetFlightTestLogicalTransformAndActorLocation(const FTransform& NewLogicalTransform, const FVector& NewActorLocationCm, FVector NewVelocityCmPerSec);
+
 	void SetFlightTestInputs(float NewThrottleInput, float NewStrafeRightInput, float NewStrafeUpInput, float NewRollInput, FVector2D NewMouseSteeringInput);
 
 	void TickNormalFlightForTest(float DeltaSeconds);
@@ -156,6 +159,9 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<USceneComponent> ShipVisualRoot;
+
+	UPROPERTY(VisibleAnywhere, Category = "Components")
+	TObjectPtr<UStaticMeshComponent> NativeDebugShipMesh;
 
 	UPROPERTY(VisibleAnywhere, Category = "Components")
 	TObjectPtr<USpringArmComponent> CameraBoom;

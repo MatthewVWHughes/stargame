@@ -4,10 +4,13 @@
 #include "Components/BoxComponent.h"
 #include "Components/InputComponent.h"
 #include "Components/SceneComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/GameInstance.h"
+#include "Engine/StaticMesh.h"
 #include "Flight/ShipFlightModeComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "UObject/ConstructorHelpers.h"
 #include "Runtime/StargameSessionSubsystem.h"
 #include "Space/OrbitRouteFrameQueryService.h"
 #include "Space/StarSystemSubsystem.h"
@@ -30,6 +33,20 @@ ASpaceFlightPawn::ASpaceFlightPawn()
 	ShipVisualRoot = CreateDefaultSubobject<USceneComponent>(TEXT("ShipVisualRoot"));
 	ShipVisualRoot->SetupAttachment(CollisionRoot);
 	ShipVisualRoot->SetRelativeLocation(ShipVisualOffset);
+
+	NativeDebugShipMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("NativeDebugShipMesh"));
+	NativeDebugShipMesh->SetupAttachment(ShipVisualRoot);
+	NativeDebugShipMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	NativeDebugShipMesh->SetGenerateOverlapEvents(false);
+	NativeDebugShipMesh->SetCanEverAffectNavigation(false);
+	NativeDebugShipMesh->SetRelativeRotation(FRotator(0.0f, 90.0f, 0.0f));
+	NativeDebugShipMesh->SetRelativeScale3D(FVector(2.2f, 1.0f, 0.55f));
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> DebugShipMesh(TEXT("/Engine/BasicShapes/Cone.Cone"));
+	if (DebugShipMesh.Succeeded())
+	{
+		NativeDebugShipMesh->SetStaticMesh(DebugShipMesh.Object);
+	}
 
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(CollisionRoot);
@@ -690,6 +707,15 @@ void ASpaceFlightPawn::SetFlightTestTransformAndVelocity(const FTransform& NewTr
 {
 	SetActorTransform(NewTransform, false, nullptr, ETeleportType::TeleportPhysics);
 	LogicalSystemPositionCm = NewTransform.GetLocation();
+	LinearVelocity = NewVelocityCmPerSec;
+	LastAcceleration = FVector::ZeroVector;
+	RebuildArcadeVelocityStateFromLinearVelocity();
+}
+
+void ASpaceFlightPawn::SetFlightTestLogicalTransformAndActorLocation(const FTransform& NewLogicalTransform, const FVector& NewActorLocationCm, FVector NewVelocityCmPerSec)
+{
+	SetActorTransform(FTransform(NewLogicalTransform.GetRotation(), NewActorLocationCm), false, nullptr, ETeleportType::TeleportPhysics);
+	LogicalSystemPositionCm = NewLogicalTransform.GetLocation();
 	LinearVelocity = NewVelocityCmPerSec;
 	LastAcceleration = FVector::ZeroVector;
 	RebuildArcadeVelocityStateFromLinearVelocity();
