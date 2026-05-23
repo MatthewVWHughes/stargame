@@ -340,6 +340,13 @@ Gravity and supercruise fields belong in `FGravityWellDefinition`, not directly 
 
 ## Orbit Definition
 
+Hard scale rule for authored stellar-system fixtures:
+
+- `1 AU = 1,000,000,000 Unreal centimeters` in logical system coordinates.
+- Real-world semi-major axes must be authored in AU first, then converted through a single helper/constant into `SemiMajorAxisCm`.
+- Star and planet radii must use the same AU-derived scale. Do not hand-enter orbit distances with one compression factor and body radii with another.
+- `VisualRadiusCm` may deliberately exaggerate tiny bodies later for readability, but that must be an explicit visual/profile multiplier, not a hidden mismatch in the canonical body data.
+
 `FOrbitDefinition`:
 
 - `ParentId`

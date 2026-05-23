@@ -31,6 +31,24 @@ enum class EStargameStellarClass : uint8
 	WhiteDwarf UMETA(DisplayName = "White Dwarf"),
 };
 
+UENUM(BlueprintType)
+enum class EStargameStarVisualLOD : uint8
+{
+	Far UMETA(DisplayName = "Far"),
+	Mid UMETA(DisplayName = "Mid"),
+	Near UMETA(DisplayName = "Near"),
+};
+
+UENUM(BlueprintType)
+enum class EStargameStarVisualLayerDebug : uint8
+{
+	FullStack UMETA(DisplayName = "Full Stack"),
+	PhotosphereOnly UMETA(DisplayName = "Photosphere Only"),
+	CoronaOnly UMETA(DisplayName = "Corona Only"),
+	HaloOnly UMETA(DisplayName = "Halo Only"),
+	ProminencesOnly UMETA(DisplayName = "Prominences Only"),
+};
+
 USTRUCT(BlueprintType)
 struct STARGAME_API FStargameSectorStarVisualPreset
 {
@@ -134,6 +152,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Stargame|Star")
 	void ConfigureRuntimeStar(FName InStarId, double InPhotosphereRadiusCm, EStargameStellarClass InClass);
 
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Star")
+	void UpdateRuntimeVisualLOD(double ObserverDistanceCm, double RenderedDistanceCm = 0.0);
+
+	UFUNCTION(BlueprintCallable, Category = "Stargame|Star")
+	void LogRuntimeRenderState(double ObserverDistanceCm, double RenderedDistanceCm, double ProjectionVisualScale) const;
+
+	UFUNCTION(BlueprintPure, Category = "Stargame|Star")
+	EStargameStarVisualLOD GetCurrentVisualLOD() const { return CurrentVisualLOD; }
+
 protected:
 	virtual void SetupPreviewInput();
 
@@ -151,6 +178,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UProceduralMeshComponent> CoronaSurface;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UProceduralMeshComponent> OuterCoronaSurface;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UStaticMeshComponent> StarHaloBillboard;
@@ -195,6 +225,9 @@ protected:
 	TObjectPtr<UMaterialInterface> StarSurfaceMaterial;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star")
+	TObjectPtr<UMaterialInterface> StarFallbackBodyMaterial;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star")
 	TObjectPtr<UTexture> StarPhotosphereMaskTexture;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star")
@@ -213,7 +246,7 @@ protected:
 	bool bApplyClassRadiusScale = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star", meta = (ClampMin = "0.01", ClampMax = "4.0"))
-	float VisualEmissionScale = 0.09f;
+	float VisualEmissionScale = 0.22f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star", meta = (ClampMin = "0.01", ClampMax = "4.0"))
 	float LightIntensityScale = 0.035f;
@@ -222,7 +255,7 @@ protected:
 	float HaloAuthoringScale = 0.35f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star")
-	bool bShowCorona = false;
+	bool bShowCorona = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star")
 	bool bShowHaloBillboard = false;
@@ -235,6 +268,18 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star")
 	bool bShowClassLabel = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star")
+	EStargameStarVisualLayerDebug VisualLayerDebug = EStargameStarVisualLayerDebug::FullStack;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|LOD", meta = (ClampMin = "0.0001", Units = "rad"))
+	float MidLODAngularDiameterRadians = 0.012f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|LOD", meta = (ClampMin = "0.0001", Units = "rad"))
+	float NearLODAngularDiameterRadians = 0.08f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|LOD", meta = (ClampMin = "0.0", ClampMax = "0.9"))
+	float LODHysteresisFraction = 0.18f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star")
 	bool bUseAsAtmosphereSunLight = true;
@@ -267,19 +312,19 @@ protected:
 	float PhotosphereMidScale = 18.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Photosphere", meta = (ClampMin = "8.0", ClampMax = "192.0"))
-	float PhotosphereFineScale = 72.0f;
+	float PhotosphereFineScale = 58.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Photosphere", meta = (ClampMin = "16.0", ClampMax = "384.0"))
-	float PhotosphereMicroScale = 156.0f;
+	float PhotosphereMicroScale = 118.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Photosphere", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float PhotosphereMicroSparkStrength = 0.30f;
+	float PhotosphereMicroSparkStrength = 0.18f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Photosphere", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float PhotosphereCoolCellStrength = 0.40f;
+	float PhotosphereCoolCellStrength = 0.24f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Photosphere", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float PhotosphereSunspotStrength = 0.72f;
+	float PhotosphereSunspotStrength = 0.48f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Photosphere", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float PhotosphereAnchoredSpotStrength = 1.0f;
@@ -303,41 +348,42 @@ protected:
 	float PhotosphereLimbDarkening = 0.58f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Photosphere", meta = (ClampMin = "0.0", ClampMax = "120.0", Units = "cm"))
-	float PhotosphereDisplacementCm = 54.0f;
+	float PhotosphereDisplacementCm = 18.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Corona", meta = (ClampMin = "-10.0", ClampMax = "10.0", Units = "deg/s"))
-	float CoronaYawDegreesPerSecond = -0.55f;
+	float CoronaYawDegreesPerSecond = -0.85f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Corona", meta = (ClampMin = "-10.0", ClampMax = "10.0", Units = "deg/s"))
-	float CoronaRollDegreesPerSecond = 0.09f;
+	float CoronaRollDegreesPerSecond = 0.16f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Prominences", meta = (ClampMin = "0", ClampMax = "24"))
-	int32 ProminenceArcCount = 4;
+	int32 ProminenceArcCount = 3;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Prominences", meta = (ClampMin = "0.01", ClampMax = "0.95"))
-	float ProminenceArcHeight = 0.38f;
+	float ProminenceArcHeight = 0.52f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Prominences", meta = (ClampMin = "0.001", ClampMax = "0.14"))
-	float ProminenceArcWidth = 0.09f;
+	float ProminenceArcWidth = 0.055f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Prominences", meta = (ClampMin = "2.0", ClampMax = "44.0", Units = "deg"))
-	float ProminenceArcSpanDegrees = 34.0f;
+	float ProminenceArcSpanDegrees = 42.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Prominences", meta = (ClampMin = "0.0", ClampMax = "0.35"))
-	float ProminenceArcCurl = 0.10f;
+	float ProminenceArcCurl = 0.18f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stargame|Star|Prominences", meta = (ClampMin = "0.0", ClampMax = "9999.0"))
 	float ProminenceSeed = 11.0f;
 
 private:
 	void ApplyPresetToComponents(const FStargameSectorStarVisualPreset& Preset);
+	void ApplyVisualLOD();
 	void AnimateStarEffects(float DeltaSeconds);
 	void AlignBillboardToView();
 	void AlignBillboardToView(UStaticMeshComponent* Billboard, const FRotator& LocalRollOffset = FRotator::ZeroRotator);
 	void RefreshEjectionMaterialInstances();
 	void ScrubLegacyProminenceMeshes();
 	void RebuildPhotosphereSurface(float PhotosphereRadiusCm, const FStargameSectorStarVisualPreset& Preset);
-	void RebuildCoronaSurface(float CoronaRadiusCm);
+	void RebuildCoronaSurface(UProceduralMeshComponent* TargetSurface, float CoronaRadiusCm);
 	void RebuildProminenceArcs(float PhotosphereRadiusCm, const FStargameSectorStarVisualPreset& Preset);
 	void PositionPreviewCamera(float PhotosphereRadiusCm, float HaloRadiusCm);
 	void SetNamedScalar(UMaterialInstanceDynamic* MID, const TArray<FName>& Names, float Value) const;
@@ -351,7 +397,13 @@ private:
 	TObjectPtr<UMaterialInstanceDynamic> SurfaceMID;
 
 	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> FallbackBodyMID;
+
+	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> CoronaMID;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> OuterCoronaMID;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> HaloMID;
@@ -366,6 +418,9 @@ private:
 	float PhotosphereRefreshAccumulator = 0.0f;
 	float CurrentPhotosphereRadiusCm = 2000.0f;
 	FStargameSectorStarVisualPreset CurrentVisualPreset;
+	EStargameStarVisualLOD CurrentVisualLOD = EStargameStarVisualLOD::Mid;
 	FVector ProminenceBaseScale = FVector::OneVector;
 	TArray<FVector> EjectionBaseScales;
+	mutable bool bHasLoggedRuntimeRenderState = false;
+	mutable EStargameStarVisualLOD LastLoggedRuntimeVisualLOD = EStargameStarVisualLOD::Mid;
 };

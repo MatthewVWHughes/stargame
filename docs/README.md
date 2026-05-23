@@ -95,7 +95,7 @@ The project also pins the Unreal Editor audio output in `Config/DefaultEditor.in
 
 The wrappers do not mutate system audio profiles. They only choose the SDL3 Pulse backend, keep the legacy SDL2 variable for Unreal's stale environment check, and set a conservative Pulse latency:
 
-- `tools/run-unreal-editor.sh` launches the editor with `SDL_AUDIO_DRIVER=pulseaudio`, `SDL_AUDIODRIVER=pulseaudio`, and `PULSE_LATENCY_MSEC=60`.
+- `tools/run-unreal-editor.sh` launches the editor with `STARGAME_AUDIO_DRIVER=auto` by default. Auto uses ALSA because this Unreal/SDL build reports a null backend for PipeWire and PulseAudio has shown hardware wait stalls on this workstation. Override with `STARGAME_AUDIO_DRIVER=pulseaudio`, `alsa`, `pipewire`, or `dummy`.
 - `tools/run-unreal-automation.sh <test-filter>` runs headless automation with the same audio environment and `-NullRHI`.
 - `tools/recover-linux-audio.sh` restarts `wireplumber`, `pipewire`, and `pipewire-pulse` if the desktop audio graph gets stuck.
 

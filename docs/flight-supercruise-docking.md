@@ -102,8 +102,8 @@ Initial provisional values:
 
 | Field | Value |
 | --- | ---: |
-| `LocalBubbleRadiusCm` | `5000000` |
-| `OriginShiftThresholdCm` | `2000000` |
+| `LocalBubbleRadiusCm` | `100000000` |
+| `OriginShiftThresholdCm` | `40000000` |
 | `StationApproachBubbleRadiusCm` | `500000` |
 | `DockingBubbleRadiusCm` | `100000` |
 
@@ -278,7 +278,7 @@ Initial provisional tuning:
 
 | Field | Value |
 | --- | ---: |
-| `SupercruiseMinSpeedCmPerSec` | `100000` |
+| `SupercruiseMinSpeedCmPerSec` | `1000000` |
 | `SupercruiseMaxSpeedCmPerSec` | `20000000` |
 | `SupercruiseSpoolSeconds` | `3` |
 | `DropoutCooldownSeconds` | `5` |

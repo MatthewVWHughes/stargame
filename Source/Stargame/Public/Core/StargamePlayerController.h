@@ -70,6 +70,9 @@ public:
 	UFUNCTION(Exec)
 	void TogglePauseMenu();
 
+	UFUNCTION(Exec)
+	void RequestSupercruise();
+
 	UFUNCTION(BlueprintPure, Category = "Stargame|Station")
 	bool HasLastDockedStationCommandResult() const { return bHasLastDockedStationCommandResult; }
 

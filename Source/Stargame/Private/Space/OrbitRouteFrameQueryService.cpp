@@ -452,6 +452,13 @@ bool UOrbitRouteFrameQueryService::QueryNearestGravityWell(
 	OutResult.SpeedCeilingCmPerSec = SystemDefinition.Scale.SupercruiseMaxSpeedCmPerSec;
 
 	double BestDistance = TNumericLimits<double>::Max();
+	double BestSpeedCeilingCmPerSec = SystemDefinition.Scale.SupercruiseMaxSpeedCmPerSec;
+	double BestSlowdownFactor = 1.0;
+	bool bFoundWell = false;
+	bool bInsideAnySlowdown = false;
+	bool bInsideAnyLockout = false;
+	bool bInsideAnyDropout = false;
+	bool bForcedDropout = false;
 	for (const FGravityWellDefinition& GravityWell : SystemDefinition.GravityWells)
 	{
 		FFrameResolvedTransform AnchorTransform;
@@ -460,41 +467,53 @@ bool UOrbitRouteFrameQueryService::QueryNearestGravityWell(
 			continue;
 		}
 
+		bFoundWell = true;
 		const double DistanceCm = FVector::Distance(ShipSystemPositionCm, AnchorTransform.PositionCm);
-		if (DistanceCm >= BestDistance)
-		{
-			continue;
-		}
+		const bool bInsideSlowdown = GravityWell.SlowdownRadiusCm > 0.0 && DistanceCm <= GravityWell.SlowdownRadiusCm;
+		const bool bInsideLockout = GravityWell.LockoutRadiusCm > 0.0 && DistanceCm <= GravityWell.LockoutRadiusCm;
+		const bool bInsideDropout = GravityWell.DropoutRadiusCm > 0.0 && DistanceCm <= GravityWell.DropoutRadiusCm;
 
-		BestDistance = DistanceCm;
-		OutResult.NearestWellId = GravityWell.WellId;
-		OutResult.AnchorBodyId = GravityWell.AnchorBodyId;
-		OutResult.DistanceCm = DistanceCm;
-		OutResult.bInsideSlowdown = GravityWell.SlowdownRadiusCm > 0.0 && DistanceCm <= GravityWell.SlowdownRadiusCm;
-		OutResult.bInsideLockout = GravityWell.LockoutRadiusCm > 0.0 && DistanceCm <= GravityWell.LockoutRadiusCm;
-		OutResult.bInsideDropout = GravityWell.DropoutRadiusCm > 0.0 && DistanceCm <= GravityWell.DropoutRadiusCm;
-		OutResult.bForcedDropout = FlightMode == EShipFlightMode::Supercruise && OutResult.bInsideDropout;
-
-		if (OutResult.bInsideSlowdown && GravityWell.SlowdownRadiusCm > GravityWell.LockoutRadiusCm)
+		double SlowdownFactor = 1.0;
+		if (bInsideSlowdown && GravityWell.SlowdownRadiusCm > GravityWell.LockoutRadiusCm)
 		{
 			const double SlowdownAlpha = FMath::Clamp(
 				(DistanceCm - GravityWell.LockoutRadiusCm) / (GravityWell.SlowdownRadiusCm - GravityWell.LockoutRadiusCm),
 				0.0,
 				1.0);
-			OutResult.SlowdownFactor = FMath::Lerp(0.15, 1.0, SlowdownAlpha);
-		}
-		else
-		{
-			OutResult.SlowdownFactor = 1.0;
+			SlowdownFactor = FMath::InterpEaseIn(0.0, 1.0, SlowdownAlpha, 1.65);
 		}
 
-		OutResult.SpeedCeilingCmPerSec = FMath::Clamp(
-			SystemDefinition.Scale.SupercruiseMaxSpeedCmPerSec * OutResult.SlowdownFactor,
+		const double SpeedCeilingCmPerSec = FMath::Lerp(
 			SystemDefinition.Scale.SupercruiseMinSpeedCmPerSec,
-			SystemDefinition.Scale.SupercruiseMaxSpeedCmPerSec);
+			SystemDefinition.Scale.SupercruiseMaxSpeedCmPerSec,
+			SlowdownFactor);
+
+		if (DistanceCm < BestDistance)
+		{
+			BestDistance = DistanceCm;
+			OutResult.NearestWellId = GravityWell.WellId;
+			OutResult.AnchorBodyId = GravityWell.AnchorBodyId;
+			OutResult.DistanceCm = DistanceCm;
+		}
+		if (SpeedCeilingCmPerSec < BestSpeedCeilingCmPerSec)
+		{
+			BestSpeedCeilingCmPerSec = SpeedCeilingCmPerSec;
+			BestSlowdownFactor = SlowdownFactor;
+		}
+
+		bInsideAnySlowdown = bInsideAnySlowdown || bInsideSlowdown;
+		bInsideAnyLockout = bInsideAnyLockout || bInsideLockout;
+		bInsideAnyDropout = bInsideAnyDropout || bInsideDropout;
+		bForcedDropout = bForcedDropout || (FlightMode == EShipFlightMode::Supercruise && bInsideDropout);
 	}
 
-	return !OutResult.NearestWellId.IsNone();
+	OutResult.bInsideSlowdown = bInsideAnySlowdown;
+	OutResult.bInsideLockout = bInsideAnyLockout;
+	OutResult.bInsideDropout = bInsideAnyDropout;
+	OutResult.bForcedDropout = bForcedDropout;
+	OutResult.SlowdownFactor = BestSlowdownFactor;
+	OutResult.SpeedCeilingCmPerSec = BestSpeedCeilingCmPerSec;
+	return bFoundWell && !OutResult.NearestWellId.IsNone();
 }
 
 FSupercruiseTargetTelemetry UOrbitRouteFrameQueryService::BuildSupercruiseTargetTelemetry(

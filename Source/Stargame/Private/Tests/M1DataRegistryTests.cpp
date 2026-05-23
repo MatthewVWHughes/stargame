@@ -509,13 +509,13 @@ bool FM2MapAndScaleTest::RunTest(const FString& Parameters)
 
 	FStarSystemDefinition SystemDefinition;
 	TestTrue(TEXT("M2 system resolves"), Catalog->ResolveSystemDefinition(FName(TEXT("frontier_test_01")), SystemDefinition));
-	TestEqual(TEXT("M2 local bubble radius"), SystemDefinition.Scale.LocalBubbleRadiusCm, 5000000.0);
-	TestEqual(TEXT("M2 origin shift threshold"), SystemDefinition.Scale.OriginShiftThresholdCm, 2000000.0);
-	TestEqual(TEXT("M2 map distance scale"), SystemDefinition.Scale.MapDistanceScaleCmPerUnit, 1000000.0);
+	TestEqual(TEXT("M2 local bubble radius"), SystemDefinition.Scale.LocalBubbleRadiusCm, 100000000.0);
+	TestEqual(TEXT("M2 origin shift threshold"), SystemDefinition.Scale.OriginShiftThresholdCm, 40000000.0);
+	TestEqual(TEXT("M2 map distance scale"), SystemDefinition.Scale.MapDistanceScaleCmPerUnit, 1000000000.0);
 
 	const FString ScaleSummary = UOrbitRouteFrameQueryService::GetScaleDebugSummary(SystemDefinition.Scale);
-	TestTrue(TEXT("Scale debug summary exposes local bubble radius"), ScaleSummary.Contains(TEXT("LocalBubbleRadiusCm=5000000")));
-	TestTrue(TEXT("Scale debug summary exposes map scale"), ScaleSummary.Contains(TEXT("MapDistanceScaleCmPerUnit=1000000")));
+	TestTrue(TEXT("Scale debug summary exposes local bubble radius"), ScaleSummary.Contains(TEXT("LocalBubbleRadiusCm=100000000")));
+	TestTrue(TEXT("Scale debug summary exposes map scale"), ScaleSummary.Contains(TEXT("MapDistanceScaleCmPerUnit=1000000000")));
 
 	TArray<FSystemMapEntryViewModel> MapEntries;
 	const FSimulationClockSnapshot Clock = UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(FName(TEXT("frontier_test_01")), 0.0);
@@ -850,7 +850,7 @@ bool FM3HudDebugViewModelTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("M3 debug summary exposes normal flight"), DebugSummary.Contains(TEXT("FlightMode=Normal")));
 	TestTrue(TEXT("M3 debug summary exposes selected target"), DebugSummary.Contains(TEXT("SelectedTarget=brink_watch")));
 	TestTrue(TEXT("M3 debug summary exposes C++ target view models"), DebugSummary.Contains(TEXT("TargetViewModels=")) && DebugSummary.Contains(TEXT("brink_watch:station")));
-	TestTrue(TEXT("M3 debug summary exposes local bubble contract"), DebugSummary.Contains(TEXT("LocalBubbleRadiusCm=5000000")) && DebugSummary.Contains(TEXT("NormalFlightMaxSpeedCmPerSec=24000")));
+	TestTrue(TEXT("M3 debug summary exposes local bubble contract"), DebugSummary.Contains(TEXT("LocalBubbleRadiusCm=100000000")) && DebugSummary.Contains(TEXT("NormalFlightMaxSpeedCmPerSec=24000")));
 
 	StarSystem->TearDownActiveSystem();
 	return true;
@@ -882,7 +882,7 @@ bool FM4CatalogValidationTest::RunTest(const FString& Parameters)
 
 	FStarSystemDefinition SystemDefinition;
 	TestTrue(TEXT("M4 system resolves"), Catalog->ResolveSystemDefinition(FName(TEXT("frontier_test_01")), SystemDefinition));
-	TestEqual(TEXT("M4 supercruise min speed"), SystemDefinition.Scale.SupercruiseMinSpeedCmPerSec, 100000.0);
+	TestEqual(TEXT("M4 supercruise min speed"), SystemDefinition.Scale.SupercruiseMinSpeedCmPerSec, 1000000.0);
 	TestEqual(TEXT("M4 supercruise max speed"), SystemDefinition.Scale.SupercruiseMaxSpeedCmPerSec, 20000000.0);
 	TestEqual(TEXT("M4 supercruise spool seconds"), SystemDefinition.Scale.SupercruiseSpoolSeconds, 3.0);
 	TestEqual(TEXT("M4 dropout cooldown seconds"), SystemDefinition.Scale.DropoutCooldownSeconds, 5.0);

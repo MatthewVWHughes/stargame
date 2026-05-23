@@ -14,6 +14,46 @@ class UShipFlightModeComponent;
 class UStarSystemSubsystem;
 class UStargameSessionSubsystem;
 
+UENUM(BlueprintType)
+enum class EStellarHazardBand : uint8
+{
+	Safe UMETA(DisplayName = "Safe"),
+	Caution UMETA(DisplayName = "Caution"),
+	Damage UMETA(DisplayName = "Damage"),
+	Extreme UMETA(DisplayName = "Extreme"),
+	Kill UMETA(DisplayName = "Kill"),
+};
+
+USTRUCT(BlueprintType)
+struct STARGAME_API FStellarEnvironmentTelemetry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Flight|Environment")
+	EStellarHazardBand HazardBand = EStellarHazardBand::Safe;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Flight|Environment")
+	FName StarId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Flight|Environment", meta = (Units = "cm"))
+	double DistanceCm = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Flight|Environment")
+	double DistanceInStarRadii = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Flight|Environment")
+	double Hazard01 = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Flight|Environment")
+	double HeatLoad01 = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Flight|Environment")
+	double RadiationLoad01 = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Flight|Environment")
+	FString WarningText;
+};
+
 UCLASS()
 class STARGAME_API ASpaceFlightPawn : public APawn
 {
@@ -82,6 +122,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Flight|Telemetry")
 	FString GetFlightDebugSummary() const;
 
+	UFUNCTION(BlueprintPure, Category = "Flight|Environment")
+	FStellarEnvironmentTelemetry GetStellarEnvironmentTelemetry() const { return StellarEnvironment; }
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Combat")
+	float GetShieldFraction() const { return Shield01; }
+
+	UFUNCTION(BlueprintPure, Category = "Flight|Combat")
+	float GetHullFraction() const { return Hull01; }
+
 	UFUNCTION(BlueprintCallable, Category = "Flight|Docking")
 	bool RequestDocking(FName StationId, FName PortId);
 
@@ -147,6 +196,7 @@ private:
 	void UpdateNormalFlight(float DeltaSeconds);
 	void UpdateSupercruise(float DeltaSeconds);
 	void UpdateDocking(float DeltaSeconds);
+	void UpdateStellarEnvironment(float DeltaSeconds);
 	void UpdateShipVisuals(float DeltaSeconds);
 	void UpdateCameraResponse(float DeltaSeconds, const FVector& PreviousVelocity);
 	FVector2D ReadMouseSteeringInput() const;
@@ -283,6 +333,27 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Flight|Visuals", meta = (ClampMin = "0.0"))
 	float VisualRotationInterpSpeed = 7.0f;
 
+	UPROPERTY(EditAnywhere, Category = "Flight|Environment", meta = (ClampMin = "1.0"))
+	float StellarCautionRadiusMultiplier = 90.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Environment", meta = (ClampMin = "1.0"))
+	float StellarDamageRadiusMultiplier = 35.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Environment", meta = (ClampMin = "1.0"))
+	float StellarExtremeRadiusMultiplier = 16.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Environment", meta = (ClampMin = "1.0"))
+	float StellarKillRadiusMultiplier = 6.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Environment", meta = (ClampMin = "0.0"))
+	float StellarShieldDamagePerSecond = 0.055f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Environment", meta = (ClampMin = "0.0"))
+	float StellarHullDamagePerSecond = 0.035f;
+
+	UPROPERTY(EditAnywhere, Category = "Flight|Environment", meta = (ClampMin = "0.05"))
+	float StellarDamageTickIntervalSeconds = 0.25f;
+
 	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
 	float ThrottlePercent = 0.0f;
 
@@ -360,5 +431,16 @@ private:
 
 	UPROPERTY(VisibleAnywhere, Category = "Flight|State")
 	FVector CurrentCameraTargetOffset = FVector::ZeroVector;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|Environment")
+	FStellarEnvironmentTelemetry StellarEnvironment;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|Combat")
+	float Shield01 = 1.0f;
+
+	UPROPERTY(VisibleAnywhere, Category = "Flight|Combat")
+	float Hull01 = 1.0f;
+
+	float StellarEnvironmentDamageAccumulator = 0.0f;
 
 };

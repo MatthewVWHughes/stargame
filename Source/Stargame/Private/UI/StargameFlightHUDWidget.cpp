@@ -42,7 +42,7 @@ void UStargameFlightHUDWidget::RefreshFlightHUD()
 	View.SelectedTargetText = TEXT("TARGET NONE");
 	View.DockingText = TEXT("DOCKING IDLE");
 	View.MissionText = TEXT("MISSION: DOCK AT BRINK WATCH AND TALK TO DISPATCH");
-	View.ActionHintText = TEXT("SPACE MOUSE FLIGHT   T TARGET   F INTERACT / DOCK   C SUPERCRUISE");
+	View.ActionHintText = TEXT("SPACE MOUSE FLIGHT   T TARGET   F INTERACT / DOCK   J SUPERCRUISE");
 	View.WeaponText = TEXT("WEAPONS STANDBY");
 	View.RadarText = TEXT("RADAR 0 / TRAFFIC 0");
 
@@ -51,6 +51,13 @@ void UStargameFlightHUDWidget::RefreshFlightHUD()
 		View.SpeedMetersPerSecond = FlightPawn->GetSpeedMetersPerSecond();
 		View.AccelerationMetersPerSecondSquared = FlightPawn->GetAccelerationMetersPerSecondSquared();
 		View.Throttle01 = FMath::Clamp(static_cast<double>(FlightPawn->GetThrottlePercent()), 0.0, 1.0);
+		View.Shields01 = FMath::Clamp(static_cast<double>(FlightPawn->GetShieldFraction()), 0.0, 1.0);
+		View.Hull01 = FMath::Clamp(static_cast<double>(FlightPawn->GetHullFraction()), 0.0, 1.0);
+		const FStellarEnvironmentTelemetry StellarEnvironment = FlightPawn->GetStellarEnvironmentTelemetry();
+		View.EnvironmentText = StellarEnvironment.WarningText;
+		View.StellarHazard01 = StellarEnvironment.Hazard01;
+		View.HeatLoad01 = StellarEnvironment.HeatLoad01;
+		View.RadiationLoad01 = StellarEnvironment.RadiationLoad01;
 		const FSupercruiseTelemetry Supercruise = FlightPawn->GetSupercruiseTelemetry();
 		View.FlightModeText = MakeReadableName(UEnum::GetValueAsName(FlightPawn->GetFlightMode()));
 		if (Supercruise.SupercruiseState == ESupercruiseState::Spooling)
@@ -119,13 +126,13 @@ void UStargameFlightHUDWidget::RefreshFlightHUD()
 				{
 					View.ActionHintText = Target.bInsideStationApproachBubble
 						? TEXT("F REQUEST DOCKING   RMB FIRE")
-						: TEXT("C SUPERCRUISE   FLY TO STATION APPROACH RANGE");
+						: TEXT("J SUPERCRUISE   FLY TO STATION APPROACH RANGE");
 				}
 				else if (Target.TargetType == FName(TEXT("gate")))
 				{
 					View.ActionHintText = Target.bInsideGateActivationRange
 						? TEXT("F TRANSIT GATE")
-						: TEXT("C SUPERCRUISE   FLY TO GATE ACTIVATION RANGE");
+						: TEXT("J SUPERCRUISE   FLY TO GATE ACTIVATION RANGE");
 				}
 				break;
 			}
@@ -230,7 +237,13 @@ void UStargameFlightHUDWidget::ApplyViewToBoundWidgets()
 	}
 	if (SystemsText)
 	{
-		SystemsText->SetText(FText::FromString(TEXT("SHD / HULL / FUEL")));
+		const FString Systems = CachedView.EnvironmentText.IsEmpty()
+			? FString(TEXT("SHD / HULL / FUEL"))
+			: FString::Printf(TEXT("%s  HEAT %.0f%%  RAD %.0f%%"),
+				*CachedView.EnvironmentText,
+				CachedView.HeatLoad01 * 100.0,
+				CachedView.RadiationLoad01 * 100.0);
+		SystemsText->SetText(FText::FromString(Systems));
 	}
 	if (ThrottleBar)
 	{

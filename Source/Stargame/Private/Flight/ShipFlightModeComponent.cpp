@@ -82,6 +82,7 @@ void UShipFlightModeComponent::RequestManualDropout()
 void UShipFlightModeComponent::TickSupercruise(double DeltaSeconds, const FGravityWellQueryResult& Gravity, const FSupercruiseTargetTelemetry& Target)
 {
 	const double ClampedDeltaSeconds = FMath::Max(0.0, DeltaSeconds);
+	const FSupercruiseTargetTelemetry PreviousTargetTelemetry = LastTargetTelemetry;
 	LastGravityTelemetry = Gravity;
 	LastTargetTelemetry = Target;
 
@@ -106,8 +107,18 @@ void UShipFlightModeComponent::TickSupercruise(double DeltaSeconds, const FGravi
 		return;
 	}
 
+	const bool bCrossedTargetDropoutBand =
+		!PreviousTargetTelemetry.TargetId.IsNone() &&
+		PreviousTargetTelemetry.TargetId == Target.TargetId &&
+		(PreviousTargetTelemetry.ClosingSpeedCmPerSec > 0.0 || Target.ClosingSpeedCmPerSec > 0.0) &&
+		((PreviousTargetTelemetry.DistanceCm > SupercruiseScale.SupercruiseTargetDropoutMaxRadiusCm &&
+			Target.DistanceCm < SupercruiseScale.SupercruiseTargetDropoutMinRadiusCm) ||
+			(PreviousTargetTelemetry.bInsideDropoutBand &&
+				Target.DistanceCm < SupercruiseScale.SupercruiseTargetDropoutMinRadiusCm));
+	const bool bTargetDropoutBandReached = Target.bInsideDropoutBand || bCrossedTargetDropoutBand;
+
 	const FSupercruiseGuidanceResult Guidance = ComputeSupercruiseGuidance(Gravity, Target);
-	if (Guidance.bGravityDropoutRequired || Guidance.bTargetDropoutReady)
+	if (Guidance.bGravityDropoutRequired || Guidance.bTargetDropoutReady || bTargetDropoutBandReached)
 	{
 		EnterDropoutCooldown(Guidance.bGravityDropoutRequired ? ESupercruiseState::ForcedDropout : ESupercruiseState::ManualDropout);
 		return;

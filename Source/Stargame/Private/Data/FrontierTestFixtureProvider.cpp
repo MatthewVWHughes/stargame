@@ -8,6 +8,36 @@ const FName FFrontierTestFixtureProvider::DeepSpaceSpawnZoneId(TEXT("spawn_deep_
 namespace
 {
 	const FName SystemFrameType(TEXT("system_barycentric"));
+	constexpr double GameCmPerAu = 1000000000.0;
+	constexpr double SolarRadiusAu = 0.00465047;
+	constexpr double EarthRadiusAu = 0.0000426348;
+	constexpr double JupiterRadiusAu = 0.000477895;
+	constexpr double OrbitPeriodCompression = 1000.0;
+
+	double AuToGameCm(double Au)
+	{
+		return Au * GameCmPerAu;
+	}
+
+	double SolarRadiiToGameCm(double SolarRadii)
+	{
+		return SolarRadii * SolarRadiusAu * GameCmPerAu;
+	}
+
+	double EarthRadiiToGameCm(double EarthRadii)
+	{
+		return EarthRadii * EarthRadiusAu * GameCmPerAu;
+	}
+
+	double JupiterRadiiToGameCm(double JupiterRadii)
+	{
+		return JupiterRadii * JupiterRadiusAu * GameCmPerAu;
+	}
+
+	double DaysToGameSeconds(double Days)
+	{
+		return Days * 86400.0 / OrbitPeriodCompression;
+	}
 
 	FNavigationTargetDefinition MakeNavigationTarget(FName TargetId, const TCHAR* DisplayName, FName TargetType)
 	{
@@ -155,7 +185,7 @@ bool FFrontierTestFixtureProvider::ResolveSystemDefinition(FName SystemId, FStar
 	SpawnZone.SpawnZoneId = DeepSpaceSpawnZoneId;
 	SpawnZone.DisplayName = FText::FromString(TEXT("HD 219134 Flyaround Spawn"));
 	SpawnZone.FrameType = SystemFrameType;
-	SpawnZone.Transform = FTransform(FRotator(4.0, 90.0, 0.0), FVector(0.0, -65000000.0, 2500000.0));
+	SpawnZone.Transform = FTransform(FRotator(4.0, 90.0, 0.0), FVector(0.0, -40000000.0, 5000000.0));
 	SpawnZone.RadiusCm = 50000.0;
 	SpawnZone.AllowedContexts = { TEXT("new_session"), TEXT("reload") };
 
@@ -163,30 +193,33 @@ bool FFrontierTestFixtureProvider::ResolveSystemDefinition(FName SystemId, FStar
 	OutSystemDefinition.SystemId = FrontierSystemId;
 	OutSystemDefinition.DisplayName = FText::FromString(TEXT("HD 219134 Frontier"));
 	OutSystemDefinition.Seed = 219134;
+	OutSystemDefinition.Scale.LocalBubbleRadiusCm = 100000000.0;
+	OutSystemDefinition.Scale.OriginShiftThresholdCm = 40000000.0;
+	OutSystemDefinition.Scale.MapDistanceScaleCmPerUnit = GameCmPerAu;
 	OutSystemDefinition.Bodies = {
-		MakeBody(TEXT("hd219134"), TEXT("HD 219134"), TEXT("star"), 1500000.0, NAME_None, 0.0, 0.0, 0.0, 0.0, 0.0, TEXT("K")),
-		MakeBody(TEXT("hd219134_b"), TEXT("HD 219134 b"), TEXT("venus_like_planet"), 68000.0, TEXT("hd219134"), 3876000.0, 268.0, 0.15, 0.0, 0.6),
-		MakeBody(TEXT("hd219134_c"), TEXT("HD 219134 c"), TEXT("rocky_planet"), 64000.0, TEXT("hd219134"), 6530000.0, 588.0, 1.2, 0.06, 1.1),
-		MakeBody(TEXT("hd219134_f"), TEXT("HD 219134 f"), TEXT("rocky_planet"), 56000.0, TEXT("hd219134"), 14630000.0, 1961.0, 2.5, 0.15, 2.4),
-		MakeBody(TEXT("hd219134_d"), TEXT("HD 219134 d"), TEXT("dense_rocky_planet"), 82000.0, TEXT("hd219134"), 23700000.0, 4052.0, 3.4, 0.14, 3.0),
-		MakeBody(TEXT("hd219134_g"), TEXT("HD 219134 g"), TEXT("ice_giant"), 230000.0, TEXT("hd219134"), 37530000.0, 8139.0, 4.8, 0.0, 1.7),
-		MakeBody(TEXT("hd219134_h"), TEXT("HD 219134 h"), TEXT("gas_giant"), 520000.0, TEXT("hd219134"), 311000000.0, 19548.0, 5.6, 0.06, 4.1),
-		MakeBody(TEXT("hd219134_g_i"), TEXT("HD 219134 g-i"), TEXT("moon"), 26000.0, TEXT("hd219134_g"), 1800000.0, 520.0, 2.2, 0.02, 4.0),
-		MakeBody(TEXT("hd219134_g_ii"), TEXT("HD 219134 g-ii"), TEXT("moon"), 18000.0, TEXT("hd219134_g"), 2900000.0, 780.0, 5.1, 0.04, 11.0),
-		MakeBody(TEXT("hd219134_h_i"), TEXT("HD 219134 h-i"), TEXT("moon"), 24000.0, TEXT("hd219134_h"), 2300000.0, 520.0, 0.8, 0.01, 2.0),
-		MakeBody(TEXT("hd219134_h_ii"), TEXT("HD 219134 h-ii"), TEXT("moon"), 38000.0, TEXT("hd219134_h"), 4200000.0, 980.0, 2.8, 0.03, 6.0),
-		MakeBody(TEXT("hd219134_h_iii"), TEXT("HD 219134 h-iii"), TEXT("moon"), 30000.0, TEXT("hd219134_h"), 6900000.0, 1600.0, 4.1, 0.08, 14.0),
-		MakeBody(TEXT("hd219134_h_iv"), TEXT("HD 219134 h-iv"), TEXT("moon"), 17000.0, TEXT("hd219134_h"), 9600000.0, 2400.0, 5.6, 0.05, 9.0),
-		MakeBody(TEXT("hd219134_h_v"), TEXT("HD 219134 h-v"), TEXT("moon"), 46000.0, TEXT("hd219134_h"), 14200000.0, 3600.0, 1.9, 0.12, 21.0)
+		MakeBody(TEXT("hd219134"), TEXT("HD 219134"), TEXT("star"), SolarRadiiToGameCm(0.748), NAME_None, 0.0, 0.0, 0.0, 0.0, 0.0, TEXT("K3V")),
+		MakeBody(TEXT("hd219134_b"), TEXT("HD 219134 b"), TEXT("venus_like_planet"), EarthRadiiToGameCm(1.602), TEXT("hd219134"), AuToGameCm(0.03876), DaysToGameSeconds(3.092926), 0.15, 0.0, 0.6),
+		MakeBody(TEXT("hd219134_c"), TEXT("HD 219134 c"), TEXT("rocky_planet"), EarthRadiiToGameCm(1.511), TEXT("hd219134"), AuToGameCm(0.0653), DaysToGameSeconds(6.76458), 1.2, 0.06, 1.1),
+		MakeBody(TEXT("hd219134_f"), TEXT("HD 219134 f"), TEXT("rocky_planet"), EarthRadiiToGameCm(1.31), TEXT("hd219134"), AuToGameCm(0.1463), DaysToGameSeconds(22.717), 2.5, 0.15, 2.4),
+		MakeBody(TEXT("hd219134_d"), TEXT("HD 219134 d"), TEXT("dense_rocky_planet"), EarthRadiiToGameCm(1.61), TEXT("hd219134"), AuToGameCm(0.237), DaysToGameSeconds(46.859), 3.4, 0.14, 3.0),
+		MakeBody(TEXT("hd219134_g"), TEXT("HD 219134 g"), TEXT("ice_giant"), JupiterRadiiToGameCm(0.293), TEXT("hd219134"), AuToGameCm(0.3753), DaysToGameSeconds(94.2), 4.8, 0.0, 1.7),
+		MakeBody(TEXT("hd219134_h"), TEXT("HD 219134 h"), TEXT("gas_giant"), JupiterRadiiToGameCm(1.14), TEXT("hd219134"), AuToGameCm(3.11), DaysToGameSeconds(2247.0), 5.6, 0.06, 4.1),
+		MakeBody(TEXT("hd219134_g_i"), TEXT("HD 219134 g-i"), TEXT("moon"), EarthRadiiToGameCm(0.45), TEXT("hd219134_g"), 6000000.0, 1800.0, 2.2, 0.02, 4.0),
+		MakeBody(TEXT("hd219134_g_ii"), TEXT("HD 219134 g-ii"), TEXT("moon"), EarthRadiiToGameCm(0.32), TEXT("hd219134_g"), 11000000.0, 3200.0, 5.1, 0.04, 11.0),
+		MakeBody(TEXT("hd219134_h_i"), TEXT("HD 219134 h-i"), TEXT("moon"), EarthRadiiToGameCm(0.38), TEXT("hd219134_h"), 10000000.0, 2200.0, 0.8, 0.01, 2.0),
+		MakeBody(TEXT("hd219134_h_ii"), TEXT("HD 219134 h-ii"), TEXT("moon"), EarthRadiiToGameCm(0.74), TEXT("hd219134_h"), 17000000.0, 4200.0, 2.8, 0.03, 6.0),
+		MakeBody(TEXT("hd219134_h_iii"), TEXT("HD 219134 h-iii"), TEXT("moon"), EarthRadiiToGameCm(0.56), TEXT("hd219134_h"), 27000000.0, 7200.0, 4.1, 0.08, 14.0),
+		MakeBody(TEXT("hd219134_h_iv"), TEXT("HD 219134 h-iv"), TEXT("moon"), EarthRadiiToGameCm(0.28), TEXT("hd219134_h"), 39000000.0, 11200.0, 5.6, 0.05, 9.0),
+		MakeBody(TEXT("hd219134_h_v"), TEXT("HD 219134 h-v"), TEXT("moon"), EarthRadiiToGameCm(0.86), TEXT("hd219134_h"), 56000000.0, 18400.0, 1.9, 0.12, 21.0)
 	};
 	OutSystemDefinition.GravityWells = {
-		MakeWell(TEXT("hd219134_well"), TEXT("hd219134"), 30000000.0, 7000000.0, 2200000.0, 1.0),
-		MakeWell(TEXT("hd219134_b_well"), TEXT("hd219134_b"), 1300000.0, 360000.0, 180000.0, 0.35),
-		MakeWell(TEXT("hd219134_c_well"), TEXT("hd219134_c"), 1200000.0, 340000.0, 170000.0, 0.35),
-		MakeWell(TEXT("hd219134_f_well"), TEXT("hd219134_f"), 1100000.0, 300000.0, 150000.0, 0.30),
-		MakeWell(TEXT("hd219134_d_well"), TEXT("hd219134_d"), 1600000.0, 460000.0, 230000.0, 0.45),
-		MakeWell(TEXT("hd219134_g_well"), TEXT("hd219134_g"), 4000000.0, 1300000.0, 650000.0, 0.65),
-		MakeWell(TEXT("hd219134_h_well"), TEXT("hd219134_h"), 9000000.0, 3000000.0, 1500000.0, 0.85)
+		MakeWell(TEXT("hd219134_well"), TEXT("hd219134"), 1000000000.0, 25000000.0, 12000000.0, 1.0),
+		MakeWell(TEXT("hd219134_b_well"), TEXT("hd219134_b"), 3500000.0, 700000.0, 300000.0, 0.35),
+		MakeWell(TEXT("hd219134_c_well"), TEXT("hd219134_c"), 3500000.0, 700000.0, 300000.0, 0.35),
+		MakeWell(TEXT("hd219134_f_well"), TEXT("hd219134_f"), 3000000.0, 600000.0, 260000.0, 0.30),
+		MakeWell(TEXT("hd219134_d_well"), TEXT("hd219134_d"), 4200000.0, 900000.0, 380000.0, 0.45),
+		MakeWell(TEXT("hd219134_g_well"), TEXT("hd219134_g"), 30000000.0, 5000000.0, 2200000.0, 0.65),
+		MakeWell(TEXT("hd219134_h_well"), TEXT("hd219134_h"), 80000000.0, 12000000.0, 6000000.0, 0.85)
 	};
 	OutSystemDefinition.SpawnZones = { SpawnZone };
 	AddBodyMapEntries(OutSystemDefinition);

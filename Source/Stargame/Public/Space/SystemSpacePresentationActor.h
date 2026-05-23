@@ -18,6 +18,7 @@ class STARGAME_API ASystemSpacePresentationActor : public AActor
 public:
 	ASystemSpacePresentationActor();
 
+	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
 	void ConfigureForSystem(FName InSystemId);
@@ -58,4 +59,5 @@ private:
 	void RefreshSpaceVisuals(float DeltaSeconds);
 	bool ResolveStarAndPlayerLocations(FVector& OutLogicalStarLocation, FVector& OutLogicalPlayerLocation, FVector& OutActorPlayerLocation) const;
 	void UpdateStarLight(const FVector& LogicalStarLocation, const FVector& LogicalPlayerLocation, const FVector& ActorPlayerLocation);
+	void ScrubLegacyStarAnchorChildren();
 };

@@ -641,7 +641,7 @@ struct STARGAME_API FStargameScaleContract
 	double DockingCorridorLengthCm = 25000.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm/s"))
-	double SupercruiseMinSpeedCmPerSec = 100000.0;
+	double SupercruiseMinSpeedCmPerSec = 1000000.0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Scale", meta = (Units = "cm/s"))
 	double SupercruiseMaxSpeedCmPerSec = 20000000.0;

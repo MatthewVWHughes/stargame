@@ -73,6 +73,18 @@ struct FStargameFlightHUDView
 
 	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Flight HUD")
 	double Fuel01 = 1.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Flight HUD")
+	FString EnvironmentText;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Flight HUD")
+	double StellarHazard01 = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Flight HUD")
+	double HeatLoad01 = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Stargame|Flight HUD")
+	double RadiationLoad01 = 0.0;
 };
 
 UCLASS()

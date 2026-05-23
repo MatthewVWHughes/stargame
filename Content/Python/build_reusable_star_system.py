@@ -141,12 +141,20 @@ def build_surface_material():
     material.set_editor_property("material_domain", unreal.MaterialDomain.MD_SURFACE)
     material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     material.set_editor_property("two_sided", True)
-    vertex_color = unreal.MaterialEditingLibrary.create_material_expression(material, unreal.MaterialExpressionVertexColor, -500, 0)
-    brightness = scalar_param(material, "SurfaceBrightness", 2.8, -500, 220)
-    multiply = unreal.MaterialEditingLibrary.create_material_expression(material, unreal.MaterialExpressionMultiply, -180, 70)
-    connect(vertex_color, "", multiply, "A")
-    connect(brightness, "", multiply, "B")
-    connect_property(multiply, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    vertex_color = unreal.MaterialEditingLibrary.create_material_expression(material, unreal.MaterialExpressionVertexColor, -760, -160)
+    brightness = scalar_param(material, "SurfaceBrightness", 8.0, -760, 60)
+    core = vector_param(material, "CoreColor", unreal.LinearColor(1.0, 0.72, 0.22, 1.0), -760, 270)
+    emission = scalar_param(material, "EmissionStrength", 4.0, -760, 490)
+    vertex_emissive = unreal.MaterialEditingLibrary.create_material_expression(material, unreal.MaterialExpressionMultiply, -430, -70)
+    base_emissive = unreal.MaterialEditingLibrary.create_material_expression(material, unreal.MaterialExpressionMultiply, -430, 330)
+    emissive = unreal.MaterialEditingLibrary.create_material_expression(material, unreal.MaterialExpressionAdd, -120, 120)
+    connect(vertex_color, "", vertex_emissive, "A")
+    connect(brightness, "", vertex_emissive, "B")
+    connect(core, "RGB", base_emissive, "A")
+    connect(emission, "", base_emissive, "B")
+    connect(vertex_emissive, "", emissive, "A")
+    connect(base_emissive, "", emissive, "B")
+    connect_property(emissive, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     unreal.MaterialEditingLibrary.layout_material_expressions(material)
     unreal.MaterialEditingLibrary.recompile_material(material)
     unreal.EditorAssetLibrary.save_loaded_asset(material)
@@ -285,14 +293,10 @@ return normalize(NormalWS) * disp * SurfaceDisplacement;
 
 def build_corona_material():
     material = create_or_replace_material(CORONA_MATERIAL)
-    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_OPAQUE)
+    material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
     material.set_editor_property("material_domain", unreal.MaterialDomain.MD_SURFACE)
     material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
     material.set_editor_property("two_sided", True)
-    try:
-        material.set_editor_property("disable_depth_test", True)
-    except Exception:
-        pass
 
     local_pos = unreal.MaterialEditingLibrary.create_material_expression(material, unreal.MaterialExpressionLocalPosition, -1180, -360)
     normal = unreal.MaterialEditingLibrary.create_material_expression(material, unreal.MaterialExpressionPixelNormalWS, -1180, -180)
@@ -304,10 +308,10 @@ def build_corona_material():
     activity = scalar_param(material, "Activity", 0.70, -840, 550)
     speed = scalar_param(material, "TurbulenceSpeed", 0.055, -840, 730)
 
-    code = NOISE_HLSL + r"""
-float3 sp = normalize(LocalPos);
-float3 n = normalize(NormalWS);
-float3 v = normalize(ViewWS);
+    color_code = NOISE_HLSL + r"""
+	float3 sp = normalize(LocalPos);
+	float3 n = normalize(NormalWS);
+	float3 v = normalize(ViewWS);
 float t = Time * TurbulenceSpeed;
 float3 flameP = sp * 6.5 + float3(t, -t * 0.6, t * 0.3);
 float warp = StarNoise.fbm(flameP * 0.5) * 1.4;
@@ -315,18 +319,40 @@ float flame = saturate(StarNoise.fbm(flameP + warp) + 0.04);
 float rim = 1.0 - saturate(abs(dot(n, -v)));
 float shell = pow(rim, 3.6);
 float tongues = smoothstep(0.55, 0.88, flame) * saturate(Activity * 1.25);
-float alpha = shell * (0.10 + tongues * 0.82);
-float3 col = lerp(HaloColor, FlareColor, tongues * 0.65 + shell * 0.18);
-return col * alpha * CoronaEmission;
-"""
+	float alpha = shell * (0.10 + tongues * 0.82);
+	float3 col = lerp(HaloColor, FlareColor, tongues * 0.65 + shell * 0.18);
+	return col * alpha * CoronaEmission;
+	"""
+    opacity_code = NOISE_HLSL + r"""
+	float3 sp = normalize(LocalPos);
+	float3 n = normalize(NormalWS);
+	float3 v = normalize(ViewWS);
+	float t = Time * TurbulenceSpeed;
+	float3 flameP = sp * 6.5 + float3(t, -t * 0.6, t * 0.3);
+	float warp = StarNoise.fbm(flameP * 0.5) * 1.4;
+	float flame = saturate(StarNoise.fbm(flameP + warp) + 0.04);
+	float rim = 1.0 - saturate(abs(dot(n, -v)));
+	float shell = pow(rim, 3.6);
+	float tongues = smoothstep(0.55, 0.88, flame) * saturate(Activity * 1.25);
+	return saturate(shell * (0.02 + tongues * 0.26));
+	"""
     color = custom_expr(
         material,
-        code,
+        color_code,
         unreal.CustomMaterialOutputType.CMOT_FLOAT3,
         ["LocalPos", "NormalWS", "ViewWS", "Time", "HaloColor", "FlareColor", "CoronaEmission", "Activity", "TurbulenceSpeed"],
         -260,
         -40,
         "Procedural Fresnel corona shell",
+    )
+    opacity = custom_expr(
+        material,
+        opacity_code,
+        unreal.CustomMaterialOutputType.CMOT_FLOAT1,
+        ["LocalPos", "NormalWS", "ViewWS", "Time", "Activity", "TurbulenceSpeed"],
+        -260,
+        190,
+        "Procedural Fresnel corona opacity",
     )
     for source, output, target in [
         (local_pos, "", "LocalPos"), (normal, "", "NormalWS"), (camera, "", "ViewWS"),
@@ -334,8 +360,13 @@ return col * alpha * CoronaEmission;
         (emission, "", "CoronaEmission"), (activity, "", "Activity"), (speed, "", "TurbulenceSpeed"),
     ]:
         connect(source, output, color, target)
+    for source, output, target in [
+        (local_pos, "", "LocalPos"), (normal, "", "NormalWS"), (camera, "", "ViewWS"),
+        (time, "", "Time"), (activity, "", "Activity"), (speed, "", "TurbulenceSpeed"),
+    ]:
+        connect(source, output, opacity, target)
     connect_property(color, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-    connect_property(color, unreal.MaterialProperty.MP_BASE_COLOR)
+    connect_property(opacity, unreal.MaterialProperty.MP_OPACITY)
     unreal.MaterialEditingLibrary.layout_material_expressions(material)
     unreal.MaterialEditingLibrary.recompile_material(material)
     unreal.EditorAssetLibrary.save_loaded_asset(material)

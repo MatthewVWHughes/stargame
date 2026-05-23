@@ -12,6 +12,8 @@
 
 namespace
 {
+	constexpr double DistantSystemRenderShellRadiusCm = 4000000.0;
+
 	const FShipGroupState* FindTrafficGroup(const FActiveTrafficSimulationState& TrafficState, FName GroupId)
 	{
 		return TrafficState.Groups.FindByPredicate([GroupId](const FShipGroupState& Candidate)
@@ -847,7 +849,9 @@ bool UStarSystemSubsystem::RefreshRegisteredEntityTransforms(double SimulationTi
 				if (!bInsideLocalBubble)
 				{
 					const double TrueDistanceCm = ActorOffsetCm.Size();
-					const double FarShellRadiusCm = ActiveSystemDefinition.Scale.LocalBubbleRadiusCm;
+					const double FarShellRadiusCm = FMath::Min(
+						ActiveSystemDefinition.Scale.LocalBubbleRadiusCm,
+						DistantSystemRenderShellRadiusCm);
 					if (TrueDistanceCm > UE_DOUBLE_SMALL_NUMBER)
 					{
 						ActorOffsetCm = ActorOffsetCm.GetSafeNormal() * FarShellRadiusCm;
@@ -860,6 +864,12 @@ bool UStarSystemSubsystem::RefreshRegisteredEntityTransforms(double SimulationTi
 			Actor->SetActorTransform(FTransform(ResolvedTransform.Rotation, ProjectedPositionCm, FVector(ProjectionVisualScale)), false, nullptr, ETeleportType::TeleportPhysics);
 			Actor->SetActorHiddenInGame(false);
 			Actor->SetActorEnableCollision(bInsideLocalBubble);
+			if (ASectorStarAnchorActor* StarActor = Cast<ASectorStarAnchorActor>(Actor))
+			{
+				const double ObserverDistanceCm = FVector::Distance(BubbleOriginSystemPositionCm, ResolvedTransform.PositionCm);
+				const double RenderedDistanceCm = FVector::Distance(BubbleOriginActorPositionCm, ProjectedPositionCm);
+				StarActor->UpdateRuntimeVisualLOD(ObserverDistanceCm, RenderedDistanceCm);
+			}
 		}
 	}
 

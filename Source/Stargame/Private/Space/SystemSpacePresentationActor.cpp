@@ -1,5 +1,6 @@
 #include "Space/SystemSpacePresentationActor.h"
 
+#include "Components/ChildActorComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/PostProcessComponent.h"
 #include "Components/SceneComponent.h"
@@ -9,6 +10,7 @@
 #include "Flight/SpaceFlightPawn.h"
 #include "GameFramework/Pawn.h"
 #include "Space/OrbitRouteFrameQueryService.h"
+#include "Space/SectorStarAnchorActor.h"
 #include "Space/StarSystemSubsystem.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInterface.h"
@@ -51,7 +53,7 @@ ASystemSpacePresentationActor::ASystemSpacePresentationActor()
 	SkySphereMesh->SetCanEverAffectNavigation(false);
 	SkySphereMesh->SetCastShadow(false);
 	SkySphereMesh->SetReceivesDecals(false);
-	SkySphereMesh->SetRelativeScale3D(FVector(100000.0));
+	SkySphereMesh->SetRelativeScale3D(FVector(10000000.0));
 	SkySphereMesh->SetVisibility(true);
 	SkySphereMesh->SetHiddenInGame(false);
 
@@ -66,7 +68,9 @@ ASystemSpacePresentationActor::ASystemSpacePresentationActor()
 	SpacePostProcess->Settings.bOverride_AutoExposureBias = true;
 	SpacePostProcess->Settings.AutoExposureBias = 0.0f;
 	SpacePostProcess->Settings.bOverride_BloomIntensity = true;
-	SpacePostProcess->Settings.BloomIntensity = 0.15f;
+	SpacePostProcess->Settings.BloomIntensity = 0.28f;
+	SpacePostProcess->Settings.bOverride_BloomThreshold = true;
+	SpacePostProcess->Settings.BloomThreshold = 1.0f;
 
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
 	if (SphereMesh.Succeeded())
@@ -87,6 +91,12 @@ ASystemSpacePresentationActor::ASystemSpacePresentationActor()
 	}
 }
 
+void ASystemSpacePresentationActor::BeginPlay()
+{
+	Super::BeginPlay();
+	ScrubLegacyStarAnchorChildren();
+}
+
 void ASystemSpacePresentationActor::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
@@ -98,6 +108,7 @@ void ASystemSpacePresentationActor::ConfigureForSystem(FName InSystemId)
 	SystemId = InSystemId;
 	Tags.AddUnique(SystemId);
 	Tags.AddUnique(TEXT("system_presentation"));
+	ScrubLegacyStarAnchorChildren();
 	OnConfiguredForSystem(InSystemId);
 
 #if WITH_EDITOR
@@ -200,4 +211,36 @@ void ASystemSpacePresentationActor::UpdateStarLight(const FVector& LogicalStarLo
 	const double RelativeSolarFlux = FMath::Square(InnerReferenceCm / FMath::Max(DistanceCm, 1000000.0));
 	const float Intensity = static_cast<float>(FMath::Clamp(RelativeSolarFlux * 12.0, 1.5, 18.0));
 	StarDirectionalLight->SetIntensity(Intensity);
+}
+
+void ASystemSpacePresentationActor::ScrubLegacyStarAnchorChildren()
+{
+	TArray<UChildActorComponent*> ChildActorComponents;
+	GetComponents(ChildActorComponents);
+	for (UChildActorComponent* ChildActorComponent : ChildActorComponents)
+	{
+		if (!ChildActorComponent)
+		{
+			continue;
+		}
+
+		AActor* ChildActor = ChildActorComponent->GetChildActor();
+		const bool bIsStarAnchor = Cast<ASectorStarAnchorActor>(ChildActor) != nullptr
+			|| ChildActorComponent->GetName().Contains(TEXT("SectorStarAnchor"));
+		if (!bIsStarAnchor)
+		{
+			continue;
+		}
+
+		if (ChildActor)
+		{
+			ChildActor->SetActorHiddenInGame(true);
+			ChildActor->SetActorEnableCollision(false);
+			ChildActor->Destroy();
+		}
+		ChildActorComponent->SetHiddenInGame(true);
+		ChildActorComponent->SetVisibility(false, true);
+		ChildActorComponent->DestroyComponent();
+		UE_LOG(LogTemp, Display, TEXT("Removed legacy presentation-owned star anchor child from %s."), *GetName());
+	}
 }

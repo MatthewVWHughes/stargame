@@ -17,6 +17,25 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogStargameFlightInput, Log, All);
 
+namespace
+{
+	double EstimateStellarLuminosity(FName StellarClass)
+	{
+		const FString Normalized = StellarClass.ToString().TrimStartAndEnd().ToUpper();
+		if (Normalized.Contains(TEXT("BLUE"))) { return 90000.0; }
+		if (Normalized.Contains(TEXT("RED"))) { return 1800.0; }
+		if (Normalized.Contains(TEXT("WHITE"))) { return 0.012; }
+		if (Normalized.StartsWith(TEXT("O"))) { return 30000.0; }
+		if (Normalized.StartsWith(TEXT("B"))) { return 800.0; }
+		if (Normalized.StartsWith(TEXT("A"))) { return 35.0; }
+		if (Normalized.StartsWith(TEXT("F"))) { return 4.0; }
+		if (Normalized.StartsWith(TEXT("K"))) { return 0.35; }
+		if (Normalized.StartsWith(TEXT("M"))) { return 0.04; }
+		if (Normalized.StartsWith(TEXT("L"))) { return 0.003; }
+		return 1.0;
+	}
+}
+
 ASpaceFlightPawn::ASpaceFlightPawn()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -177,6 +196,7 @@ void ASpaceFlightPawn::Tick(float DeltaSeconds)
 	{
 		UpdateNormalFlight(DeltaSeconds);
 	}
+	UpdateStellarEnvironment(DeltaSeconds);
 	UpdateShipVisuals(DeltaSeconds);
 	UpdateCameraResponse(DeltaSeconds, PreviousVelocity);
 }
@@ -210,7 +230,6 @@ void ASpaceFlightPawn::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	PlayerInputComponent->BindAction(TEXT("SecondaryMouse"), IE_Pressed, this, &ASpaceFlightPawn::StartSecondaryMouse);
 	PlayerInputComponent->BindAction(TEXT("SecondaryMouse"), IE_Released, this, &ASpaceFlightPawn::StopSecondaryMouse);
 	PlayerInputComponent->BindAction(TEXT("CycleTarget"), IE_Pressed, this, &ASpaceFlightPawn::CycleNavigationTarget);
-	PlayerInputComponent->BindAction(TEXT("RequestSupercruise"), IE_Pressed, this, &ASpaceFlightPawn::RequestSupercruise);
 	PlayerInputComponent->BindAction(TEXT("InteractTarget"), IE_Pressed, this, &ASpaceFlightPawn::InteractWithSelectedTarget);
 }
 
@@ -295,6 +314,10 @@ void ASpaceFlightPawn::CycleNavigationTarget()
 
 void ASpaceFlightPawn::RequestSupercruise()
 {
+	UE_LOG(LogStargameFlightInput, Display, TEXT("RequestSupercruise reached flight pawn. Mode=%s State=%s"),
+		*UEnum::GetValueAsString(GetFlightMode()),
+		FlightModeComponent ? *UEnum::GetValueAsString(FlightModeComponent->GetSupercruiseState()) : TEXT("NoFlightModeComponent"));
+
 	if (!FlightModeComponent)
 	{
 		return;
@@ -321,11 +344,27 @@ void ASpaceFlightPawn::RequestSupercruise()
 	StarSystem->QueryNearestGravityWell(LogicalSystemPositionCm, LinearVelocity, GetFlightMode(), SimulationTimeSeconds, Gravity);
 
 	FSupercruiseTargetTelemetry Target;
-	StarSystem->BuildSupercruiseTargetTelemetry(Session->GetSelectedTargetId(), LogicalSystemPositionCm, LinearVelocity, SimulationTimeSeconds, Target);
+	const bool bHasSelectedTarget = StarSystem->BuildSupercruiseTargetTelemetry(Session->GetSelectedTargetId(), LogicalSystemPositionCm, LinearVelocity, SimulationTimeSeconds, Target);
+	const FStargameScaleContract Scale = StarSystem->GetActiveScaleContract();
+	if (!bHasSelectedTarget || Target.TargetId.IsNone() || Target.DistanceCm < Scale.SupercruiseTargetDropoutMaxRadiusCm)
+	{
+		Target = FSupercruiseTargetTelemetry();
+		Target.TargetId = TEXT("free_supercruise");
+		Target.DistanceCm = FMath::Max(Scale.SupercruiseTargetDropoutMaxRadiusCm * 4.0, Scale.LocalBubbleRadiusCm);
+		Target.DistanceToDropoutBandCm = FMath::Max(Scale.SupercruiseTargetDropoutMaxRadiusCm * 3.0, Scale.LocalBubbleRadiusCm);
+		Target.ClosingSpeedCmPerSec = 0.0;
+		Target.bInsideDropoutBand = false;
+		Target.bApproachReady = false;
+		UE_LOG(LogStargameFlightInput, Display, TEXT("Supercruise using free-cruise guidance target."));
+	}
 	const ESupercruiseRequestResult Result = FlightModeComponent->RequestEnterSupercruise(Gravity, Target);
 	if (Result != ESupercruiseRequestResult::Success)
 	{
 		UE_LOG(LogStargameFlightInput, Display, TEXT("Supercruise request rejected: %s."), *UEnum::GetValueAsString(Result));
+	}
+	else
+	{
+		UE_LOG(LogStargameFlightInput, Display, TEXT("Supercruise request accepted."));
 	}
 }
 
@@ -1102,6 +1141,136 @@ void ASpaceFlightPawn::UpdateDocking(float DeltaSeconds)
 				FlightModeComponent->SetFlightMode(EShipFlightMode::Normal);
 			}
 		}
+	}
+}
+
+void ASpaceFlightPawn::UpdateStellarEnvironment(float DeltaSeconds)
+{
+	StellarEnvironment = FStellarEnvironmentTelemetry();
+	if (Hull01 <= 0.0f)
+	{
+		StellarEnvironment.HazardBand = EStellarHazardBand::Kill;
+		StellarEnvironment.Hazard01 = 1.0;
+		StellarEnvironment.WarningText = TEXT("VESSEL LOST");
+		return;
+	}
+
+	const UWorld* World = GetWorld();
+	const UStarSystemSubsystem* StarSystem = World ? World->GetSubsystem<UStarSystemSubsystem>() : nullptr;
+	if (!StarSystem || StarSystem->GetActiveSystemId().IsNone())
+	{
+		return;
+	}
+
+	const UGameInstance* GameInstance = World ? World->GetGameInstance() : nullptr;
+	const UStargameSessionSubsystem* Session = GameInstance ? GameInstance->GetSubsystem<UStargameSessionSubsystem>() : nullptr;
+	const double SimulationTimeSeconds = Session ? Session->GetSimulationClockSnapshot().AuthoritativeSimulationTimeSeconds : 0.0;
+	const FSimulationClockSnapshot Clock = Session
+		? Session->GetSimulationClockSnapshot()
+		: UOrbitRouteFrameQueryService::MakeDefaultClockSnapshot(StarSystem->GetActiveSystemId(), SimulationTimeSeconds);
+
+	const FStarSystemDefinition& SystemDefinition = StarSystem->GetActiveSystemDefinition();
+	const FBodyDefinition* NearestStar = nullptr;
+	double NearestDistanceCm = TNumericLimits<double>::Max();
+	for (const FBodyDefinition& Body : SystemDefinition.Bodies)
+	{
+		if (Body.BodyType != FName(TEXT("star")))
+		{
+			continue;
+		}
+
+		FFrameResolvedTransform StarTransform;
+		if (!UOrbitRouteFrameQueryService::ResolveEntityFrame(SystemDefinition, Body.BodyId, Clock, SimulationTimeSeconds, StarTransform))
+		{
+			continue;
+		}
+
+		const double DistanceCm = FVector::Distance(LogicalSystemPositionCm, StarTransform.PositionCm);
+		if (DistanceCm < NearestDistanceCm)
+		{
+			NearestDistanceCm = DistanceCm;
+			NearestStar = &Body;
+		}
+	}
+
+	if (!NearestStar)
+	{
+		return;
+	}
+
+	const double StarRadiusCm = FMath::Max(1.0, NearestStar->PhysicalReferenceRadiusCm > 0.0 ? NearestStar->PhysicalReferenceRadiusCm : NearestStar->VisualRadiusCm);
+	const double LuminosityScale = FMath::Sqrt(FMath::Clamp(EstimateStellarLuminosity(NearestStar->StellarClass), 0.05, 10000.0));
+	const double CautionRadiusCm = StarRadiusCm * StellarCautionRadiusMultiplier * LuminosityScale;
+	const double DamageRadiusCm = StarRadiusCm * StellarDamageRadiusMultiplier * LuminosityScale;
+	const double ExtremeRadiusCm = StarRadiusCm * StellarExtremeRadiusMultiplier * LuminosityScale;
+	const double KillRadiusCm = StarRadiusCm * StellarKillRadiusMultiplier * LuminosityScale;
+	const double SafeDistanceForFlux = FMath::Max(StarRadiusCm, NearestDistanceCm);
+	const double Flux01 = FMath::Clamp((DamageRadiusCm * DamageRadiusCm) / FMath::Max(1.0, SafeDistanceForFlux * SafeDistanceForFlux), 0.0, 1.0);
+
+	StellarEnvironment.StarId = NearestStar->BodyId;
+	StellarEnvironment.DistanceCm = NearestDistanceCm;
+	StellarEnvironment.DistanceInStarRadii = NearestDistanceCm / StarRadiusCm;
+	StellarEnvironment.Hazard01 = FMath::Clamp((CautionRadiusCm - NearestDistanceCm) / FMath::Max(1.0, CautionRadiusCm - KillRadiusCm), 0.0, 1.0);
+	StellarEnvironment.HeatLoad01 = Flux01;
+	StellarEnvironment.RadiationLoad01 = FMath::Clamp(Flux01 * LuminosityScale * 0.35, 0.0, 1.0);
+
+	if (NearestDistanceCm <= KillRadiusCm)
+	{
+		StellarEnvironment.HazardBand = EStellarHazardBand::Kill;
+		StellarEnvironment.WarningText = TEXT("FATAL STELLAR FLUX");
+		Shield01 = 0.0f;
+		Hull01 = 0.0f;
+	}
+	else if (NearestDistanceCm <= ExtremeRadiusCm)
+	{
+		StellarEnvironment.HazardBand = EStellarHazardBand::Extreme;
+		StellarEnvironment.WarningText = TEXT("EXTREME HEAT AND RADIATION");
+	}
+	else if (NearestDistanceCm <= DamageRadiusCm)
+	{
+		StellarEnvironment.HazardBand = EStellarHazardBand::Damage;
+		StellarEnvironment.WarningText = TEXT("STELLAR RADIATION DAMAGE");
+	}
+	else if (NearestDistanceCm <= CautionRadiusCm)
+	{
+		StellarEnvironment.HazardBand = EStellarHazardBand::Caution;
+		StellarEnvironment.WarningText = TEXT("STELLAR RADIATION CAUTION");
+	}
+	else
+	{
+		StellarEnvironment.HazardBand = EStellarHazardBand::Safe;
+		StellarEnvironment.WarningText = TEXT("");
+	}
+
+	if (StellarEnvironment.HazardBand == EStellarHazardBand::Extreme && FlightModeComponent && GetFlightMode() == EShipFlightMode::Supercruise)
+	{
+		FlightModeComponent->RequestManualDropout();
+	}
+
+	if (StellarEnvironment.HazardBand != EStellarHazardBand::Damage && StellarEnvironment.HazardBand != EStellarHazardBand::Extreme)
+	{
+		StellarEnvironmentDamageAccumulator = 0.0f;
+		return;
+	}
+
+	StellarEnvironmentDamageAccumulator += DeltaSeconds;
+	if (StellarEnvironmentDamageAccumulator < StellarDamageTickIntervalSeconds)
+	{
+		return;
+	}
+
+	const float DamageDeltaSeconds = StellarEnvironmentDamageAccumulator;
+	StellarEnvironmentDamageAccumulator = 0.0f;
+	const float DamageScale = FMath::Clamp(static_cast<float>(StellarEnvironment.Hazard01), 0.0f, 1.0f);
+	const float ShieldDamage = StellarShieldDamagePerSecond * (0.25f + DamageScale * DamageScale) * DamageDeltaSeconds;
+	const float HullDamage = StellarHullDamagePerSecond * DamageScale * DamageScale * DamageDeltaSeconds;
+	if (Shield01 > 0.0f)
+	{
+		Shield01 = FMath::Max(0.0f, Shield01 - ShieldDamage);
+	}
+	else
+	{
+		Hull01 = FMath::Max(0.0f, Hull01 - HullDamage);
 	}
 }
 

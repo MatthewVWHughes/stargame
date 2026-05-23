@@ -245,24 +245,30 @@ Validation expectations:
 
 These values are provisional and intentionally not astrophysical. They exist so the foundation can be tested against concrete numbers instead of vague scale bands. They belong in fixture data/profile assets, not scattered through actors.
 
+Hard authoring rule for the HD 219134 fixture:
+
+- `1 AU = 1,000,000,000 Unreal centimeters`.
+- Orbit radii are authored from known AU values through one conversion helper.
+- Stellar and planetary radii use the same AU-derived scale. Any later readability inflation must be explicit visual-profile tuning, not mixed raw numbers.
+
 | Field | Value | Notes |
 | --- | ---: | --- |
 | `NormalFlightMaxSpeedCmPerSec` | `24000` | Initial normal-flight cap. |
-| `LocalBubbleRadiusCm` | `5000000` | Active Unreal-space projection radius around the player. |
-| `OriginShiftThresholdCm` | `2000000` | Rebase the local bubble when the player exceeds this distance from bubble origin. |
+| `LocalBubbleRadiusCm` | `100000000` | Active Unreal-space projection radius around the player. |
+| `OriginShiftThresholdCm` | `40000000` | Rebase the local bubble when the player exceeds this distance from bubble origin. |
 | `StationApproachBubbleRadiusCm` | `500000` | Near-station local approach/debug radius. |
 | `DockingActivationRangeCm` | `15000` | Begin docking-request eligibility. |
 | `DockingCorridorLengthCm` | `25000` | Approach rail/corridor length for fixture ports. |
 | `DockingMaxApproachSpeedCmPerSec` | `2500` | Reject above this before assist takes over. |
 | `DockingRequiredAlignmentDegrees` | `10` | Initial strictness for manual approach. |
-| `SupercruiseMinSpeedCmPerSec` | `100000` | Above normal flight, below useful cruise. |
+| `SupercruiseMinSpeedCmPerSec` | `1000000` | 10 km/s near the stellar gravity lockout, before the distance curve opens up. |
 | `SupercruiseMaxSpeedCmPerSec` | `20000000` | Fast enough to cross the fixture long leg quickly. |
 | `SupercruiseTargetDropoutMinRadiusCm` | `250000` | Inner edge of desired target exit band. |
 | `SupercruiseTargetDropoutMaxRadiusCm` | `750000` | Outer edge of desired target exit band. |
-| `GravitySlowdownRadiusCm` | `2000000` | Speed ceiling starts falling inside this radius. |
-| `GravityLockoutRadiusCm` | `500000` | Supercruise engage is refused inside this radius; active supercruise may continue under slowdown. |
-| `GravityDropoutRadiusCm` | `350000` | Entering this during active supercruise forces dropout. |
-| `MapDistanceScaleCmPerUnit` | `1000000` | Display scale only. |
+| `GravitySlowdownRadiusCm` | authored per well | Speed ceiling starts falling inside this radius. |
+| `GravityLockoutRadiusCm` | authored per well | Supercruise engage is refused inside this radius; active supercruise may continue under slowdown. |
+| `GravityDropoutRadiusCm` | authored per well | Entering this during active supercruise forces dropout. |
+| `MapDistanceScaleCmPerUnit` | `1000000000` | Display scale only; one map unit is one authored AU. |
 | `MapMinIconScale` | `0.75` | Display scale only. |
 | `MapMaxIconScale` | `2.0` | Display scale only. |
 

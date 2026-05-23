@@ -4,6 +4,7 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/PostProcessComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
@@ -128,6 +129,7 @@ ASectorStarAnchorActor::ASectorStarAnchorActor()
 	StarBody = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StarBody"));
 	StarBody->SetupAttachment(SceneRoot);
 	ConfigureEffectMesh(StarBody, false);
+	StarBody->BoundsScale = 8.0f;
 
 	CoronaShell = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("CoronaShell"));
 	CoronaShell->SetupAttachment(SceneRoot);
@@ -142,6 +144,7 @@ ASectorStarAnchorActor::ASectorStarAnchorActor()
 	PhotosphereSurface->bUseAsyncCooking = true;
 	PhotosphereSurface->SetVisibility(true);
 	PhotosphereSurface->SetHiddenInGame(false);
+	PhotosphereSurface->BoundsScale = 8.0f;
 
 	CoronaSurface = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("CoronaSurface"));
 	CoronaSurface->SetupAttachment(SceneRoot);
@@ -152,6 +155,18 @@ ASectorStarAnchorActor::ASectorStarAnchorActor()
 	CoronaSurface->bUseAsyncCooking = true;
 	CoronaSurface->SetVisibility(false);
 	CoronaSurface->SetHiddenInGame(true);
+	CoronaSurface->BoundsScale = 8.0f;
+
+	OuterCoronaSurface = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("OuterCoronaSurface"));
+	OuterCoronaSurface->SetupAttachment(SceneRoot);
+	OuterCoronaSurface->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	OuterCoronaSurface->SetCastShadow(false);
+	OuterCoronaSurface->SetReceivesDecals(false);
+	OuterCoronaSurface->bAffectDistanceFieldLighting = false;
+	OuterCoronaSurface->bUseAsyncCooking = true;
+	OuterCoronaSurface->SetVisibility(false);
+	OuterCoronaSurface->SetHiddenInGame(true);
+	OuterCoronaSurface->BoundsScale = 8.0f;
 
 	ProminenceShell = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ProminenceShell"));
 	ProminenceShell->SetupAttachment(SceneRoot);
@@ -170,12 +185,14 @@ ASectorStarAnchorActor::ASectorStarAnchorActor()
 		Arc->bUseAsyncCooking = true;
 		Arc->SetVisibility(false);
 		Arc->SetHiddenInGame(true);
+		Arc->SetTranslucentSortPriority(10 + Index);
 		ProminenceArcs.Add(Arc);
 	}
 
 	StarHaloBillboard = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StarHaloBillboard"));
 	StarHaloBillboard->SetupAttachment(SceneRoot);
 	ConfigureEffectMesh(StarHaloBillboard, false);
+	StarHaloBillboard->SetTranslucentSortPriority(5);
 
 	auto CreateEjectionBillboard = [this](const TCHAR* Name, const FRotator& Rotation, const FVector& Location)
 	{
@@ -267,20 +284,22 @@ ASectorStarAnchorActor::ASectorStarAnchorActor()
 		}
 	}
 
-	static ConstructorHelpers::FObjectFinder<UMaterialInterface> CoronaMaterialFinder(TEXT("/Game/Materials/Space/M_StarCorona.M_StarCorona"));
-	static ConstructorHelpers::FObjectFinder<UTexture> PhotosphereMaskFinder(TEXT("/Game/Textures/Space/Star/T_StarPhotosphereMasks.T_StarPhotosphereMasks"));
-	if (UMaterialInterface* ProceduralSurfaceMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarPhotosphereProcedural.M_StarPhotosphereProcedural")))
-	{
-		StarSurfaceMaterial = ProceduralSurfaceMaterial;
-		StarBody->SetMaterial(0, StarSurfaceMaterial);
-		PhotosphereSurface->SetMaterial(0, StarSurfaceMaterial);
-	}
-	else if (UMaterialInterface* DynamicSurfaceMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarSurfaceDynamic.M_StarSurfaceDynamic")))
-	{
-		StarSurfaceMaterial = DynamicSurfaceMaterial;
-		StarBody->SetMaterial(0, StarSurfaceMaterial);
-		PhotosphereSurface->SetMaterial(0, StarSurfaceMaterial);
-	}
+		static ConstructorHelpers::FObjectFinder<UMaterialInterface> CoronaMaterialFinder(TEXT("/Game/Materials/Space/M_StarCorona.M_StarCorona"));
+		static ConstructorHelpers::FObjectFinder<UTexture> PhotosphereMaskFinder(TEXT("/Game/Textures/Space/Star/T_StarPhotosphereMasks.T_StarPhotosphereMasks"));
+		if (UMaterialInterface* CoreMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarCoreEmissive.M_StarCoreEmissive")))
+		{
+			StarFallbackBodyMaterial = CoreMaterial;
+			StarBody->SetMaterial(0, StarFallbackBodyMaterial);
+		}
+		if (UMaterialInterface* ProceduralSurfaceMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarPhotosphereProcedural.M_StarPhotosphereProcedural")))
+		{
+			StarSurfaceMaterial = ProceduralSurfaceMaterial;
+			PhotosphereSurface->SetMaterial(0, StarSurfaceMaterial);
+		}
+		else if (StarFallbackBodyMaterial)
+		{
+			StarBody->SetMaterial(0, StarFallbackBodyMaterial);
+		}
 	if (PhotosphereMaskFinder.Succeeded())
 	{
 		StarPhotosphereMaskTexture = PhotosphereMaskFinder.Object;
@@ -290,15 +309,25 @@ ASectorStarAnchorActor::ASectorStarAnchorActor()
 		StarCoronaMaterial = ProceduralCoronaMaterial;
 		CoronaShell->SetMaterial(0, StarCoronaMaterial);
 		CoronaSurface->SetMaterial(0, StarCoronaMaterial);
+		OuterCoronaSurface->SetMaterial(0, StarCoronaMaterial);
 	}
 	else if (CoronaMaterialFinder.Succeeded())
 	{
 		StarCoronaMaterial = CoronaMaterialFinder.Object;
 		CoronaShell->SetMaterial(0, StarCoronaMaterial);
 		CoronaSurface->SetMaterial(0, StarCoronaMaterial);
+		OuterCoronaSurface->SetMaterial(0, StarCoronaMaterial);
 	}
-	StarHaloMaterial = nullptr;
-	StarHaloBillboard->SetMaterial(0, nullptr);
+	if (UMaterialInterface* ProceduralHaloMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarHaloProcedural.M_StarHaloProcedural")))
+	{
+		StarHaloMaterial = ProceduralHaloMaterial;
+		StarHaloBillboard->SetMaterial(0, StarHaloMaterial);
+	}
+	else
+	{
+		StarHaloMaterial = nullptr;
+		StarHaloBillboard->SetMaterial(0, nullptr);
+	}
 	StarProminenceMaterial = nullptr;
 
 	StellarClassPresets.Add(EStargameStellarClass::O, MakePreset(
@@ -318,9 +347,9 @@ ASectorStarAnchorActor::ASectorStarAnchorActor()
 		FLinearColor(1.0f, 0.84f, 0.42f), FLinearColor(1.0f, 0.54f, 0.18f), FLinearColor(1.0f, 0.96f, 0.84f),
 		6500.0f, 1.35f, 4.0f, 10.5f, 2.6f, 3.8f, 10.5f, 140000.0f, 0.52f, 1.38f, 4.2f, 2.1f, 0.115f, 0.05f));
 	StellarClassPresets.Add(EStargameStellarClass::G, MakePreset(
-		FLinearColor(0.95f, 0.46f, 0.10f), FLinearColor(1.0f, 0.88f, 0.30f), FLinearColor(0.11f, 0.025f, 0.005f),
-		FLinearColor(0.95f, 0.34f, 0.06f), FLinearColor(1.0f, 0.82f, 0.28f), FLinearColor(1.0f, 0.92f, 0.72f),
-		5778.0f, 1.0f, 1.0f, 6.9f, 1.8f, 0.0f, 10.5f, 120000.0f, 0.70f, 1.24f, 0.0f, 2.2f, 0.12f, 0.055f));
+		FLinearColor(1.0f, 0.68f, 0.24f), FLinearColor(1.0f, 0.94f, 0.56f), FLinearColor(0.055f, 0.018f, 0.006f),
+		FLinearColor(1.0f, 0.58f, 0.16f), FLinearColor(1.0f, 0.78f, 0.26f), FLinearColor(1.0f, 0.92f, 0.72f),
+		5778.0f, 1.0f, 1.0f, 9.6f, 2.2f, 0.0f, 13.0f, 120000.0f, 0.70f, 1.55f, 0.0f, 2.7f, 0.14f, 0.075f));
 	StellarClassPresets.Add(EStargameStellarClass::K, MakePreset(
 		FLinearColor(1.0f, 0.56f, 0.22f), FLinearColor(0.95f, 0.26f, 0.05f), FLinearColor(0.28f, 0.06f, 0.014f),
 		FLinearColor(1.0f, 0.48f, 0.12f), FLinearColor(0.95f, 0.20f, 0.035f), FLinearColor(1.0f, 0.72f, 0.46f),
@@ -392,6 +421,7 @@ void ASectorStarAnchorActor::PostEditChangeProperty(FPropertyChangedEvent& Prope
 		PropertyName == GET_MEMBER_NAME_CHECKED(ASectorStarAnchorActor, bShowProminences) ||
 		PropertyName == GET_MEMBER_NAME_CHECKED(ASectorStarAnchorActor, bShowEjections) ||
 		PropertyName == GET_MEMBER_NAME_CHECKED(ASectorStarAnchorActor, bShowClassLabel) ||
+		PropertyName == GET_MEMBER_NAME_CHECKED(ASectorStarAnchorActor, VisualLayerDebug) ||
 		PropertyName == GET_MEMBER_NAME_CHECKED(ASectorStarAnchorActor, PhotosphereLatitudeSegments) ||
 		PropertyName == GET_MEMBER_NAME_CHECKED(ASectorStarAnchorActor, PhotosphereLongitudeSegments) ||
 		PropertyName == GET_MEMBER_NAME_CHECKED(ASectorStarAnchorActor, PhotosphereRefreshInterval) ||
@@ -434,14 +464,20 @@ void ASectorStarAnchorActor::ApplyStellarClass(EStargameStellarClass InClass)
 		&& (GetWorld()->IsGameWorld() || GetWorld()->WorldType == EWorldType::PIE);
 
 	SurfaceMID = nullptr;
+	FallbackBodyMID = nullptr;
 	CoronaMID = nullptr;
+	OuterCoronaMID = nullptr;
 	HaloMID = nullptr;
 	ProminenceMID = nullptr;
 	EjectionMIDs.Reset();
 
-	if (StarSurfaceMaterial && StarBody)
+	if (StarFallbackBodyMaterial && StarBody)
 	{
-		StarBody->SetMaterial(0, StarSurfaceMaterial);
+		StarBody->SetMaterial(0, StarFallbackBodyMaterial);
+		if (bAllowDynamicMaterials)
+		{
+			FallbackBodyMID = StarBody->CreateDynamicMaterialInstance(0, StarFallbackBodyMaterial);
+		}
 	}
 	if (StarSurfaceMaterial && PhotosphereSurface)
 	{
@@ -461,6 +497,14 @@ void ASectorStarAnchorActor::ApplyStellarClass(EStargameStellarClass InClass)
 		if (bAllowDynamicMaterials)
 		{
 			CoronaMID = CoronaSurface->CreateDynamicMaterialInstance(0, StarCoronaMaterial);
+		}
+	}
+	if (StarCoronaMaterial && OuterCoronaSurface)
+	{
+		OuterCoronaSurface->SetMaterial(0, StarCoronaMaterial);
+		if (bAllowDynamicMaterials)
+		{
+			OuterCoronaMID = OuterCoronaSurface->CreateDynamicMaterialInstance(0, StarCoronaMaterial);
 		}
 	}
 	if (StarHaloMaterial && StarHaloBillboard)
@@ -541,18 +585,30 @@ void ASectorStarAnchorActor::ConfigureRuntimeStar(FName InStarId, double InPhoto
 	bApplyClassRadiusScale = false;
 	bShowClassLabel = false;
 	bUseAsAtmosphereSunLight = false;
+	bShowCorona = true;
+	bShowProminences = true;
 	if (UMaterialInterface* ProceduralSurfaceMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarPhotosphereProcedural.M_StarPhotosphereProcedural")))
 	{
 		StarSurfaceMaterial = ProceduralSurfaceMaterial;
+	}
+	if (UMaterialInterface* CoreMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarCoreEmissive.M_StarCoreEmissive")))
+	{
+		StarFallbackBodyMaterial = CoreMaterial;
 	}
 	if (UMaterialInterface* ProceduralCoronaMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarCoronaProcedural.M_StarCoronaProcedural")))
 	{
 		StarCoronaMaterial = ProceduralCoronaMaterial;
 	}
-	StarHaloMaterial = nullptr;
-	bShowHaloBillboard = false;
-	StarProminenceMaterial = nullptr;
-	bShowProminences = false;
+	if (UMaterialInterface* ProceduralHaloMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarHaloProcedural.M_StarHaloProcedural")))
+	{
+		StarHaloMaterial = ProceduralHaloMaterial;
+	}
+	if (UMaterialInterface* ProceduralProminenceMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/Space/M_StarProminence.M_StarProminence")))
+	{
+		StarProminenceMaterial = ProceduralProminenceMaterial;
+	}
+	bShowHaloBillboard = StarHaloMaterial != nullptr;
+	bShowProminences = StarProminenceMaterial != nullptr;
 	bShowEjections = false;
 	ApplyStellarClass(InClass);
 	if (StarLight)
@@ -566,6 +622,124 @@ void ASectorStarAnchorActor::ConfigureRuntimeStar(FName InStarId, double InPhoto
 		SetActorLabel(FString::Printf(TEXT("Star_%s"), *InStarId.ToString()));
 	}
 #endif
+}
+
+void ASectorStarAnchorActor::UpdateRuntimeVisualLOD(double ObserverDistanceCm, double RenderedDistanceCm)
+{
+	const double SafeDistanceCm = FMath::Max(1.0, ObserverDistanceCm);
+	const double AngularDiameterRadians = 2.0 * FMath::Atan(static_cast<double>(CurrentPhotosphereRadiusCm) / SafeDistanceCm);
+	const double Hysteresis = FMath::Clamp(static_cast<double>(LODHysteresisFraction), 0.0, 0.9);
+	const double MidEnter = FMath::Max(0.0001, static_cast<double>(MidLODAngularDiameterRadians));
+	const double NearEnter = FMath::Max(MidEnter, static_cast<double>(NearLODAngularDiameterRadians));
+	const double MidLeave = MidEnter * (1.0 - Hysteresis);
+	const double NearLeave = NearEnter * (1.0 - Hysteresis);
+
+	EStargameStarVisualLOD NewLOD = CurrentVisualLOD;
+	switch (CurrentVisualLOD)
+	{
+	case EStargameStarVisualLOD::Near:
+		NewLOD = AngularDiameterRadians < NearLeave ? EStargameStarVisualLOD::Mid : EStargameStarVisualLOD::Near;
+		break;
+	case EStargameStarVisualLOD::Mid:
+		if (AngularDiameterRadians >= NearEnter)
+		{
+			NewLOD = EStargameStarVisualLOD::Near;
+		}
+		else if (AngularDiameterRadians < MidLeave)
+		{
+			NewLOD = EStargameStarVisualLOD::Far;
+		}
+		break;
+	case EStargameStarVisualLOD::Far:
+	default:
+		NewLOD = AngularDiameterRadians >= MidEnter ? EStargameStarVisualLOD::Mid : EStargameStarVisualLOD::Far;
+		break;
+	}
+
+	if (NewLOD != CurrentVisualLOD)
+	{
+		CurrentVisualLOD = NewLOD;
+		ApplyVisualLOD();
+	}
+
+	LogRuntimeRenderState(ObserverDistanceCm, RenderedDistanceCm, GetActorScale3D().GetAbsMax());
+}
+
+void ASectorStarAnchorActor::LogRuntimeRenderState(double ObserverDistanceCm, double RenderedDistanceCm, double ProjectionVisualScale) const
+{
+	if (bHasLoggedRuntimeRenderState && LastLoggedRuntimeVisualLOD == CurrentVisualLOD)
+	{
+		return;
+	}
+
+	bHasLoggedRuntimeRenderState = true;
+	LastLoggedRuntimeVisualLOD = CurrentVisualLOD;
+
+	auto LODName = [](EStargameStarVisualLOD LOD)
+	{
+		switch (LOD)
+		{
+		case EStargameStarVisualLOD::Far:
+			return TEXT("Far");
+		case EStargameStarVisualLOD::Near:
+			return TEXT("Near");
+		case EStargameStarVisualLOD::Mid:
+		default:
+			return TEXT("Mid");
+		}
+	};
+
+	auto ComponentMaterialName = [](const UPrimitiveComponent* Component)
+	{
+		const UMaterialInterface* Material = Component ? Component->GetMaterial(0) : nullptr;
+		return Material ? Material->GetName() : FString(TEXT("None"));
+	};
+
+	auto ComponentVisibleState = [](const UPrimitiveComponent* Component)
+	{
+		return Component && Component->IsVisible() && !Component->bHiddenInGame ? TEXT("visible") : TEXT("hidden");
+	};
+
+	auto LayerModeName = [](EStargameStarVisualLayerDebug Mode)
+	{
+		switch (Mode)
+		{
+		case EStargameStarVisualLayerDebug::PhotosphereOnly: return TEXT("PhotosphereOnly");
+		case EStargameStarVisualLayerDebug::CoronaOnly: return TEXT("CoronaOnly");
+		case EStargameStarVisualLayerDebug::HaloOnly: return TEXT("HaloOnly");
+		case EStargameStarVisualLayerDebug::ProminencesOnly: return TEXT("ProminencesOnly");
+		default: return TEXT("FullStack");
+		}
+	};
+
+		int32 VisibleProminenceCount = 0;
+		for (const UProceduralMeshComponent* Arc : ProminenceArcs)
+		{
+			if (Arc && Arc->IsVisible() && !Arc->bHiddenInGame)
+			{
+				++VisibleProminenceCount;
+			}
+		}
+
+		UE_LOG(LogTemp, Display,
+			TEXT("StarRenderState Actor=%s Class=%s LOD=%s LayerMode=%s ObserverDistanceCm=%.0f RenderedDistanceCm=%.0f ProjectionScale=%.6f RadiusCm=%.0f StarBody=%s Material=%s Photosphere=%s Material=%s Corona=%s Material=%s Halo=%s Material=%s Prominences=%d"),
+			*GetName(),
+			*GetClass()->GetPathName(),
+			LODName(CurrentVisualLOD),
+			LayerModeName(VisualLayerDebug),
+		ObserverDistanceCm,
+		RenderedDistanceCm,
+		ProjectionVisualScale,
+		CurrentPhotosphereRadiusCm,
+		ComponentVisibleState(StarBody),
+			*ComponentMaterialName(StarBody),
+			ComponentVisibleState(PhotosphereSurface),
+			*ComponentMaterialName(PhotosphereSurface),
+			ComponentVisibleState(CoronaSurface),
+			*ComponentMaterialName(CoronaSurface),
+			ComponentVisibleState(StarHaloBillboard),
+			*ComponentMaterialName(StarHaloBillboard),
+			VisibleProminenceCount);
 }
 
 void ASectorStarAnchorActor::SetupPreviewInput()
@@ -604,8 +778,9 @@ void ASectorStarAnchorActor::ApplyPresetToComponents(const FStargameSectorStarVi
 
 	if (StarBody)
 	{
-		StarBody->SetVisibility(false);
-		StarBody->SetHiddenInGame(true);
+		const bool bVisibleBody = StarFallbackBodyMaterial != nullptr && StarSurfaceMaterial == nullptr;
+		StarBody->SetVisibility(bVisibleBody);
+		StarBody->SetHiddenInGame(!bVisibleBody);
 	}
 	if (PhotosphereSurface)
 	{
@@ -626,7 +801,15 @@ void ASectorStarAnchorActor::ApplyPresetToComponents(const FStargameSectorStarVi
 		const bool bVisibleCorona = bShowCorona && StarCoronaMaterial != nullptr;
 		CoronaSurface->SetVisibility(bVisibleCorona);
 		CoronaSurface->SetHiddenInGame(!bVisibleCorona);
-		RebuildCoronaSurface(PhotosphereRadiusCm * Preset.CoronaRadiusMultiplier);
+		RebuildCoronaSurface(CoronaSurface, PhotosphereRadiusCm * Preset.CoronaRadiusMultiplier);
+	}
+	if (OuterCoronaSurface)
+	{
+		OuterCoronaSurface->SetRelativeScale3D(FVector::OneVector);
+		const bool bVisibleOuterCorona = bShowCorona && StarCoronaMaterial != nullptr;
+		OuterCoronaSurface->SetVisibility(bVisibleOuterCorona);
+		OuterCoronaSurface->SetHiddenInGame(!bVisibleOuterCorona);
+		RebuildCoronaSurface(OuterCoronaSurface, PhotosphereRadiusCm * FMath::Max(Preset.CoronaRadiusMultiplier * 1.45f, Preset.EjectionRadiusMultiplier));
 	}
 	if (ProminenceShell)
 	{
@@ -670,35 +853,60 @@ void ASectorStarAnchorActor::ApplyPresetToComponents(const FStargameSectorStarVi
 		SetNamedColor(SurfaceMID, { TEXT("HotColor"), TEXT("hot_color") }, Preset.HotColor);
 		SetNamedColor(SurfaceMID, { TEXT("SpotColor"), TEXT("SunspotColor"), TEXT("sunspot_color") }, Preset.SpotColor);
 		SetNamedTexture(SurfaceMID, { TEXT("PhotosphereMasks"), TEXT("PhotosphereMask"), TEXT("photosphere_masks") }, StarPhotosphereMaskTexture);
-		SetNamedScalar(SurfaceMID, { TEXT("EmissionStrength"), TEXT("emission_strength") }, Preset.SurfaceEmission * EmissionScale);
-		SetNamedScalar(SurfaceMID, { TEXT("SurfaceBrightness"), TEXT("surface_brightness") }, 2.8f);
+			SetNamedScalar(SurfaceMID, { TEXT("EmissionStrength"), TEXT("emission_strength") }, Preset.SurfaceEmission * EmissionScale);
+			SetNamedScalar(SurfaceMID, { TEXT("SurfaceBrightness"), TEXT("surface_brightness") }, 1.05f);
+			SetNamedScalar(SurfaceMID, { TEXT("LimbBrightness"), TEXT("limb_brightness") }, 0.42f);
+			SetNamedScalar(SurfaceMID, { TEXT("FaculaStrength"), TEXT("facula_strength") }, 0.08f);
 		SetNamedScalar(SurfaceMID, { TEXT("ObjectRadius"), TEXT("object_radius") }, PhotosphereRadiusCm);
 		SetNamedScalar(SurfaceMID, { TEXT("TemperatureKelvin"), TEXT("temperature_kelvin") }, Preset.TemperatureKelvin);
-		SetNamedScalar(SurfaceMID, { TEXT("FlowSpeed"), TEXT("flow_speed") }, Preset.SurfaceFlowSpeed);
+			SetNamedScalar(SurfaceMID, { TEXT("FlowSpeed"), TEXT("flow_speed") }, Preset.SurfaceFlowSpeed * 2.2f);
 		SetNamedScalar(SurfaceMID, { TEXT("Activity"), TEXT("activity") }, Preset.Activity);
+	}
+	if (FallbackBodyMID)
+	{
+		SetNamedColor(FallbackBodyMID, { TEXT("CoreColor"), TEXT("core_color") }, Preset.CoreColor);
+		SetNamedColor(FallbackBodyMID, { TEXT("HotColor"), TEXT("hot_color") }, Preset.HotColor);
+		SetNamedColor(FallbackBodyMID, { TEXT("SpotColor"), TEXT("SunspotColor"), TEXT("sunspot_color") }, Preset.SpotColor);
+		SetNamedTexture(FallbackBodyMID, { TEXT("PhotosphereMasks"), TEXT("PhotosphereMask"), TEXT("photosphere_masks") }, StarPhotosphereMaskTexture);
+			SetNamedScalar(FallbackBodyMID, { TEXT("EmissionStrength"), TEXT("emission_strength") }, Preset.SurfaceEmission * EmissionScale);
+			SetNamedScalar(FallbackBodyMID, { TEXT("SurfaceBrightness"), TEXT("surface_brightness") }, 1.05f);
+		SetNamedScalar(FallbackBodyMID, { TEXT("TemperatureKelvin"), TEXT("temperature_kelvin") }, Preset.TemperatureKelvin);
+			SetNamedScalar(FallbackBodyMID, { TEXT("FlowSpeed"), TEXT("flow_speed") }, Preset.SurfaceFlowSpeed * 2.2f);
+		SetNamedScalar(FallbackBodyMID, { TEXT("Activity"), TEXT("activity") }, Preset.Activity);
 	}
 	if (CoronaMID)
 	{
 		SetNamedColor(CoronaMID, { TEXT("HaloColor"), TEXT("FlameColor"), TEXT("flame_color") }, Preset.HaloColor);
 		SetNamedColor(CoronaMID, { TEXT("FlareColor"), TEXT("TipColor"), TEXT("tip_color") }, Preset.FlareColor);
-		SetNamedScalar(CoronaMID, { TEXT("CoronaEmission"), TEXT("HaloEmission"), TEXT("emission_strength") }, Preset.CoronaEmission * EmissionScale);
+		SetNamedScalar(CoronaMID, { TEXT("CoronaEmission"), TEXT("HaloEmission"), TEXT("emission_strength") }, Preset.CoronaEmission * EmissionScale * 1.18f);
+		SetNamedScalar(CoronaMID, { TEXT("CoronaOpacity") }, 0.11f);
 		SetNamedScalar(CoronaMID, { TEXT("FlareEmission") }, Preset.FlareEmission * EmissionScale);
 		SetNamedScalar(CoronaMID, { TEXT("Activity"), TEXT("activity") }, Preset.Activity);
-		SetNamedScalar(CoronaMID, { TEXT("TurbulenceSpeed"), TEXT("NoiseSpeed"), TEXT("turbulence_speed"), TEXT("noise_speed") }, Preset.CoronaFlowSpeed);
+		SetNamedScalar(CoronaMID, { TEXT("FlowSpeed"), TEXT("flow_speed"), TEXT("TurbulenceSpeed"), TEXT("NoiseSpeed"), TEXT("turbulence_speed"), TEXT("noise_speed") }, Preset.CoronaFlowSpeed * 1.45f);
+	}
+	if (OuterCoronaMID)
+	{
+		SetNamedColor(OuterCoronaMID, { TEXT("HaloColor"), TEXT("FlameColor"), TEXT("flame_color") }, Preset.HaloColor * 0.72f);
+		SetNamedColor(OuterCoronaMID, { TEXT("FlareColor"), TEXT("TipColor"), TEXT("tip_color") }, Preset.FlareColor);
+		SetNamedScalar(OuterCoronaMID, { TEXT("CoronaEmission"), TEXT("HaloEmission"), TEXT("emission_strength") }, Preset.CoronaEmission * EmissionScale * 0.46f);
+		SetNamedScalar(OuterCoronaMID, { TEXT("CoronaOpacity") }, 0.032f);
+		SetNamedScalar(OuterCoronaMID, { TEXT("Activity"), TEXT("activity") }, FMath::Clamp(Preset.Activity * 1.18f, 0.0f, 1.0f));
+		SetNamedScalar(OuterCoronaMID, { TEXT("FlowSpeed"), TEXT("flow_speed"), TEXT("TurbulenceSpeed"), TEXT("NoiseSpeed"), TEXT("turbulence_speed"), TEXT("noise_speed") }, Preset.CoronaFlowSpeed * 0.72f);
 	}
 	if (HaloMID)
 	{
 		SetNamedColor(HaloMID, { TEXT("HaloColor"), TEXT("FlameColor"), TEXT("flame_color") }, Preset.HaloColor);
 		SetNamedColor(HaloMID, { TEXT("FlareColor"), TEXT("HotColor"), TEXT("hot_color"), TEXT("tip_color") }, Preset.FlareColor);
-		SetNamedScalar(HaloMID, { TEXT("HaloEmission"), TEXT("EmissionStrength"), TEXT("emission_strength") }, Preset.HaloEmission * EmissionScale);
-		SetNamedScalar(HaloMID, { TEXT("FlareEmission") }, Preset.FlareEmission * EmissionScale);
+		SetNamedScalar(HaloMID, { TEXT("HaloEmission"), TEXT("EmissionStrength"), TEXT("emission_strength") }, Preset.HaloEmission * EmissionScale * 0.22f);
+		SetNamedScalar(HaloMID, { TEXT("FlareEmission") }, FMath::Max(0.18f, Preset.FlareEmission) * EmissionScale);
 		SetNamedScalar(HaloMID, { TEXT("Activity"), TEXT("activity") }, Preset.Activity);
+		SetNamedScalar(HaloMID, { TEXT("FlowSpeed"), TEXT("flow_speed") }, Preset.CoronaFlowSpeed);
 	}
 	if (ProminenceMID)
 	{
 		SetNamedColor(ProminenceMID, { TEXT("FlareColor"), TEXT("BaseColor"), TEXT("base_color"), TEXT("flame_color") }, Preset.FlareColor);
 		SetNamedColor(ProminenceMID, { TEXT("TipColor"), TEXT("tip_color") }, Preset.HaloColor);
-		SetNamedScalar(ProminenceMID, { TEXT("FlareEmission"), TEXT("EmissionStrength"), TEXT("emission_strength") }, Preset.FlareEmission * EmissionScale);
+		SetNamedScalar(ProminenceMID, { TEXT("FlareEmission"), TEXT("EmissionStrength"), TEXT("emission_strength") }, FMath::Clamp(FMath::Max(0.28f, Preset.FlareEmission) * EmissionScale * 0.08f, 0.04f, 0.75f));
 		SetNamedScalar(ProminenceMID, { TEXT("Activity"), TEXT("activity") }, Preset.Activity);
 	}
 	for (int32 Index = 0; Index < ProminenceArcs.Num(); ++Index)
@@ -719,7 +927,7 @@ void ASectorStarAnchorActor::ApplyPresetToComponents(const FStargameSectorStarVi
 		}
 		SetNamedColor(ArcMID, { TEXT("FlareColor"), TEXT("BaseColor"), TEXT("base_color"), TEXT("flame_color") }, Preset.FlareColor);
 		SetNamedColor(ArcMID, { TEXT("TipColor"), TEXT("tip_color"), TEXT("HaloColor") }, Preset.HaloColor);
-		SetNamedScalar(ArcMID, { TEXT("FlareEmission"), TEXT("EmissionStrength"), TEXT("emission_strength") }, Preset.FlareEmission * FMath::Max(0.35f, EmissionScale) * (0.90f + 0.08f * Index));
+		SetNamedScalar(ArcMID, { TEXT("FlareEmission"), TEXT("EmissionStrength"), TEXT("emission_strength") }, FMath::Clamp(FMath::Max(0.28f, Preset.FlareEmission) * FMath::Max(0.35f, EmissionScale) * 0.14f * (0.90f + 0.08f * Index), 0.06f, 1.35f));
 		SetNamedScalar(ArcMID, { TEXT("Activity"), TEXT("activity") }, Preset.Activity);
 		SetNamedScalar(ArcMID, { TEXT("SeedOffset"), TEXT("seed_offset") }, static_cast<float>(Index) * 5.37f);
 	}
@@ -751,6 +959,90 @@ void ASectorStarAnchorActor::ApplyPresetToComponents(const FStargameSectorStarVi
 		ClassLabel->SetTextRenderColor(Preset.HaloColor.ToFColor(true));
 		ClassLabel->SetVisibility(bShowClassLabel);
 		ClassLabel->SetHiddenInGame(!bShowClassLabel);
+	}
+
+	ApplyVisualLOD();
+}
+
+void ASectorStarAnchorActor::ApplyVisualLOD()
+{
+	const float PhotosphereScale = CurrentPhotosphereRadiusCm / BasicSphereRadiusCm;
+	const float CoronaScale = (CurrentPhotosphereRadiusCm * CurrentVisualPreset.CoronaRadiusMultiplier) / BasicSphereRadiusCm;
+	const bool bDebugPhotosphereOnly = VisualLayerDebug == EStargameStarVisualLayerDebug::PhotosphereOnly;
+	const bool bDebugCoronaOnly = VisualLayerDebug == EStargameStarVisualLayerDebug::CoronaOnly;
+	const bool bDebugHaloOnly = VisualLayerDebug == EStargameStarVisualLayerDebug::HaloOnly;
+	const bool bDebugProminencesOnly = VisualLayerDebug == EStargameStarVisualLayerDebug::ProminencesOnly;
+	const bool bFullStack = VisualLayerDebug == EStargameStarVisualLayerDebug::FullStack;
+	const bool bAllowPhotosphere = bFullStack || bDebugPhotosphereOnly;
+	const bool bAllowCorona = bFullStack || bDebugCoronaOnly;
+	const bool bAllowHalo = bFullStack || bDebugHaloOnly;
+	const bool bAllowProminences = bFullStack || bDebugProminencesOnly;
+
+	if (StarBody)
+	{
+		StarBody->SetRelativeScale3D(FVector(PhotosphereScale * 0.985f));
+		const bool bVisibleBody = bAllowPhotosphere && StarFallbackBodyMaterial != nullptr && StarSurfaceMaterial == nullptr;
+		StarBody->SetVisibility(bVisibleBody);
+		StarBody->SetHiddenInGame(!bVisibleBody);
+	}
+	if (PhotosphereSurface)
+	{
+		const bool bVisiblePhotosphere = bAllowPhotosphere && StarSurfaceMaterial != nullptr;
+		PhotosphereSurface->SetVisibility(bVisiblePhotosphere);
+		PhotosphereSurface->SetHiddenInGame(!bVisiblePhotosphere);
+	}
+	if (CoronaShell)
+	{
+		CoronaShell->SetRelativeScale3D(FVector(CoronaScale));
+		CoronaShell->SetVisibility(false);
+		CoronaShell->SetHiddenInGame(true);
+	}
+	if (CoronaSurface)
+	{
+		const bool bVisibleCorona = bAllowCorona && bShowCorona && StarCoronaMaterial != nullptr && CurrentVisualLOD != EStargameStarVisualLOD::Far;
+		CoronaSurface->SetVisibility(bVisibleCorona);
+		CoronaSurface->SetHiddenInGame(!bVisibleCorona);
+	}
+	if (OuterCoronaSurface)
+	{
+		const bool bVisibleOuterCorona = bAllowCorona && bShowCorona && StarCoronaMaterial != nullptr && CurrentVisualLOD != EStargameStarVisualLOD::Far;
+		OuterCoronaSurface->SetVisibility(bVisibleOuterCorona);
+		OuterCoronaSurface->SetHiddenInGame(!bVisibleOuterCorona);
+	}
+	if (StarHaloBillboard)
+	{
+		const bool bVisibleHalo = bAllowHalo
+			&& bShowHaloBillboard
+			&& StarHaloMaterial != nullptr
+			&& (CurrentVisualLOD != EStargameStarVisualLOD::Near || bDebugHaloOnly);
+		StarHaloBillboard->SetVisibility(bVisibleHalo);
+		StarHaloBillboard->SetHiddenInGame(!bVisibleHalo);
+	}
+	for (int32 ArcIndex = 0; ArcIndex < ProminenceArcs.Num(); ++ArcIndex)
+	{
+		UProceduralMeshComponent* Arc = ProminenceArcs[ArcIndex];
+		if (!Arc)
+		{
+			continue;
+		}
+		const bool bVisibleProminence = bAllowProminences
+			&& bShowProminences
+			&& CurrentVisualLOD == EStargameStarVisualLOD::Near
+			&& ArcIndex < ProminenceArcCount
+			&& Arc->GetMaterial(0) != nullptr;
+		Arc->SetVisibility(bVisibleProminence);
+		Arc->SetHiddenInGame(!bVisibleProminence);
+	}
+	const TArray<UStaticMeshComponent*> Ejections = GetEjectionBillboards();
+	for (UStaticMeshComponent* Ejection : Ejections)
+	{
+		if (!Ejection)
+		{
+			continue;
+		}
+		const bool bVisibleEjection = bFullStack && bShowEjections && CurrentVisualLOD == EStargameStarVisualLOD::Near && Ejection->GetMaterial(0) != nullptr;
+		Ejection->SetVisibility(bVisibleEjection);
+		Ejection->SetHiddenInGame(!bVisibleEjection);
 	}
 }
 
@@ -803,6 +1095,10 @@ void ASectorStarAnchorActor::AnimateStarEffects(float DeltaSeconds)
 	{
 		CoronaSurface->AddLocalRotation(FRotator(0.0f, DeltaSeconds * CoronaYawDegreesPerSecond, DeltaSeconds * CoronaRollDegreesPerSecond));
 	}
+	if (OuterCoronaSurface && OuterCoronaSurface->IsVisible())
+	{
+		OuterCoronaSurface->AddLocalRotation(FRotator(0.0f, DeltaSeconds * CoronaYawDegreesPerSecond * 0.42f, DeltaSeconds * CoronaRollDegreesPerSecond * -0.65f));
+	}
 	if (ProminenceShell && ProminenceShell->IsVisible())
 	{
 		const float Pulse = 1.0f + 0.045f * FMath::Sin(StarVisualTime * 0.9f);
@@ -833,6 +1129,7 @@ void ASectorStarAnchorActor::AnimateStarEffects(float DeltaSeconds)
 
 	SetNamedScalar(SurfaceMID, { TEXT("RuntimeSeconds"), TEXT("runtime_seconds") }, StarVisualTime);
 	SetNamedScalar(CoronaMID, { TEXT("RuntimeSeconds"), TEXT("runtime_seconds") }, StarVisualTime);
+	SetNamedScalar(OuterCoronaMID, { TEXT("RuntimeSeconds"), TEXT("runtime_seconds") }, StarVisualTime);
 	SetNamedScalar(ProminenceMID, { TEXT("RuntimeSeconds"), TEXT("runtime_seconds") }, StarVisualTime);
 	for (UProceduralMeshComponent* Arc : ProminenceArcs)
 	{
@@ -909,13 +1206,17 @@ void ASectorStarAnchorActor::RebuildPhotosphereSurface(float PhotosphereRadiusCm
 	TArray<FVector> Normals;
 	TArray<FVector2D> UVs;
 	TArray<FProcMeshTangent> Tangents;
-	TArray<FColor> Colors;
+	TArray<FLinearColor> Colors;
 	Vertices.Reserve((LatitudeSegments + 1) * (LongitudeSegments + 1));
 	Normals.Reserve(Vertices.Max());
 	UVs.Reserve(Vertices.Max());
 	Tangents.Reserve(Vertices.Max());
 	Colors.Reserve(Vertices.Max());
 	Triangles.Reserve(LatitudeSegments * LongitudeSegments * 6);
+	double MinLuminance = TNumericLimits<double>::Max();
+	double MaxLuminance = 0.0;
+	double SumLuminance = 0.0;
+	int32 LuminanceSamples = 0;
 
 	for (int32 Lat = 0; Lat <= LatitudeSegments; ++Lat)
 	{
@@ -937,14 +1238,15 @@ void ASectorStarAnchorActor::RebuildPhotosphereSurface(float PhotosphereRadiusCm
 			const float Mid = SampleStarFbm(Normal * FMath::Max(1.0f, PhotosphereMidScale) + FVector(Time * 0.72f, Time * 0.39f, -Time * 0.51f));
 			const float SpotNoise = SampleStarFbm(Normal * 5.6f + FVector(Time * 0.11f, -Time * 0.17f, Time * 0.07f));
 			const float SpotDetail = SampleStarFbm(Normal * 13.0f + FVector(-Time * 0.21f, Time * 0.08f, 2.3f));
-			const float SpotMask = FMath::SmoothStep(0.58f, 0.72f, SpotNoise) * FMath::SmoothStep(0.32f, 0.66f, SpotDetail) * FMath::Clamp(Preset.Activity * 1.35f, 0.0f, 1.0f);
-			const float Filament = FMath::SmoothStep(0.44f, 0.80f, Fine) * FMath::SmoothStep(0.36f, 0.78f, Mid) * FMath::SmoothStep(0.30f, 0.74f, Broad);
-			const float MicroSpark = FMath::SmoothStep(0.58f, 0.86f, Micro) * (1.0f - SpotMask);
-			const float CoolCell = FMath::SmoothStep(0.035f, 0.26f, FMath::Abs(Fine - Mid));
+			const float SpotMask = FMath::SmoothStep(0.78f, 0.92f, SpotNoise) * FMath::SmoothStep(0.48f, 0.78f, SpotDetail) * FMath::Clamp(Preset.Activity * 1.1f, 0.0f, 1.0f);
+			const float Filament = FMath::SmoothStep(0.46f, 0.82f, Fine) * FMath::SmoothStep(0.38f, 0.78f, Mid) * FMath::SmoothStep(0.30f, 0.72f, Broad);
+			const float MicroSpark = FMath::SmoothStep(0.66f, 0.92f, Micro) * (1.0f - SpotMask);
+			const float CoolCell = FMath::SmoothStep(0.09f, 0.34f, FMath::Abs(Fine - Mid));
 			const int32 DynamicSpotCount = FMath::Clamp(PhotosphereDynamicSunspotCount, 0, 12);
 			const float SpotLifetime = FMath::Max(1.0f, PhotosphereSunspotLifetimeSeconds);
 			const float SpotSharpness = FMath::Clamp(PhotosphereSunspotAngularSize, 0.2f, 8.0f) * 0.014f;
 			float DynamicSpotMask = 0.0f;
+			float DynamicFaculaMask = 0.0f;
 			for (int32 SpotIndex = 0; SpotIndex < DynamicSpotCount; ++SpotIndex)
 			{
 				const float SpotOffset = static_cast<float>(SpotIndex) * 0.6180339f;
@@ -959,25 +1261,38 @@ void ASectorStarAnchorActor::RebuildPhotosphereSurface(float PhotosphereRadiusCm
 					.GetSafeNormal();
 				const float Dot = static_cast<float>(FVector::DotProduct(Normal, SpotDirection));
 				const float SpotBody = FMath::SmoothStep(1.0f - SpotSharpness * 1.8f, 1.0f - SpotSharpness * 0.22f, Dot);
+				const float SpotHalo = FMath::Clamp(
+					FMath::SmoothStep(1.0f - SpotSharpness * 5.2f, 1.0f - SpotSharpness * 1.45f, Dot) - SpotBody,
+					0.0f,
+					1.0f);
 				const float SpotInteriorNoise = SampleStarFbm(Normal * (22.0f + 6.0f * SpotIndex) + FVector(SpotSeed * 0.03f, SpotAge * 2.0f, SpotSeed * 0.07f));
 				DynamicSpotMask = FMath::Max(DynamicSpotMask, SpotBody * SpotFade * FMath::Lerp(0.55f, 1.0f, SpotInteriorNoise));
+				DynamicFaculaMask = FMath::Max(DynamicFaculaMask, SpotHalo * SpotFade * FMath::Lerp(0.35f, 1.0f, SpotInteriorNoise));
 			}
 			const float AnchoredSpotMask = FMath::Clamp(DynamicSpotMask * PhotosphereAnchoredSpotStrength, 0.0f, 1.0f);
-			const float Limb = FMath::Clamp(Normal.X * 0.5f + 0.5f, 0.0f, 1.0f);
-			const float LimbTone = FMath::Lerp(1.0f - FMath::Clamp(PhotosphereLimbDarkening, 0.0f, 1.0f), 1.05f, FMath::Pow(Limb, 0.32f));
-			FLinearColor Color = FMath::Lerp(Preset.CoreColor * 0.28f, Preset.CoreColor * 0.90f, FMath::SmoothStep(0.16f, 0.84f, Broad * 0.65f + Mid * 0.35f));
-			Color = FMath::Lerp(Color, Preset.HotColor * 0.92f, Filament * 0.55f);
-			Color = FMath::Lerp(Color, Preset.HotColor * 1.12f, MicroSpark * PhotosphereMicroSparkStrength);
-			Color = FMath::Lerp(Color, Preset.CoreColor * 0.13f, CoolCell * PhotosphereCoolCellStrength * (1.0f - Filament));
-			Color = FMath::Lerp(Color, Preset.SpotColor * 0.78f, FMath::Max(SpotMask * PhotosphereSunspotStrength, AnchoredSpotMask));
-			Color *= LimbTone;
+			const float Thermal = FMath::SmoothStep(0.12f, 0.90f, Broad * 0.48f + Mid * 0.34f + Fine * 0.18f);
+			FLinearColor Color = FMath::Lerp(Preset.CoreColor * 0.82f, Preset.HotColor * 1.05f, Thermal);
+			Color = FMath::Lerp(Color, Preset.HotColor * 1.18f, Filament * 0.42f);
+			Color = FMath::Lerp(Color, Preset.HotColor * 1.28f, MicroSpark * PhotosphereMicroSparkStrength * 0.65f);
+			Color = FMath::Lerp(Color, Preset.CoreColor * 0.58f, CoolCell * PhotosphereCoolCellStrength * 0.55f * (1.0f - Filament));
+			Color = FMath::Lerp(Color, Preset.HotColor * 1.32f, DynamicFaculaMask * 0.36f);
+			Color = FMath::Lerp(Color, Preset.SpotColor * 0.86f, FMath::Max(SpotMask * PhotosphereSunspotStrength * 0.65f, AnchoredSpotMask));
 			const float DisplacementScale = PhotosphereDisplacementCm / 54.0f;
-			const float Displacement = ((Broad - 0.5f) * 30.0f + (Mid - 0.5f) * 16.0f + (Fine - 0.5f) * 8.0f) * DisplacementScale;
+			const float Displacement = ((Broad - 0.5f) * 12.0f + (Mid - 0.5f) * 7.0f + (Fine - 0.5f) * 3.0f) * DisplacementScale;
 			Vertices.Add(Normal * (PhotosphereRadiusCm + Displacement));
 			Normals.Add(Normal);
 			UVs.Add(FVector2D(U, V));
 			Tangents.Add(FProcMeshTangent(Tangent, false));
-			Colors.Add(Color.ToFColor(false));
+			Colors.Add(FLinearColor(
+				FMath::Max(0.0f, Color.R),
+				FMath::Max(0.0f, Color.G),
+				FMath::Max(0.0f, Color.B),
+				1.0f));
+			const double Luminance = static_cast<double>(FMath::Max(0.0f, Color.R) * 0.2126f + FMath::Max(0.0f, Color.G) * 0.7152f + FMath::Max(0.0f, Color.B) * 0.0722f);
+			MinLuminance = FMath::Min(MinLuminance, Luminance);
+			MaxLuminance = FMath::Max(MaxLuminance, Luminance);
+			SumLuminance += Luminance;
+			++LuminanceSamples;
 		}
 	}
 
@@ -987,26 +1302,45 @@ void ASectorStarAnchorActor::RebuildPhotosphereSurface(float PhotosphereRadiusCm
 		{
 			const int32 A = Lat * (LongitudeSegments + 1) + Lon;
 			const int32 B = A + LongitudeSegments + 1;
+			Triangles.Add(A + 1);
 			Triangles.Add(A);
 			Triangles.Add(B);
-			Triangles.Add(A + 1);
+			Triangles.Add(B + 1);
 			Triangles.Add(A + 1);
 			Triangles.Add(B);
-			Triangles.Add(B + 1);
 		}
 	}
 
 	PhotosphereSurface->ClearAllMeshSections();
-	PhotosphereSurface->CreateMeshSection(0, Vertices, Triangles, Normals, UVs, Colors, Tangents, false);
-	if (StarSurfaceMaterial)
+	PhotosphereSurface->CreateMeshSection_LinearColor(0, Vertices, Triangles, Normals, UVs, Colors, Tangents, false, false);
+	if (!SurfaceMID && StarSurfaceMaterial && GetWorld() && (GetWorld()->IsGameWorld() || GetWorld()->WorldType == EWorldType::PIE))
+	{
+		SurfaceMID = PhotosphereSurface->CreateDynamicMaterialInstance(0, StarSurfaceMaterial);
+	}
+	if (SurfaceMID)
+	{
+		PhotosphereSurface->SetMaterial(0, SurfaceMID);
+	}
+	else if (StarSurfaceMaterial)
 	{
 		PhotosphereSurface->SetMaterial(0, StarSurfaceMaterial);
 	}
+	const double AverageLuminance = LuminanceSamples > 0 ? SumLuminance / static_cast<double>(LuminanceSamples) : 0.0;
+	UE_LOG(LogTemp, Display,
+		TEXT("StarPhotosphereBuild Actor=%s RadiusCm=%.0f Vertices=%d Triangles=%d LuminanceMin=%.4f LuminanceAvg=%.4f LuminanceMax=%.4f Material=%s"),
+		*GetName(),
+		PhotosphereRadiusCm,
+		Vertices.Num(),
+		Triangles.Num() / 3,
+		MinLuminance == TNumericLimits<double>::Max() ? 0.0 : MinLuminance,
+		AverageLuminance,
+		MaxLuminance,
+		StarSurfaceMaterial ? *StarSurfaceMaterial->GetName() : TEXT("None"));
 }
 
-void ASectorStarAnchorActor::RebuildCoronaSurface(float CoronaRadiusCm)
+void ASectorStarAnchorActor::RebuildCoronaSurface(UProceduralMeshComponent* TargetSurface, float CoronaRadiusCm)
 {
-	if (!CoronaSurface)
+	if (!TargetSurface)
 	{
 		return;
 	}
@@ -1053,20 +1387,29 @@ void ASectorStarAnchorActor::RebuildCoronaSurface(float CoronaRadiusCm)
 		{
 			const int32 A = Lat * (LongitudeSegments + 1) + Lon;
 			const int32 B = A + LongitudeSegments + 1;
+			Triangles.Add(A + 1);
 			Triangles.Add(A);
 			Triangles.Add(B);
-			Triangles.Add(A + 1);
+			Triangles.Add(B + 1);
 			Triangles.Add(A + 1);
 			Triangles.Add(B);
-			Triangles.Add(B + 1);
 		}
 	}
 
-	CoronaSurface->ClearAllMeshSections();
-	CoronaSurface->CreateMeshSection(0, Vertices, Triangles, Normals, UVs, Colors, Tangents, false);
-	if (StarCoronaMaterial)
+	TargetSurface->ClearAllMeshSections();
+	TargetSurface->CreateMeshSection(0, Vertices, Triangles, Normals, UVs, Colors, Tangents, false);
+	TObjectPtr<UMaterialInstanceDynamic>& TargetMID = TargetSurface == OuterCoronaSurface ? OuterCoronaMID : CoronaMID;
+	if (!TargetMID && StarCoronaMaterial && GetWorld() && (GetWorld()->IsGameWorld() || GetWorld()->WorldType == EWorldType::PIE))
 	{
-		CoronaSurface->SetMaterial(0, StarCoronaMaterial);
+		TargetMID = TargetSurface->CreateDynamicMaterialInstance(0, StarCoronaMaterial);
+	}
+	if (TargetMID)
+	{
+		TargetSurface->SetMaterial(0, TargetMID);
+	}
+	else if (StarCoronaMaterial)
+	{
+		TargetSurface->SetMaterial(0, StarCoronaMaterial);
 	}
 }
 
@@ -1109,16 +1452,30 @@ void ASectorStarAnchorActor::RebuildProminenceArcs(float PhotosphereRadiusCm, co
 
 	const bool bVisible = bShowProminences && StarProminenceMaterial != nullptr && Preset.Activity > 0.05f;
 	const int32 VisibleCount = bVisible ? FMath::Clamp(ProminenceArcCount, 0, ArcComponents.Num()) : 0;
-	constexpr int32 SegmentCount = 34;
+	constexpr int32 SegmentCount = 48;
 	const float SafeRadiusCm = FMath::Max(1.0f, FiniteOrDefault(PhotosphereRadiusCm, BasePhotosphereRadiusCm));
-	const float SafeHeight = FMath::Clamp(FiniteOrDefault(ProminenceArcHeight, 0.38f), 0.01f, 0.95f);
-	const float SafeWidth = FMath::Clamp(FiniteOrDefault(ProminenceArcWidth, 0.09f), 0.001f, 0.14f);
-	const float SafeSpanDegrees = FMath::Clamp(FiniteOrDefault(ProminenceArcSpanDegrees, 34.0f), 2.0f, 44.0f);
-	const float SafeCurl = FMath::Clamp(FiniteOrDefault(ProminenceArcCurl, 0.10f), 0.0f, 0.35f);
+	const float SafeHeight = FMath::Clamp(FiniteOrDefault(ProminenceArcHeight, 0.52f), 0.01f, 0.95f);
+	const float SafeWidth = FMath::Clamp(FiniteOrDefault(ProminenceArcWidth, 0.055f), 0.001f, 0.14f);
+	const float SafeSpanDegrees = FMath::Clamp(FiniteOrDefault(ProminenceArcSpanDegrees, 42.0f), 2.0f, 44.0f);
+	const float SafeCurl = FMath::Clamp(FiniteOrDefault(ProminenceArcCurl, 0.18f), 0.0f, 0.35f);
 	const float SafeSeed = FiniteOrDefault(ProminenceSeed, 11.0f);
 	const float SafeActivity = FMath::Clamp(FiniteOrDefault(Preset.Activity, 0.55f), 0.0f, 1.0f);
 	const float SafeTime = FiniteOrDefault(StarVisualTime, 0.0f);
-	FVector CameraVector = PreviewCamera ? PreviewCamera->GetRelativeLocation() : FVector::ZeroVector;
+	FVector CameraVector = FVector::ZeroVector;
+	if (const UWorld* World = GetWorld())
+	{
+		if (const APlayerController* PlayerController = World->GetFirstPlayerController())
+		{
+			if (const APlayerCameraManager* CameraManager = PlayerController->PlayerCameraManager)
+			{
+				CameraVector = CameraManager->GetCameraLocation() - GetActorLocation();
+			}
+		}
+	}
+	if (CameraVector.IsNearlyZero() && PreviewCamera)
+	{
+		CameraVector = PreviewCamera->GetComponentLocation() - GetActorLocation();
+	}
 	if (CameraVector.IsNearlyZero())
 	{
 		CameraVector = FVector(1.0f, 0.0f, 0.22f);
@@ -1247,7 +1604,7 @@ void ASectorStarAnchorActor::RebuildProminenceArcs(float PhotosphereRadiusCm, co
 		UMaterialInstanceDynamic* ArcMID = Arc->CreateDynamicMaterialInstance(0, StarProminenceMaterial);
 		SetNamedColor(ArcMID, { TEXT("FlareColor"), TEXT("BaseColor"), TEXT("base_color"), TEXT("flame_color") }, Preset.FlareColor);
 		SetNamedColor(ArcMID, { TEXT("TipColor"), TEXT("tip_color"), TEXT("HaloColor") }, Preset.HaloColor);
-		SetNamedScalar(ArcMID, { TEXT("FlareEmission"), TEXT("EmissionStrength"), TEXT("emission_strength") }, Preset.FlareEmission * FMath::Max(0.65f, VisualEmissionScale) * (1.05f + 0.12f * ArcIndex));
+		SetNamedScalar(ArcMID, { TEXT("FlareEmission"), TEXT("EmissionStrength"), TEXT("emission_strength") }, FMath::Clamp(FMath::Max(0.28f, Preset.FlareEmission) * FMath::Max(0.65f, VisualEmissionScale) * 0.14f * (1.05f + 0.12f * ArcIndex), 0.06f, 1.35f));
 		SetNamedScalar(ArcMID, { TEXT("Activity"), TEXT("activity") }, Preset.Activity);
 		SetNamedScalar(ArcMID, { TEXT("SeedOffset"), TEXT("seed_offset") }, static_cast<float>(ArcIndex) * 5.37f);
 		Arc->SetTranslucentSortPriority(10 + ArcIndex);

@@ -1,10 +1,13 @@
 #include "Core/StargamePlayerController.h"
 
 #include "Components/InputComponent.h"
+#include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Flight/SpaceFlightPawn.h"
 #include "HAL/IConsoleManager.h"
+#include "InputCoreTypes.h"
 #include "Runtime/StargameSessionSubsystem.h"
 #include "Blueprint/UserWidget.h"
+#include "UI/StargameBootMenuWidget.h"
 #include "UI/StargameCommsWidget.h"
 #include "UI/StargameFlightHUDWidget.h"
 #include "UI/StargamePauseMenuWidget.h"
@@ -41,6 +44,24 @@ namespace
 		Result.CommandId = CommandId;
 		Result.FailureReason = FailureReason;
 		return Result;
+	}
+
+	void RemoveBootMenuWidgets(APlayerController* PlayerController)
+	{
+		if (!PlayerController)
+		{
+			return;
+		}
+
+		TArray<UUserWidget*> BootMenus;
+		UWidgetBlueprintLibrary::GetAllWidgetsOfClass(PlayerController, BootMenus, UStargameBootMenuWidget::StaticClass(), false);
+		for (UUserWidget* Widget : BootMenus)
+		{
+			if (Widget)
+			{
+				Widget->RemoveFromParent();
+			}
+		}
 	}
 }
 
@@ -122,6 +143,7 @@ void AStargamePlayerController::SetupInputComponent()
 	InputComponent->BindAction(TEXT("ToggleSystemMap"), IE_Pressed, this, &AStargamePlayerController::ToggleSystemMap);
 	InputComponent->BindAction(TEXT("ToggleComms"), IE_Pressed, this, &AStargamePlayerController::ToggleComms);
 	InputComponent->BindAction(TEXT("TogglePauseMenu"), IE_Pressed, this, &AStargamePlayerController::TogglePauseMenu);
+	InputComponent->BindKey(EKeys::J, IE_Pressed, this, &AStargamePlayerController::RequestSupercruise);
 }
 
 void AStargamePlayerController::RecordDockedStationCommandResult(const FDockedStationCommandResult& Result)
@@ -148,6 +170,7 @@ void AStargamePlayerController::NewGame()
 
 	if (Result == EStartSessionResult::Success)
 	{
+		RemoveBootMenuWidgets(this);
 		FInputModeGameOnly InputMode;
 		SetInputMode(InputMode);
 		SetIgnoreLookInput(false);
@@ -175,6 +198,7 @@ void AStargamePlayerController::ContinueGame()
 
 	if (bLoaded)
 	{
+		RemoveBootMenuWidgets(this);
 		FInputModeGameOnly InputMode;
 		SetInputMode(InputMode);
 		SetIgnoreLookInput(false);
@@ -198,6 +222,19 @@ void AStargamePlayerController::SaveGame()
 		bSaved ? TEXT("accepted") : TEXT("rejected"),
 		*Session->GetLastAutosaveStatus(),
 		*Session->GetLastSessionError());
+}
+
+void AStargamePlayerController::RequestSupercruise()
+{
+	ASpaceFlightPawn* FlightPawn = Cast<ASpaceFlightPawn>(GetPawn());
+	if (!FlightPawn)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("RequestSupercruise ignored: possessed pawn is not a space flight pawn."));
+		return;
+	}
+
+	UE_LOG(LogTemp, Display, TEXT("RequestSupercruise key accepted by player controller."));
+	FlightPawn->RequestSupercruise();
 }
 
 void AStargamePlayerController::EnterStation()
